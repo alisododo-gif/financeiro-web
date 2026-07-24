@@ -42,7 +42,6 @@ CACHE_USUARIOS = {}
 
 def buscar_dados_usuario(telegram_id):
     """Busca id do usuário, todas as contas e todos os cartões cadastrados."""
-    # Garante conversão do telegram_id para inteiro (int8 no Supabase)
     try:
         telegram_id_int = int(telegram_id)
     except (ValueError, TypeError):
@@ -212,9 +211,9 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "⚠️ **Formato inválido!**\n\n"
             "Exemplos aceitos:\n"
-            "`50.00 Almoço #restaurante` (Pix)\n"
-            "`120.00 Mercado #casa debito` (Débito)\n"
-            "`250.00 Compras #casa cartao` (Crédito)",
+            "`50,00 Comida pix`\n"
+            "`50,00 Comida debito`\n"
+            "`50,00 Comida credito`",
             parse_mode="Markdown",
         )
         return
@@ -222,172 +221,211 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     valor_raw, descricao_bruta = match.groups()
 
     try:
-        valor = float(valor_raw.replace(",", "."))
+        valor = float(valor_raw.replace(".", "").replace(",", "."))
     except ValueError:
         await update.message.reply_text("❌ Valor numérico inválido.")
         return
 
     texto_lower = descricao_bruta.lower()
-    conta_id = lista_contas[0]["id"] if lista_contas else 1
 
-    # 4. Detecção de Tipo
-    e_credito = any(
-        kw in texto_lower for kw in ["cartao", "cartão", "credito", "crédito"]
-    )
+    # Identificação da Forma de Pagamento
+    e_credito = any(kw in texto_lower for kw in ["credito", "crédito", "cartao", "cartão"])
     e_debito = any(kw in texto_lower for kw in ["debito", "débito"])
+    forma_pagamento = "Cartão de Crédito" if e_credito else ("Cartão de Débito" if e_debito else "Pix")
 
     # Limpeza da descrição
-    palavras_para_remover = r"\b(cartao|cartão|credito|crédito|debito|débito)\b"
-    descricao_limpa = re.sub(
-        palavras_para_remover, "", descricao_bruta, flags=re.IGNORECASE
-    ).strip()
+    palavras_remover = r"\b(pix|debito|débito|credito|crédito|cartao|cartão)\b"
+    descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
 
     now = datetime.now()
     data_atual = now.strftime("%Y-%m-%d")
     mes_fatura_atual = now.strftime("%Y-%m")
 
-    # REGRA DO CRÉDITO COM BOTÕES MULTI-CARTÃO
+    # BASE DOS DADOS PARA CALLBACKS
+    dados_base = {
+        "u": usuario_id,
+        "v": valor,
+        "d": descricao_limpa,
+        "forma": forma_pagamento,
+        "dt": data_atual,
+        "mf": mes_fatura_atual,
+        "t": tags_final,
+    }
+
+    # ==========================================
+    # FLUXO 1: CRÉDITO -> USA A TABELA 'CARTOES'
+    # ==========================================
     if e_credito:
         if not lista_cartoes:
-            await update.message.reply_text(
-                "⚠️ **Nenhum cartão de crédito cadastrado!**"
-            )
+            await update.message.reply_text("⚠️ **Nenhum cartão de crédito cadastrado!**")
             return
 
-        # Se tiver APENAS 1 cartão: Salva direto
-        if len(lista_cartoes) == 1:
-            cartao_id = lista_cartoes[0]["id"]
+        # Pergunta primeiro: À vista ou Parcelado?
+        botoes = [
+            [
+                InlineKeyboardButton("💵 À Vista", callback_data=json.dumps({**dados_base, "tipo_c": "avista"})),
+                InlineKeyboardButton("📅 Parcelado", callback_data=json.dumps({**dados_base, "tipo_c": "parcelado"})),
+            ]
+        ]
+        await update.message.reply_text(
+            f"💳 **Pagamento no Crédito**\n\n"
+            f"📝 **Descrição:** {descricao_limpa}\n"
+            f"💸 **Valor:** R$ {valor:.2f}\n\n"
+            f"Como deseja registrar esse pagamento?",
+            reply_markup=InlineKeyboardMarkup(botoes),
+            parse_mode="Markdown",
+        )
+        return
+
+    # ==========================================
+    # FLUXO 2: PIX OU DÉBITO -> USA A TABELA 'CONTAS'
+    # ==========================================
+    else:
+        if not lista_contas:
+            await update.message.reply_text("⚠️ **Nenhuma conta bancária cadastrada!**")
+            return
+
+        # Se tiver MAIS DE 1 CONTA -> Exibe Botões de escolha de Conta
+        if len(lista_contas) > 1:
+            botoes = []
+            for c in lista_contas:
+                dados_cb = json.dumps({**dados_base, "cnt": c["id"], "tipo_action": "salvar_conta"})
+                botoes.append([InlineKeyboardButton(f"🏦 {c['nome_conta']}", callback_data=dados_cb)])
+
+            await update.message.reply_text(
+                f"🏦 **Selecione a conta utilizada:**\n\n"
+                f"📝 **Descrição:** {descricao_limpa}\n"
+                f"💸 **Valor:** R$ {valor:.2f}\n"
+                f"⚡ **Forma:** {forma_pagamento}",
+                reply_markup=InlineKeyboardMarkup(botoes),
+                parse_mode="Markdown",
+            )
+        # Se tiver APENAS 1 CONTA -> Salva Direto
+        else:
+            conta_id = lista_contas[0]["id"]
             payload = {
                 "usuario_id": usuario_id,
                 "conta_id": conta_id,
-                "cartao_id": cartao_id,
+                "cartao_id": None,
                 "descricao": descricao_limpa,
                 "valor": valor,
                 "tipo": "Despesa",
                 "categoria": "Outros",
-                "forma_pagamento": "Cartão de Crédito",
+                "forma_pagamento": forma_pagamento,
                 "data": data_atual,
                 "mes_fatura": mes_fatura_atual,
-                "pago": False,
+                "pago": True,
                 "tags": tags_final,
             }
             try:
                 supabase.table("movimentacoes").insert(payload).execute()
                 tag_str = f"\n🏷️ **Tags:** `{tags_final}`" if tags_final else ""
+                icone = "⚡" if forma_pagamento == "Pix" else "💳"
                 await update.message.reply_text(
                     f"✅ **Lançamento Registrado!**\n\n"
                     f"💸 **Valor:** R$ {valor:.2f}\n"
                     f"📝 **Descrição:** {descricao_limpa}\n"
-                    f"💳 **Forma:** Cartão de Crédito\n"
+                    f"{icone} **Forma:** {forma_pagamento}\n"
                     f"📅 **Data:** {data_atual}{tag_str}",
                     parse_mode="Markdown",
                 )
             except Exception as e:
                 await update.message.reply_text(f"⚠️ Erro ao salvar: `{e}`")
 
-        # Se tiver MAIS DE 1 cartão: Exibe os Botões Interativos
-        else:
-            botoes = []
-            for c in lista_cartoes:
-                dados_cb = json.dumps(
-                    {
-                        "u": usuario_id,
-                        "cnt": conta_id,
-                        "crt": c["id"],
-                        "v": valor,
-                        "d": descricao_limpa,
-                        "dt": data_atual,
-                        "mf": mes_fatura_atual,
-                        "t": tags_final,
-                    }
-                )
-                botoes.append(
-                    [
-                        InlineKeyboardButton(
-                            text=f"💳 {c['nome_cartao']}", callback_data=dados_cb
-                        )
-                    ]
-                )
 
-            teclado = InlineKeyboardMarkup(botoes)
-            await update.message.reply_text(
-                f"💳 **Selecione qual cartão você utilizou:**\n\n"
-                f"📝 **Descrição:** {descricao_limpa}\n"
-                f"💸 **Valor:** R$ {valor:.2f}",
-                reply_markup=teclado,
-                parse_mode="Markdown",
-            )
-
-    # DÉBITO OU PIX
-    else:
-        forma_pagamento = "Cartão de Débito" if e_debito else "Pix"
-        icone = "💳" if e_debito else "⚡"
-
-        payload = {
-            "usuario_id": usuario_id,
-            "conta_id": conta_id,
-            "cartao_id": None,
-            "descricao": descricao_limpa,
-            "valor": valor,
-            "tipo": "Despesa",
-            "categoria": "Outros",
-            "forma_pagamento": forma_pagamento,
-            "data": data_atual,
-            "mes_fatura": mes_fatura_atual,
-            "pago": True,
-            "tags": tags_final,
-        }
-        try:
-            supabase.table("movimentacoes").insert(payload).execute()
-            tag_str = f"\n🏷️ **Tags:** `{tags_final}`" if tags_final else ""
-            await update.message.reply_text(
-                f"✅ **Lançamento Registrado!**\n\n"
-                f"💸 **Valor:** R$ {valor:.2f}\n"
-                f"📝 **Descrição:** {descricao_limpa}\n"
-                f"{icone} **Forma:** {forma_pagamento}\n"
-                f"📅 **Data:** {data_atual}{tag_str}",
-                parse_mode="Markdown",
-            )
-        except Exception as e:
-            await update.message.reply_text(f"⚠️ Erro ao salvar: `{e}`")
-
-
-async def callback_cartao(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Callback acionado ao clicar no botão de escolha do cartão."""
+async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gerencia as seleções via botões (Contas, Cartões, À Vista / Parcelado)."""
     query = update.callback_query
     await query.answer()
 
     data = json.loads(query.data)
+    action = data.get("tipo_action")
+    tipo_credito = data.get("tipo_c")
 
-    payload = {
-        "usuario_id": data["u"],
-        "conta_id": data["cnt"],
-        "cartao_id": data["crt"],
-        "descricao": data["d"],
-        "valor": data["v"],
-        "tipo": "Despesa",
-        "categoria": "Outros",
-        "forma_pagamento": "Cartão de Crédito",
-        "data": data["dt"],
-        "mes_fatura": data["mf"],
-        "pago": False,
-        "tags": data["t"],
-    }
+    dados_usuario = buscar_dados_usuario(query.from_user.id)
+    lista_cartoes = dados_usuario["cartoes"] if dados_usuario else []
 
-    try:
-        supabase.table("movimentacoes").insert(payload).execute()
+    # TRATAMENTO DE CRÉDITO: Após escolher À vista / Parcelado, seleciona o CARTÃO
+    if tipo_credito:
+        if len(lista_cartoes) > 1:
+            botoes = []
+            for c in lista_cartoes:
+                data_proximo = {**data, "crt": c["id"], "tipo_action": "salvar_cartao", "tipo_c": None}
+                botoes.append([InlineKeyboardButton(f"💳 {c['nome_cartao']}", callback_data=json.dumps(data_proximo))])
 
-        tag_str = f"\n🏷️ **Tags:** `{data['t']}`" if data["t"] else ""
-        await query.edit_message_text(
-            f"✅ **Lançamento Registrado!**\n\n"
-            f"💸 **Valor:** R$ {data['v']:.2f}\n"
-            f"📝 **Descrição:** {data['d']}\n"
-            f"💳 **Forma:** Cartão de Crédito\n"
-            f"📅 **Data:** {data['dt']}{tag_str}",
-            parse_mode="Markdown",
-        )
-    except Exception as e:
-        await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: `{e}`")
+            await query.edit_message_text(
+                f"💳 **Selecione qual CARTÃO foi utilizado:**\n\n"
+                f"📝 **Descrição:** {data['d']}\n"
+                f"💸 **Valor:** R$ {data['v']:.2f}\n"
+                f"📌 **Opção:** {'À Vista' if tipo_credito == 'avista' else 'Parcelado'}",
+                reply_markup=InlineKeyboardMarkup(botoes),
+                parse_mode="Markdown",
+            )
+            return
+        else:
+            cartao_id = lista_cartoes[0]["id"] if lista_cartoes else None
+            data["crt"] = cartao_id
+            action = "salvar_cartao"
+
+    # SALVAMENTO 1: PIX / DÉBITO (USA CONTA_ID)
+    if action == "salvar_conta":
+        payload = {
+            "usuario_id": data["u"],
+            "conta_id": data["cnt"],
+            "cartao_id": None,
+            "descricao": data["d"],
+            "valor": data["v"],
+            "tipo": "Despesa",
+            "categoria": "Outros",
+            "forma_pagamento": data["forma"],
+            "data": data["dt"],
+            "mes_fatura": data["mf"],
+            "pago": True,
+            "tags": data["t"],
+        }
+        try:
+            supabase.table("movimentacoes").insert(payload).execute()
+            tag_str = f"\n🏷️ **Tags:** `{data['t']}`" if data["t"] else ""
+            await query.edit_message_text(
+                f"✅ **Lançamento Registrado!**\n\n"
+                f"💸 **Valor:** R$ {data['v']:.2f}\n"
+                f"📝 **Descrição:** {data['d']}\n"
+                f"⚡ **Forma:** {data['forma']}\n"
+                f"📅 **Data:** {data['dt']}{tag_str}",
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: `{e}`")
+
+    # SALVAMENTO 2: CRÉDITO (USA CARTAO_ID)
+    elif action == "salvar_cartao":
+        payload = {
+            "usuario_id": data["u"],
+            "conta_id": None,
+            "cartao_id": data["crt"],
+            "descricao": data["d"],
+            "valor": data["v"],
+            "tipo": "Despesa",
+            "categoria": "Outros",
+            "forma_pagamento": "Cartão de Crédito",
+            "data": data["dt"],
+            "mes_fatura": data["mf"],
+            "pago": False,
+            "tags": data["t"],
+        }
+        try:
+            supabase.table("movimentacoes").insert(payload).execute()
+            tag_str = f"\n🏷️ **Tags:** `{data['t']}`" if data["t"] else ""
+            await query.edit_message_text(
+                f"✅ **Lançamento no Crédito Registrado!**\n\n"
+                f"💸 **Valor:** R$ {data['v']:.2f}\n"
+                f"📝 **Descrição:** {data['d']}\n"
+                f"💳 **Forma:** Cartão de Crédito\n"
+                f"📅 **Data:** {data['dt']}{tag_str}",
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: `{e}`")
 
 
 def main():
@@ -400,6 +438,7 @@ def main():
         processar_e_enviar_alertas,
         time=time(hour=8, minute=0, second=0, tzinfo=fuso_brasilia),
     )
+    
     app.job_queue.run_daily(
         processar_e_enviar_alertas,
         time=time(hour=14, minute=0, second=0, tzinfo=fuso_brasilia),
@@ -410,7 +449,7 @@ def main():
     app.add_handler(
         MessageHandler(filters.TEXT & (~filters.COMMAND), registrar_gastos)
     )
-    app.add_handler(CallbackQueryHandler(callback_cartao))
+    app.add_handler(CallbackQueryHandler(callback_geral))
 
     app.run_polling()
 
