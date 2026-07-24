@@ -42,14 +42,20 @@ CACHE_USUARIOS = {}
 
 def buscar_dados_usuario(telegram_id):
     """Busca id do usuário, todas as contas e todos os cartões cadastrados."""
-    if telegram_id in CACHE_USUARIOS:
-        return CACHE_USUARIOS[telegram_id]
+    # Garante conversão do telegram_id para inteiro (int8 no Supabase)
+    try:
+        telegram_id_int = int(telegram_id)
+    except (ValueError, TypeError):
+        return None
+
+    if telegram_id_int in CACHE_USUARIOS:
+        return CACHE_USUARIOS[telegram_id_int]
 
     try:
         res_user = (
             supabase.table("usuarios")
             .select("id")
-            .eq("telegram_id", telegram_id)
+            .eq("telegram_id", telegram_id_int)
             .execute()
         )
 
@@ -78,7 +84,7 @@ def buscar_dados_usuario(telegram_id):
                 "cartoes": lista_cartoes,
             }
 
-            CACHE_USUARIOS[telegram_id] = dados
+            CACHE_USUARIOS[telegram_id_int] = dados
             return dados
 
     except Exception as e:
@@ -119,7 +125,7 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Processa o telefone testando explicitamente com e sem o 9º dígito."""
     contato = update.message.contact
     telefone_telegram = re.sub(r"\D", "", contato.phone_number)
-    telegram_id = update.effective_user.id
+    telegram_id = int(update.effective_user.id)
     nome_telegram = update.effective_user.first_name or "Usuário"
 
     if len(telefone_telegram) == 13 and telefone_telegram.startswith("55"):
@@ -145,8 +151,9 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 {"telegram_id": telegram_id}
             ).eq("id", usuario_id).execute()
 
-            if telegram_id in CACHE_USUARIOS:
-                del CACHE_USUARIOS[telegram_id]
+            # Limpa cache e pré-carrega os dados do usuário atualizados
+            CACHE_USUARIOS.pop(telegram_id, None)
+            buscar_dados_usuario(telegram_id)
 
             await update.message.reply_text(
                 f"✅ **Conta vinculada com sucesso!**\n\n"
@@ -282,7 +289,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             botoes = []
             for c in lista_cartoes:
-                # Prepara o payload temporário para o callback
                 dados_cb = json.dumps(
                     {
                         "u": usuario_id,
@@ -351,7 +357,6 @@ async def callback_cartao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    # Recupera os dados codificados do botão
     data = json.loads(query.data)
 
     payload = {
@@ -373,7 +378,6 @@ async def callback_cartao(update: Update, context: ContextTypes.DEFAULT_TYPE):
         supabase.table("movimentacoes").insert(payload).execute()
 
         tag_str = f"\n🏷️ **Tags:** `{data['t']}`" if data["t"] else ""
-        # Edita a mensagem removendo os botões e confirmando a gravação
         await query.edit_message_text(
             f"✅ **Lançamento Registrado!**\n\n"
             f"💸 **Valor:** R$ {data['v']:.2f}\n"
@@ -406,7 +410,6 @@ def main():
     app.add_handler(
         MessageHandler(filters.TEXT & (~filters.COMMAND), registrar_gastos)
     )
-    # Handler para capturar os cliques nos botões interativos
     app.add_handler(CallbackQueryHandler(callback_cartao))
 
     app.run_polling()
