@@ -1,0 +1,11 @@
+streamlit
+pandas
+openpyxl
+psycopg2-binary
+reportlab
+plotly
+requests
+python-telegram-bot[job-queue]
+supabase
+python-dotenv
+pytz
