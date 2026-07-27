@@ -420,7 +420,8 @@ def salvar_movimentacao_recorrente(
             
         sucesso = salvar_movimentacao(
             usuario_id=usuario_id, conta_id=conta_id, descricao=f"{descricao} (Recorrente)",
-            valor=valor, tipo=tipo, forma_pagamento=forma_pagamento,
+            valor=valor, # <--- AQUI: Envia o 'valor' original/cheio em todos os meses
+            tipo=tipo, forma_pagamento=forma_pagamento,
             data_str=data_recorrente_str, categoria=categoria, cartao_id=cartao_id,
             mes_fatura=mes_fatura_calc, tags=tags
         )

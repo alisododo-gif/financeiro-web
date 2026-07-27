@@ -676,7 +676,7 @@ elif opcao == "📊 Dashboard":
                             insights_gerados.append({
                                 "tipo": "success",
                                 "icone": "🏆",
-                                "titulo": f"Meta Alcanada!",
+                                "titulo": f"Meta Alcançada!",
                                 "texto": f"Parabéns! A meta **{nome_m}** atingiu **100%** do objetivo!"
                             })
                         elif pct_m >= 75:
@@ -914,10 +914,10 @@ elif opcao == "🎯 Metas de Economia":
                     if st.button("🗑️ Excluir", key=f"del_{m[0]}", use_container_width=True, type="secondary"):
                         if excluir_meta(st.session_state["usuario_id"], m[0]):
                             st.cache_data.clear()
-                            st.success(f"Meta '{m[1]}' excluída!")
+                            st.success(f"Meta '{m[1]}' excluída com sucesso!")
                             st.rerun()
                         else:
-                            st.error("Erro ao excluir a meta no banco.")
+                            st.error("Erro ao excluir a meta no banco de dados.")
                 
                 st.markdown("---")
                 
@@ -945,9 +945,9 @@ elif opcao == "🏦 Gerir Contas":
                     st.success(f"Conta '{nome_final}' cadastrada com sucesso!")
                     st.rerun()
                 else:
-                    st.error("Erro ao cadastrar conta.")
+                    st.error("Erro ao cadastrar conta. Tente novamente.")
             else:
-                st.error("Por favor, informe o nome da conta.")
+                st.error("Por favor, informe o nome da conta para continuar.")
 
     st.markdown("---")
     st.subheader("📋 Contas Cadastradas")
@@ -971,12 +971,12 @@ elif opcao == "🏦 Gerir Contas":
             with col_c3:
                 if st.button("Remover", key=f"del_c_{cid}"):
                     if excluir_conta(st.session_state["usuario_id"], cid):
-                        st.success("Conta removida.")
+                        st.success("Conta removida com sucesso!")
                         st.rerun()
                     else:
-                        st.error("Erro ao remover conta.")
+                        st.error("Erro ao remover a conta selecionada.")
     else:
-        st.info("Nenhuma conta cadastrada ainda.")
+        st.info("Nenhuma conta cadastrada até o momento.")
 
 # --- ABA 4: MOVIMENTAÇÕES ---
 elif opcao == "💸 Lançar Movimentações":
@@ -1160,7 +1160,7 @@ elif opcao == "💸 Lançar Movimentações":
                     st.success(f"Transação ({modalidade}) salva com sucesso!")
                     st.rerun()
                 else:
-                    st.error("Erro ao salvar a transação no banco de dados.")
+                    st.error("Erro ao salvar a transação no banco de dados. Tente novamente.")
 
     # --- SEÇÃO DE LANÇAMENTOS RECENTES ---
     st.markdown("---")
@@ -1297,7 +1297,7 @@ elif opcao == "📋 Extrato Detalhado":
 
         df["Valor"] = df["Valor"].apply(lambda v: fmt_moeda(v))
 
-        # Formata a data para o padrão brasileiro na telaz
+        # Formata a data para o padrão brasileiro na tela
         df["Data"] = pd.to_datetime(df["Data"]).dt.strftime('%d/%m/%Y')
 
         st.dataframe(df, width="stretch", hide_index=True)
@@ -1306,9 +1306,11 @@ elif opcao == "📋 Extrato Detalhado":
         st.write("#### 🛠️ Operações Avançadas")
         id_excluir = st.number_input("Deseja deletar algum lançamento? Digite o ID dele aqui:", min_value=0, step=1)
         if st.button("Excluir Lançamento") and id_excluir > 0:
-            excluir_movimentacao(st.session_state["usuario_id"], id_excluir)
-            st.success(f"Movimentação {id_excluir} excluída!")
-            st.rerun()
+            if excluir_movimentacao(st.session_state["usuario_id"], id_excluir):
+                st.success(f"Movimentação {id_excluir} excluída com sucesso!")
+                st.rerun()
+            else:
+                st.error("Não foi possível excluir a movimentação informada.")
     else:
         st.info("Nenhuma movimentação encontrada para o período filtrado.")
 
@@ -1321,9 +1323,11 @@ elif opcao == "⚙️ Configurações":
     
     n_limite = st.number_input("Definir novo teto de orçamento (R$):", value=float(limite_atual))
     if st.button("Atualizar Limite"):
-        definir_limite_orcamento(st.session_state["usuario_id"], n_limite)
-        st.success("Teto do orçamento updated com sucesso!")
-        st.rerun()
+        if definir_limite_orcamento(st.session_state["usuario_id"], n_limite):
+            st.success("Teto do orçamento atualizado com sucesso!")
+            st.rerun()
+        else:
+            st.error("Erro ao atualizar o teto do orçamento.")
         
     st.markdown("---")
     st.write("### 🔒 Alteração de Credenciais")
@@ -1337,7 +1341,7 @@ elif opcao == "⚙️ Configurações":
                 else:
                     st.error("Erro operacional ao atualizar senha.")
             else:
-                st.error("Digite uma senha válida.")
+                st.error("Digite uma senha válida antes de salvar.")
 
 # --- ABA: ORÇAMENTOS POR CATEGORIA ---
 elif opcao == "🎯 Orçamentos por Categoria":
@@ -1486,7 +1490,7 @@ elif opcao == "🎯 Orçamentos por Categoria":
                     )
                     st.rerun()
                 else:
-                    st.error("Erro ao salvar limite no banco de dados.")
+                    st.error("Erro ao salvar limite no banco de dados. Tente novamente.")
 
     # --- LADO DIREITO: ACOMPANHAMENTO, ALTERAÇÃO E EXCLUSÃO ---
     with col_vis:
@@ -1540,10 +1544,10 @@ elif opcao == "🎯 Orçamentos por Categoria":
                     if col_e1.button("💾 Salvar Alteração", key=f"btn_save_{cat_nome}"):
                         if salvar_orcamento_categoria(uid, cat_nome, novo_teto):
                             st.cache_data.clear()
-                            st.success(f"Limite de {cat_nome} atualizado!")
+                            st.success(f"Limite de {cat_nome} atualizado com sucesso!")
                             st.rerun()
                         else:
-                            st.error("Erro ao alterar limite.")
+                            st.error("Erro ao alterar o limite selecionado.")
 
                     # Botão de Excluir
                     if col_e2.button(
@@ -1553,10 +1557,11 @@ elif opcao == "🎯 Orçamentos por Categoria":
                     ):
                         if excluir_orcamento_categoria(uid, cat_nome):
                             st.cache_data.clear()
-                            st.success(f"Orçamento de {cat_nome} removido!")
+                            st.success(f"Orçamento de {cat_nome} removido com sucesso!")
                             st.rerun()
                         else:
-                            st.error("Erro ao excluir orçamento.")
+                            st.error("Erro ao excluir o orçamento selecionado.")
+
 # --- ABA: PRÓXIMOS VENCIMENTOS ---
 elif opcao == "📅 Próximos Vencimentos":
     st.title("📅 Próximos Vencimentos")
@@ -1653,10 +1658,10 @@ elif opcao == "📅 Próximos Vencimentos":
                         ):
                             if marcar_lancamento_como_pago(id_lanc):
                                 st.cache_data.clear()
-                                st.success("Lançamento baixado com sucesso!")
+                                st.success("Lançamento baixado e marcado como pago com sucesso!")
                                 st.rerun()
                             else:
-                                st.error("Erro ao registrar pagamento.")
+                                st.error("Erro ao registrar o pagamento do lançamento.")
 
                     with col_btn_del:
                         if st.button(
@@ -1666,10 +1671,10 @@ elif opcao == "📅 Próximos Vencimentos":
                         ):
                             if excluir_lancamento_pendente(id_lanc):
                                 st.cache_data.clear()
-                                st.warning("Lançamento removido!")
+                                st.warning("Lançamento removido com sucesso!")
                                 st.rerun()
                             else:
-                                st.error("Erro ao excluir lançamento.")
+                                st.error("Erro ao excluir o lançamento pendente.")
 
         # --- SEÇÃO 2: CONTAS JÁ PAGAS ---
         if not df_pagos.empty:
@@ -1700,7 +1705,7 @@ elif opcao == "📅 Próximos Vencimentos":
                                 st.warning("Pagamento estornado! Conta voltou para Pendentes.")
                                 st.rerun()
                             else:
-                                st.error("Erro ao desfazer pagamento.")                    
+                                st.error("Erro ao desfazer o pagamento do lançamento.")                    
 
 
 # --- ABA: CARTÕES & FATURAS ---
@@ -1716,7 +1721,7 @@ elif opcao == "💳 Cartões & Faturas":
     user_id = st.session_state.get("usuario_id")
     cartoes = listar_cartoes(user_id)
 
-# --- ABA 1: VISUALIZAR FATURAS ---
+    # --- ABA 1: VISUALIZAR FATURAS ---
     with tab_faturas:
         if cartoes:
             c1, c2, c3 = st.columns(3)
@@ -1762,6 +1767,8 @@ elif opcao == "💳 Cartões & Faturas":
                     if dar_baixa_fatura_completa(user_id, cartao_id_sel, fatura_ref):
                         st.success(f"Fatura {fatura_ref} marcada como paga com sucesso!")
                         st.rerun()
+                    else:
+                        st.error("Erro ao dar baixa na fatura completa.")
 
                 st.dataframe(
                     compras,
@@ -1898,4 +1905,4 @@ elif opcao == "💳 Cartões & Faturas":
                 else:
                     st.error("Erro ao excluir o cartão.")
         else:
-            st.info("Nenhum cartão para gerenciar.")
+            st.info("Nenhum cartão cadastrado para gerenciar no momento.")
