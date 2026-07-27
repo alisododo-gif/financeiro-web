@@ -49,7 +49,7 @@ def consultar_view(nome_view: str, filtrar_pago: bool = True):
 
 
 async def processar_e_enviar_alertas(param=None):
-    """Busca dados nas views (hoje, amanhã, vencidos e faturas de cartão) e envia mensagens."""
+    """Busca dados nas views (hoje, amanhã e faturas de cartão) e envia mensagens."""
     chat_id_solicitante = None
 
     if isinstance(param, int):
@@ -146,53 +146,7 @@ async def processar_e_enviar_alertas(param=None):
                 )
 
     # =========================================================
-    # 3. LEITURA E ENVIO DOS LANÇAMENTOS VENCIDOS
-    # =========================================================
-    boletos_vencidos = consultar_view("lancamentos_vencidos")
-
-    if not boletos_vencidos:
-        logging.info("Nenhum boleto VENCIDO.")
-
-    for boleto in boletos_vencidos:
-        telegram_id = boleto.get("telegram_id")
-        nome_usuario = boleto.get("usuario") or boleto.get("nome") or boleto.get("nome_usuario") or "Cliente"
-
-        if telegram_id:
-            descricao = boleto.get("descricao", "Sem descrição")
-            valor_formatado = formatar_moeda(boleto.get("valor", 0.0))
-            data_vencimento = boleto.get("data_vencimento", "Data não informada")
-
-            if "-" in str(data_vencimento):
-                try:
-                    data_obj = datetime.strptime(str(data_vencimento)[:10], "%Y-%m-%d")
-                    data_vencimento = data_obj.strftime("%d/%m/%Y")
-                except ValueError:
-                    pass
-
-            mensagem = (
-                f"Atenção, *{nome_usuario}*! ⚠️\n\n"
-                f"Identificamos que existe uma fatura pendente em aberto com a data de vencimento ultrapassada.\n\n"
-                f"*📆 Venceu em: {data_vencimento}*\n"
-                f"*📄 Descrição: {descricao}*\n"
-                f"*💰 Valor: R$ {valor_formatado}*\n\n"
-                f"Caso já tenha efetuado o pagamento, favor desconsiderar este aviso.\n\n"
-                f"*FinanceiroPro Web Agradece a Parceria 🫡*"
-            )
-
-            try:
-                await bot.send_message(
-                    chat_id=telegram_id, text=mensagem, parse_mode="Markdown"
-                )
-                logging.info(
-                    f"Aviso de VENCIDO enviado com sucesso para {nome_usuario} ({telegram_id})"
-                )
-            except Exception as e:
-                logging.error(
-                    f"Falha ao enviar mensagem de VENCIDO para {telegram_id}: {e}"
-                )
-
-    # =========================================================
-    # 4. LEITURA E ENVIO DAS FATURAS DE CARTÃO DE CRÉDITO VENCENDO HOJE
+    # 3. LEITURA E ENVIO DAS FATURAS DE CARTÃO DE CRÉDITO VENCENDO HOJE
     # =========================================================
     faturas_cartao = consultar_view("faturas_vencendo_hoje", filtrar_pago=False)
 
