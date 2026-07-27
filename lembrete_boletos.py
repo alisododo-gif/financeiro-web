@@ -24,12 +24,24 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 FUSO_BR = pytz.timezone("America/Sao_Paulo")
 
 
-def consultar_view(nome_view: str):
-    """Consulta os lançamentos não pagos diretamente da view do Supabase."""
+def formatar_moeda(valor) -> str:
+    """Auxiliar para formatar valores no padrão R$ 0.000,00."""
     try:
-        resposta = (
-            supabase.table(nome_view).select("*").eq("pago", False).execute()
-        )
+        valor_num = float(valor)
+        return f"{valor_num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (ValueError, TypeError):
+        return str(valor)
+
+
+def consultar_view(nome_view: str, filtrar_pago: bool = True):
+    """Consulta lançamentos na view informada. 
+    'filtrar_pago' deve ser False para views que não possuem a coluna 'pago' (ex: cartões).
+    """
+    try:
+        query = supabase.table(nome_view).select("*")
+        if filtrar_pago:
+            query = query.eq("pago", False)
+        resposta = query.execute()
         return resposta.data or []
     except Exception as e:
         logging.error(f"Erro ao consultar {nome_view}: {e}")
@@ -37,17 +49,11 @@ def consultar_view(nome_view: str):
 
 
 async def processar_e_enviar_alertas(param=None):
-    """Busca dados nas views (hoje e amanhã) e envia as mensagens formatadas.
-    
-    'param' pode ser um objeto Context (do job_queue/command handler)
-    ou um int (chat_id do solicitante).
-    """
+    """Busca dados nas views (hoje, amanhã, vencidos e faturas de cartão) e envia mensagens."""
     chat_id_solicitante = None
 
-    # Se for um inteiro direto, é o chat_id do teste
     if isinstance(param, int):
         chat_id_solicitante = param
-    # Se veio de um Handler do Telegram e possui 'effective_chat'
     elif hasattr(param, "effective_chat") and param.effective_chat:
         chat_id_solicitante = param.effective_chat.id
 
@@ -73,17 +79,11 @@ async def processar_e_enviar_alertas(param=None):
 
     for boleto in boletos_hoje:
         telegram_id = boleto.get("telegram_id")
-        nome_usuario = boleto.get("nome") or boleto.get("nome_usuario") or "Cliente"
+        nome_usuario = boleto.get("usuario") or boleto.get("nome") or boleto.get("nome_usuario") or "Cliente"
 
         if telegram_id:
             descricao = boleto.get("descricao", "Sem descrição")
-            valor = boleto.get("valor", 0.0)
-
-            try:
-                valor_num = float(valor)
-                valor_formatado = f"{valor_num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            except (ValueError, TypeError):
-                valor_formatado = str(valor)
+            valor_formatado = formatar_moeda(boleto.get("valor", 0.0))
 
             mensagem = (
                 f"Olá! *{nome_usuario}* Espero que esteja tendo um ótimo dia. 😊\n\n"
@@ -117,17 +117,11 @@ async def processar_e_enviar_alertas(param=None):
 
     for boleto in boletos_amanha:
         telegram_id = boleto.get("telegram_id")
-        nome_usuario = boleto.get("nome") or boleto.get("nome_usuario") or "Cliente"
+        nome_usuario = boleto.get("usuario") or boleto.get("nome") or boleto.get("nome_usuario") or "Cliente"
 
         if telegram_id:
             descricao = boleto.get("descricao", "Sem descrição")
-            valor = boleto.get("valor", 0.0)
-
-            try:
-                valor_num = float(valor)
-                valor_formatado = f"{valor_num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            except (ValueError, TypeError):
-                valor_formatado = str(valor)
+            valor_formatado = formatar_moeda(boleto.get("valor", 0.0))
 
             mensagem = (
                 f"Olá! *{nome_usuario}* Espero que esteja tendo um ótimo dia. 😊\n\n"
@@ -149,6 +143,87 @@ async def processar_e_enviar_alertas(param=None):
             except Exception as e:
                 logging.error(
                     f"Falha ao enviar mensagem de AMANHÃ para {telegram_id}: {e}"
+                )
+
+    # =========================================================
+    # 3. LEITURA E ENVIO DOS LANÇAMENTOS VENCIDOS
+    # =========================================================
+    boletos_vencidos = consultar_view("lancamentos_vencidos")
+
+    if not boletos_vencidos:
+        logging.info("Nenhum boleto VENCIDO.")
+
+    for boleto in boletos_vencidos:
+        telegram_id = boleto.get("telegram_id")
+        nome_usuario = boleto.get("usuario") or boleto.get("nome") or boleto.get("nome_usuario") or "Cliente"
+
+        if telegram_id:
+            descricao = boleto.get("descricao", "Sem descrição")
+            valor_formatado = formatar_moeda(boleto.get("valor", 0.0))
+            data_vencimento = boleto.get("data_vencimento", "Data não informada")
+
+            if "-" in str(data_vencimento):
+                try:
+                    data_obj = datetime.strptime(str(data_vencimento)[:10], "%Y-%m-%d")
+                    data_vencimento = data_obj.strftime("%d/%m/%Y")
+                except ValueError:
+                    pass
+
+            mensagem = (
+                f"Atenção, *{nome_usuario}*! ⚠️\n\n"
+                f"Identificamos que existe uma fatura pendente em aberto com a data de vencimento ultrapassada.\n\n"
+                f"*📆 Venceu em: {data_vencimento}*\n"
+                f"*📄 Descrição: {descricao}*\n"
+                f"*💰 Valor: R$ {valor_formatado}*\n\n"
+                f"Caso já tenha efetuado o pagamento, favor desconsiderar este aviso.\n\n"
+                f"*FinanceiroPro Web Agradece a Parceria 🫡*"
+            )
+
+            try:
+                await bot.send_message(
+                    chat_id=telegram_id, text=mensagem, parse_mode="Markdown"
+                )
+                logging.info(
+                    f"Aviso de VENCIDO enviado com sucesso para {nome_usuario} ({telegram_id})"
+                )
+            except Exception as e:
+                logging.error(
+                    f"Falha ao enviar mensagem de VENCIDO para {telegram_id}: {e}"
+                )
+
+    # =========================================================
+    # 4. LEITURA E ENVIO DAS FATURAS DE CARTÃO DE CRÉDITO VENCENDO HOJE
+    # =========================================================
+    faturas_cartao = consultar_view("faturas_vencendo_hoje", filtrar_pago=False)
+
+    if not faturas_cartao:
+        logging.info("Nenhuma fatura de cartão vencendo HOJE.")
+
+    for fatura in faturas_cartao:
+        telegram_id = fatura.get("telegram_id")
+        nome_usuario = fatura.get("usuario") or fatura.get("nome_usuario") or "Cliente"
+        nome_cartao = fatura.get("nome_cartao", "Cartão de Crédito")
+
+        if telegram_id:
+            mensagem = (
+                f"Olá! *{nome_usuario}* Espero que esteja tendo um ótimo dia. 😊\n\n"
+                f"💳 *Lembrete de Fatura de Cartão de Crédito*\n\n"
+                f"A fatura do seu cartão *{nome_cartao}* vence na data de hoje!\n\n"
+                f"*📆 Data de Vencimento: {hoje_str}*\n\n"
+                f"Não se esqueça de checar o aplicativo do cartão e efetuar o pagamento.\n\n"
+                f"*FinanceiroPro Web Agradece a Parceria 🫡*"
+            )
+
+            try:
+                await bot.send_message(
+                    chat_id=telegram_id, text=mensagem, parse_mode="Markdown"
+                )
+                logging.info(
+                    f"Aviso de Fatura enviado para {nome_usuario} ({telegram_id}) - Cartão: {nome_cartao}"
+                )
+            except Exception as e:
+                logging.error(
+                    f"Falha ao enviar aviso de Fatura para {telegram_id}: {e}"
                 )
 
 
