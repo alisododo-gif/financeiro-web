@@ -33,10 +33,14 @@ def formatar_moeda(valor) -> str:
         return str(valor)
 
 
+def extrair_nome_usuario(dados: dict) -> str:
+    """Extrai o nome do usuário tratando None ou valores vazios."""
+    nome = dados.get("usuario") or dados.get("nome_usuario") or dados.get("nome")
+    return nome if nome else "Cliente"
+
+
 def consultar_view(nome_view: str, filtrar_pago: bool = True):
-    """Consulta lançamentos na view informada. 
-    'filtrar_pago' deve ser False para views que não possuem a coluna 'pago' (ex: cartões).
-    """
+    """Consulta lançamentos na view informada."""
     try:
         query = supabase.table(nome_view).select("*")
         if filtrar_pago:
@@ -79,7 +83,7 @@ async def processar_e_enviar_alertas(param=None):
 
     for boleto in boletos_hoje:
         telegram_id = boleto.get("telegram_id")
-        nome_usuario = boleto.get("usuario") or boleto.get("nome") or boleto.get("nome_usuario") or "Cliente"
+        nome_usuario = extrair_nome_usuario(boleto)
 
         if telegram_id:
             descricao = boleto.get("descricao", "Sem descrição")
@@ -117,7 +121,7 @@ async def processar_e_enviar_alertas(param=None):
 
     for boleto in boletos_amanha:
         telegram_id = boleto.get("telegram_id")
-        nome_usuario = boleto.get("usuario") or boleto.get("nome") or boleto.get("nome_usuario") or "Cliente"
+        nome_usuario = extrair_nome_usuario(boleto)
 
         if telegram_id:
             descricao = boleto.get("descricao", "Sem descrição")
@@ -155,7 +159,7 @@ async def processar_e_enviar_alertas(param=None):
 
     for fatura in faturas_cartao:
         telegram_id = fatura.get("telegram_id")
-        nome_usuario = fatura.get("usuario") or fatura.get("nome_usuario") or "Cliente"
+        nome_usuario = extrair_nome_usuario(fatura)
         nome_cartao = fatura.get("nome_cartao", "Cartão de Crédito")
 
         if telegram_id:
