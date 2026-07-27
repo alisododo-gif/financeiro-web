@@ -24,24 +24,32 @@ def criar_tabelas_se_nao_existirem():
 # =====================================================================
 
 def _construir_query_data(url_base, mes, ano):
-    """Auxiliar para aplicar filtros de data direto na query do Supabase."""
+    """Auxiliar para aplicar filtros de data/fatura direto no Supabase."""
     if ano != "Todos":
         if mes != "Todos":
-            # Filtro por Mês e Ano específicos
-            ano_int = int(ano)
             mes_int = int(mes)
-            dt_inicio = f"{ano_int:04d}-{mes_int:02d}-01"
+            ano_int = int(ano)
             
-            # Trata a virada do ano para a data final
+            # Formato do mês de fatura esperado no banco: "MM/YYYY" (ex: "08/2026")
+            fatura_ref = f"{mes_int:02d}/{ano_int}"
+            
+            dt_inicio = f"{ano_int:04d}-{mes_int:02d}-01"
             if mes_int == 12:
                 dt_fim = f"{ano_int + 1:04d}-01-01"
             else:
                 dt_fim = f"{ano_int:04d}-{mes_int + 1:02d}-01"
-                
-            return f"{url_base}&data=gte.{dt_inicio}&data=lt.{dt_fim}"
+            
+            # Filtra registros onde:
+            # - Forma de pagamento NÃO é cartão E a data cai no mês atual
+            # OU
+            # - Forma de pagamento É cartão E o mes_fatura é igual ao mês selecionado
+            filtro_or = f"or=(and(forma_pagamento.neq.Cartão de Crédito,data.gte.{dt_inicio},data.lt.{dt_fim}),and(forma_pagamento.eq.Cartão de Crédito,mes_fatura.eq.{fatura_ref}))"
+            
+            return f"{url_base}&{filtro_or}"
         else:
-            # Filtro por Ano completo
+            # Filtro por ano completo
             return f"{url_base}&data=gte.{ano}-01-01&data=lt.{int(ano)+1}-01-01"
+            
     return url_base
 
 
