@@ -34,9 +34,25 @@ def formatar_moeda(valor) -> str:
 
 
 def extrair_nome_usuario(dados: dict) -> str:
-    """Extrai o nome do usuário tratando None ou valores vazios."""
+    """Extrai o nome do usuário das views ou busca na tabela usuarios pelo usuario_id."""
+    # 1. Tenta pegar do próprio resultado da view
     nome = dados.get("usuario") or dados.get("nome_usuario") or dados.get("nome")
-    return nome if nome else "Cliente"
+    if nome:
+        return nome
+
+    # 2. Se a view só trouxe o usuario_id, busca o nome diretamente no Supabase
+    usuario_id = dados.get("usuario_id")
+    if usuario_id:
+        try:
+            res = supabase.table("usuarios").select("usuario").eq("id", usuario_id).execute()
+            if res.data and len(res.data) > 0:
+                nome_db = res.data[0].get("usuario")
+                if nome_db:
+                    return nome_db
+        except Exception as e:
+            logging.error(f"Erro ao buscar nome para usuario_id {usuario_id}: {e}")
+
+    return "Cliente"
 
 
 def consultar_view(nome_view: str, filtrar_pago: bool = True):
