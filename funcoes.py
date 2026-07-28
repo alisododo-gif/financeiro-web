@@ -161,10 +161,13 @@ def obter_limites_por_categoria(usuario_id):
 
 @st.cache_data(ttl=300)
 def listar_contas(usuario_id):
-    url = f"{BASE_URL}/contas?usuario_id=eq.{usuario_id}&select=id,nome,saldo"
-    res = requests.get(url, headers=HEADERS)
-    if res.status_code == 200 and res.json():
-        return [[c['id'], c['nome'], c.get('saldo', 0.0)] for c in res.json()]
+    try:
+        url = f"{BASE_URL}/contas?usuario_id=eq.{usuario_id}&select=id,nome,saldo"
+        res = requests.get(url, headers=HEADERS, timeout=5) # <--- Timeout de 5s adicionado
+        if res.status_code == 200 and res.json():
+            return [[c['id'], c['nome'], c.get('saldo', 0.0)] for c in res.json()]
+    except Exception as e:
+        print(f"Erro ao listar contas: {e}")
     return []
 
 
