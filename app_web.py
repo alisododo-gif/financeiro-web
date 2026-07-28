@@ -1905,4 +1905,4 @@ elif opcao == "💳 Cartões & Faturas":
                 else:
                     st.error("Erro ao excluir o cartão.")
         else:
-            st.info("Nenhum cartão cadastrado para gerenciar no momento.")
+            st.info("Nenhum cartão cadastrado para gerenciar no momento.")s
