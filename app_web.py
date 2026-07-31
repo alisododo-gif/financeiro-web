@@ -56,11 +56,7 @@ from funcoes import (
     atualizar_limite_cartao,
     excluir_cartao,
     dados_grafico_tags,
-    gerar_insights_financeiros,
-    atualizar_valor_a_receber,
-    cadastrar_valor_a_receber,
-    obter_valores_a_receber,
-    excluir_valor_a_receber,
+    gerar_insights_financeiros
 )
 
 from views import render_sidebar_footer
@@ -1911,96 +1907,3 @@ elif opcao == "💳 Cartões & Faturas":
                     st.error("Erro ao excluir o cartão.")
         else:
             st.info("Nenhum cartão cadastrado para gerenciar no momento.")
-
-# --- ABA / OPÇÃO VALORES A RECEBER ---
-elif opcao == "💰 Valores a Receber":
-    usuario_id = st.session_state.get("usuario_id")
-
-    st.write("### 💰 Valores a Receber")
-
-    sub_listar, sub_cadastrar = st.tabs(["📋 Lista de Recebíveis", "➕ Novo Lançamento"])
-
-    # --- LISTAR, EDITAR E EXCLUIR ---
-    with sub_listar:
-        recebiveis = obter_valores_a_receber(usuario_id)
-
-        if recebiveis:
-            total_pendente = sum(float(item.get("valor", 0)) for item in recebiveis)
-            st.metric("Total Acumulado a Receber", formatar_moeda_ptbr(total_pendente))
-            st.divider()
-
-            for item in recebiveis:
-                item_id = item["id"]
-                nome = item.get("nome", "Sem Nome")
-                valor = float(item.get("valor", 0.0))
-                descricao = item.get("descricao", "")
-                data_rec = item.get("data", "")
-
-                texto_valor = formatar_moeda_ptbr(valor)
-                
-                # Exibe a data no padrão BR no título do expander
-                data_exibicao = ""
-                if data_rec:
-                    try:
-                        dt_temp = datetime.strptime(data_rec, "%Y-%m-%d")
-                        data_exibicao = dt_temp.strftime("%d/%m/%Y")
-                    except Exception:
-                        data_exibicao = data_rec
-
-                label_expander = f"👤 {nome} — {texto_valor}"
-                if data_exibicao:
-                    label_expander += f" (Cobrança: {data_exibicao})"
-
-                with st.expander(label_expander):
-                    col_info, col_acoes = st.columns([2, 1])
-
-                    with col_info:
-                        novo_nome = st.text_input("Nome", value=nome, key=f"edit_nome_{item_id}")
-                        
-                        col_v, col_d = st.columns(2)
-                        with col_v:
-                            novo_valor = st.number_input("Valor (R$)", min_value=0.0, value=valor, step=10.0, key=f"edit_val_{item_id}")
-                        with col_d:
-                            try:
-                                dt_obj = datetime.strptime(data_rec, "%Y-%m-%d").date() if data_rec else datetime.now().date()
-                            except Exception:
-                                dt_obj = datetime.now().date()
-                            # Label alterado para Data da Cobrança
-                            nova_data = st.date_input("Data da Cobrança", value=dt_obj, format="DD/MM/YYYY", key=f"edit_data_{item_id}")
-
-                        nova_desc = st.text_area("Descrição", value=descricao, key=f"edit_desc_{item_id}")
-
-                    with col_acoes:
-                        st.write("")
-                        st.write("")
-                        if st.button("💾 Salvar Alterações", key=f"btn_salvar_rec_{item_id}", use_container_width=True):
-                            data_formatada = nova_data.strftime("%Y-%m-%d")
-                            if atualizar_valor_a_receber(usuario_id, item_id, novo_nome, novo_valor, nova_desc, data_formatada):
-                                st.success("Registro atualizado com sucesso!")
-                                st.rerun()
-
-                        if st.button("🗑️ Excluir / Quitar", key=f"btn_del_rec_{item_id}", type="secondary", use_container_width=True):
-                            if excluir_valor_a_receber(usuario_id, item_id):
-                                st.success(f"Registro de {nome} removido!")
-                                st.rerun()
-        else:
-            st.info("Nenhum valor a receber cadastrado no momento.")
-
-    # --- CADASTRAR NOVO ---
-    with sub_cadastrar:
-        st.write("#### ➕ Lançar Novo Valor a Receber")
-        with st.form("form_novo_recebivel", clear_on_submit=True):
-            nome = st.text_input("Nome (Pessoa / Empresa)")
-            valor = st.number_input("Valor a Receber (R$)", min_value=0.0, step=10.0)
-            descricao = st.text_area("Descrição / Observação (Ex: Venda, empréstimo, serviço)")
-            # Label alterado para Data da Cobrança
-            data_lancamento = st.date_input("Data da Cobrança", format="DD/MM/YYYY")
-
-            if st.form_submit_button("Salvar Lançamento", use_container_width=True):
-                if nome and valor > 0:
-                    data_str = data_lancamento.strftime("%Y-%m-%d")
-                    if cadastrar_valor_a_receber(usuario_id, nome, valor, descricao, data_str):
-                        st.success(f"Valor a receber de '{nome}' cadastrado com sucesso!")
-                        st.rerun()
-                else:
-                    st.error("Preencha o nome e insira um valor maior que R$ 0,00.")
