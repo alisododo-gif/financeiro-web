@@ -260,9 +260,54 @@ def dados_grafico_tags(usuario_id, mes_selecionado, ano_selecionado):
     return list(agrupado_tags.keys()), list(agrupado_tags.values())
 
 
+@st.cache_data(ttl=300)
+def obter_valores_a_receber(usuario_id):
+    url = f"{BASE_URL}/valores_a_receber?usuario_id=eq.{usuario_id}&select=*&order=created_at.desc"
+    res = requests.get(url, headers=HEADERS)
+    return res.json() if res.status_code == 200 else []
+
+
 # =====================================================================
 # --- FUNÇÕES DE ESCRITA, EDIÇÃO E EXCLUSÃO (INVALIDAM O CACHE) ---
 # =====================================================================
+
+def cadastrar_valor_a_receber(usuario_id, nome, valor, descricao, data_lancamento):
+    payload = {
+        "usuario_id": usuario_id,
+        "nome": str(nome),
+        "valor": float(valor),
+        "descricao": str(descricao),
+        "data": str(data_lancamento)
+    }
+    res = requests.post(f"{BASE_URL}/valores_a_receber", headers=HEADERS, json=payload)
+    if res.status_code in [200, 201]:
+        st.cache_data.clear()
+        return True
+    st.error(f"Erro Supabase ({res.status_code}): {res.text}")
+    return False
+
+def atualizar_valor_a_receber(usuario_id, id_registro, nome, valor, descricao):
+    url = f"{BASE_URL}/valores_a_receber?id=eq.{id_registro}&usuario_id=eq.{usuario_id}"
+    payload = {
+        "nome": str(nome),
+        "valor": float(valor),
+        "descricao": str(descricao)
+    }
+    res = requests.patch(url, headers=HEADERS, json=payload)
+    if res.status_code in [200, 204]:
+        st.cache_data.clear()
+        return True
+    st.error(f"Erro ao atualizar ({res.status_code}): {res.text}")
+    return False
+
+def excluir_valor_a_receber(usuario_id, id_registro):
+    url = f"{BASE_URL}/valores_a_receber?id=eq.{id_registro}&usuario_id=eq.{usuario_id}"
+    res = requests.delete(url, headers=HEADERS)
+    if res.status_code in [200, 204]:
+        st.cache_data.clear()
+        return True
+    st.error(f"Erro ao excluir ({res.status_code}): {res.text}")
+    return False
 
 def cadastrar_cartao(usuario_id, nome, limite, dia_fechamento, dia_vencimento):
     payload = {
