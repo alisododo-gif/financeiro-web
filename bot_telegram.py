@@ -109,7 +109,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if dados_usuario:
         await update.message.reply_text(
             "👋 Você já está cadastrado no FinanceiroPro!\n\n"
-            "Pode enviar seus lançamentos diretamente (ex: 45.90 Almoço #restaurante)."
+            "Pode enviar seus lançamentos diretamente (ex: 45.90 Almoço #restaurante ou 290.00 teste receber)."
         )
         return
 
@@ -158,7 +158,7 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 f"✅ Conta vinculada com sucesso!\n\n"
                 f"Bem-vindo(a), {nome_telegram}! Sua conta foi vinculada ao Telegram.\n\n"
-                f"Já pode enviar seus lançamentos (ex: 30.00 Almoço #restaurante)."
+                f"Já pode enviar seus lançamentos (ex: 30.00 Almoço #restaurante ou 290.00 teste receber)."
             )
         else:
             await update.message.reply_text(
@@ -205,6 +205,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "⚠️ Formato inválido!\n\n"
             "Exemplos aceitos:\n"
+            "• `290.00 teste receber`\n"
             "• `50,00 Comida pix`\n"
             "• `40 reais restaurante credito`\n"
             "• `15.50 Lanche debito`"
@@ -220,8 +221,45 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     texto_lower = descricao_bruta.lower()
+    now = datetime.now()
+    data_atual = now.strftime("%Y-%m-%d")
 
-    # Detecta meio de pagamento
+    # =========================================================
+    # FLUXO 0: CONTAS A RECEBER (Salva na tabela 'contas_receber')
+    # =========================================================
+    e_recebimento = any(kw in texto_lower for kw in ["receber", "ganho", "receita", "salario", "salário", "venda"])
+
+    if e_recebimento:
+        palavras_remover = r"\b(receber|ganho|receita|salario|salário|venda)\b"
+        descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
+
+        payload_receber = {
+            "usuario_id": usuario_id,
+            "descricao": descricao_limpa or "Recebimento",
+            "valor": valor,
+            "data_recebimento": data_atual,
+            "recebido": False,
+        }
+
+        try:
+            supabase.table("contas_receber").insert(payload_receber).execute()
+            tag_str = f"\n🏷️ Tags: {tags_final}" if tags_final else ""
+            await update.message.reply_text(
+                f"📥 **Conta a Receber Cadastrada!**\n\n"
+                f"📝 Descrição: {descricao_limpa or 'Recebimento'}\n"
+                f"💰 Valor: R$ {valor:.2f}\n"
+                f"📅 Data: {data_atual}\n"
+                f"📌 Status: Pendente{tag_str}"
+            )
+            return
+        except Exception as e:
+            logging.error(f"Erro ao salvar em contas_receber: {e}")
+            await update.message.reply_text(f"⚠️ Erro ao salvar no Supabase: {e}")
+            return
+
+    # =========================================================
+    # FLUXO DESPESAS (Mantém a lógica normal para movimentações)
+    # =========================================================
     e_credito = any(kw in texto_lower for kw in ["credito", "crédito", "cartao", "cartão"])
     e_debito = any(kw in texto_lower for kw in ["debito", "débito"])
     forma_pagamento = "Cartão de Crédito" if e_credito else ("Cartão de Débito" if e_debito else "Pix")
@@ -229,9 +267,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Limpa palavras-chave da descrição
     palavras_remover = r"\b(pix|debito|débito|credito|crédito|cartao|cartão)\b"
     descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
-
-    now = datetime.now()
-    data_atual = now.strftime("%Y-%m-%d")
 
     # Salva dados temporários
     context.user_data["temp_lancamento"] = {
