@@ -262,36 +262,42 @@ def dados_grafico_tags(usuario_id, mes_selecionado, ano_selecionado):
 
 @st.cache_data(ttl=300)
 def obter_valores_a_receber(usuario_id):
-    url = f"{BASE_URL}/valores_a_receber?usuario_id=eq.{usuario_id}&select=*&order=created_at.desc"
+    url = f"{BASE_URL}/valores_a_receber?usuario_id=eq.{usuario_id}&select=*&order=data.desc"
     res = requests.get(url, headers=HEADERS)
-    return res.json() if res.status_code == 200 else []
+    if res.status_code == 200:
+        return res.json()
+    return []
 
 
 # =====================================================================
 # --- FUNÇÕES DE ESCRITA, EDIÇÃO E EXCLUSÃO (INVALIDAM O CACHE) ---
 # =====================================================================
 
-def cadastrar_valor_a_receber(usuario_id, nome, valor, descricao, data_lancamento):
+def cadastrar_valor_a_receber(usuario_id, nome, valor, descricao, data_str, telegram_id=None, telefone=None):
     payload = {
         "usuario_id": usuario_id,
         "nome": str(nome),
         "valor": float(valor),
-        "descricao": str(descricao),
-        "data": str(data_lancamento)
+        "descricao": str(descricao) if descricao else None,
+        "data": str(data_str),
+        "telegram_id": int(telegram_id) if (telegram_id and str(telegram_id).isdigit()) else None,
+        "telefone": str(telefone) if telefone else None
     }
     res = requests.post(f"{BASE_URL}/valores_a_receber", headers=HEADERS, json=payload)
     if res.status_code in [200, 201]:
         st.cache_data.clear()
         return True
-    st.error(f"Erro Supabase ({res.status_code}): {res.text}")
+    st.error(f"Erro ao cadastrar ({res.status_code}): {res.text}")
     return False
 
-def atualizar_valor_a_receber(usuario_id, id_registro, nome, valor, descricao):
-    url = f"{BASE_URL}/valores_a_receber?id=eq.{id_registro}&usuario_id=eq.{usuario_id}"
+def atualizar_valor_a_receber(usuario_id, item_id, nome, valor, descricao, telegram_id=None, telefone=None):
+    url = f"{BASE_URL}/valores_a_receber?id=eq.{item_id}&usuario_id=eq.{usuario_id}"
     payload = {
         "nome": str(nome),
         "valor": float(valor),
-        "descricao": str(descricao)
+        "descricao": str(descricao) if descricao else None,
+        "telegram_id": int(telegram_id) if (telegram_id and str(telegram_id).isdigit()) else None,
+        "telefone": str(telefone) if telefone else None
     }
     res = requests.patch(url, headers=HEADERS, json=payload)
     if res.status_code in [200, 204]:
@@ -300,8 +306,8 @@ def atualizar_valor_a_receber(usuario_id, id_registro, nome, valor, descricao):
     st.error(f"Erro ao atualizar ({res.status_code}): {res.text}")
     return False
 
-def excluir_valor_a_receber(usuario_id, id_registro):
-    url = f"{BASE_URL}/valores_a_receber?id=eq.{id_registro}&usuario_id=eq.{usuario_id}"
+def excluir_valor_a_receber(usuario_id, item_id):
+    url = f"{BASE_URL}/valores_a_receber?id=eq.{item_id}&usuario_id=eq.{usuario_id}"
     res = requests.delete(url, headers=HEADERS)
     if res.status_code in [200, 204]:
         st.cache_data.clear()
