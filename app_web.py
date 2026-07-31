@@ -1937,9 +1937,19 @@ elif opcao == "💰 Valores a Receber":
                 data_rec = item.get("data", "")
 
                 texto_valor = formatar_moeda_ptbr(valor)
-                label_expander = f"👤 {nome} — {texto_valor}"
+                
+                # Exibe a data no padrão BR no título do expander
+                data_exibicao = ""
                 if data_rec:
-                    label_expander += f" ({data_rec})"
+                    try:
+                        dt_temp = datetime.strptime(data_rec, "%Y-%m-%d")
+                        data_exibicao = dt_temp.strftime("%d/%m/%Y")
+                    except Exception:
+                        data_exibicao = data_rec
+
+                label_expander = f"👤 {nome} — {texto_valor}"
+                if data_exibicao:
+                    label_expander += f" (Cobrança: {data_exibicao})"
 
                 with st.expander(label_expander):
                     col_info, col_acoes = st.columns([2, 1])
@@ -1955,8 +1965,8 @@ elif opcao == "💰 Valores a Receber":
                                 dt_obj = datetime.strptime(data_rec, "%Y-%m-%d").date() if data_rec else datetime.now().date()
                             except Exception:
                                 dt_obj = datetime.now().date()
-                            # Formatação da data para o padrão brasileiro na edição
-                            nova_data = st.date_input("Data", value=dt_obj, format="DD/MM/YYYY", key=f"edit_data_{item_id}")
+                            # Label alterado para Data da Cobrança
+                            nova_data = st.date_input("Data da Cobrança", value=dt_obj, format="DD/MM/YYYY", key=f"edit_data_{item_id}")
 
                         nova_desc = st.text_area("Descrição", value=descricao, key=f"edit_desc_{item_id}")
 
@@ -1983,8 +1993,8 @@ elif opcao == "💰 Valores a Receber":
             nome = st.text_input("Nome (Pessoa / Empresa)")
             valor = st.number_input("Valor a Receber (R$)", min_value=0.0, step=10.0)
             descricao = st.text_area("Descrição / Observação (Ex: Venda, empréstimo, serviço)")
-            # Formatação da data para o padrão brasileiro no novo cadastro
-            data_lancamento = st.date_input("Data do Ocorrido", format="DD/MM/YYYY")
+            # Label alterado para Data da Cobrança
+            data_lancamento = st.date_input("Data da Cobrança", format="DD/MM/YYYY")
 
             if st.form_submit_button("Salvar Lançamento", use_container_width=True):
                 if nome and valor > 0:
