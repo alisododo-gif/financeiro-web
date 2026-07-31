@@ -109,7 +109,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if dados_usuario:
         await update.message.reply_text(
             "👋 Você já está cadastrado no FinanceiroPro!\n\n"
-            "Pode enviar seus lançamentos diretamente (ex: 45.90 Almoço #restaurante ou 290.00 teste receber)."
+            "Pode enviar seus lançamentos diretamente (ex: 45.90 Almoço #restaurante ou 290.00 teste receber 15/08)."
         )
         return
 
@@ -158,7 +158,7 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 f"✅ Conta vinculada com sucesso!\n\n"
                 f"Bem-vindo(a), {nome_telegram}! Sua conta foi vinculada ao Telegram.\n\n"
-                f"Já pode enviar seus lançamentos (ex: 30.00 Almoço #restaurante ou 290.00 teste receber)."
+                f"Já pode enviar seus lançamentos (ex: 30.00 Almoço #restaurante ou 290.00 teste receber 15/08)."
             )
         else:
             await update.message.reply_text(
@@ -193,9 +193,30 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 1. Extrai hashtags
     tags_encontradas = re.findall(r"#(\w+)", texto)
     tags_final = " ".join([f"#{t.lower()}" for t in tags_encontradas]) if tags_encontradas else None
-
-    # 2. Limpa hashtags
     texto_sem_tags = re.sub(r"#\w+", "", texto).strip()
+
+    # 2. Extrai data personalizada (Ex: 15/08 ou 15/08/2026)
+    match_data = re.search(r"\b(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b", texto_sem_tags)
+    now = datetime.now()
+
+    if match_data:
+        data_str = match_data.group(1)
+        partes_data = data_str.split("/")
+        dia = partes_data[0].zfill(2)
+        mes = partes_data[1].zfill(2)
+
+        if len(partes_data) == 3:
+            ano = partes_data[2]
+            if len(ano) == 2:
+                ano = f"20{ano}"
+        else:
+            ano = str(now.year)
+
+        data_final = f"{ano}-{mes}-{dia}"
+        # Remove a data do texto para não atrapalhar a descrição
+        texto_sem_tags = re.sub(r"\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b", "", texto_sem_tags).strip()
+    else:
+        data_final = now.strftime("%Y-%m-%d")
 
     # 3. Extrai valor e descrição
     pattern = r"^(?:r\$\s*)?([\d.,]+)\s*(?:reais|reias)?\s+(.+)$"
@@ -205,7 +226,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "⚠️ Formato inválido!\n\n"
             "Exemplos aceitos:\n"
-            "• `290.00 teste receber`\n"
+            "• `290.00 teste receber 15/08`\n"
             "• `50,00 Comida pix`\n"
             "• `40 reais restaurante credito`\n"
             "• `15.50 Lanche debito`"
@@ -221,8 +242,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     texto_lower = descricao_bruta.lower()
-    now = datetime.now()
-    data_atual = now.strftime("%Y-%m-%d")
 
     # =========================================================
     # FLUXO 0: CONTAS A RECEBER (Salva na tabela 'contas_receber')
@@ -237,7 +256,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "usuario_id": usuario_id,
             "descricao": descricao_limpa or "Recebimento",
             "valor": valor,
-            "data_recebimento": data_atual,
+            "data_recebimento": data_final,
             "recebido": False,
         }
 
@@ -248,7 +267,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📥 **Conta a Receber Cadastrada!**\n\n"
                 f"📝 Descrição: {descricao_limpa or 'Recebimento'}\n"
                 f"💰 Valor: R$ {valor:.2f}\n"
-                f"📅 Data: {data_atual}\n"
+                f"📅 Data Recebimento: {data_final}\n"
                 f"📌 Status: Pendente{tag_str}"
             )
             return
@@ -274,7 +293,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "valor": valor,
         "descricao": descricao_limpa,
         "forma_pagamento": forma_pagamento,
-        "data": data_atual,
+        "data": data_final,
         "tags": tags_final,
     }
 
@@ -309,7 +328,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Nenhuma conta bancária cadastrada no seu banco!")
             return
 
-        mes_fatura_atual = now.strftime("%m/%Y")
+        mes_fatura_atual = datetime.strptime(data_final, "%Y-%m-%d").strftime("%m/%Y")
 
         if len(lista_contas) > 1:
             botoes = []
@@ -334,7 +353,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "tipo": "Despesa",
                 "categoria": "Outros",
                 "forma_pagamento": forma_pagamento,
-                "data": data_atual,
+                "data": data_final,
                 "mes_fatura": mes_fatura_atual,
                 "pago": True,
                 "tags": tags_final,
@@ -348,7 +367,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"💸 Valor: R$ {valor:.2f}\n"
                     f"📝 Descrição: {descricao_limpa}\n"
                     f"{icone} Forma: {forma_pagamento}\n"
-                    f"📅 Data: {data_atual}{tag_str}"
+                    f"📅 Data: {data_final}{tag_str}"
                 )
             except Exception as e:
                 await update.message.reply_text(f"⚠️ Erro ao salvar no Supabase: {e}")
@@ -415,7 +434,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 4. SALVAR PIX / DÉBITO
     if action.startswith("cnt_"):
         conta_id = int(action.replace("cnt_", ""))
-        now = datetime.now()
+        mes_fatura_calc = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%m/%Y")
         payload = {
             "usuario_id": dados_temp["usuario_id"],
             "conta_id": conta_id,
@@ -426,7 +445,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "categoria": "Outros",
             "forma_pagamento": dados_temp["forma_pagamento"],
             "data": dados_temp["data"],
-            "mes_fatura": now.strftime("%m/%Y"),
+            "mes_fatura": mes_fatura_calc,
             "pago": True,
             "tags": dados_temp["tags"],
         }
