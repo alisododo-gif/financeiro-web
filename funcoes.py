@@ -653,3 +653,99 @@ def gerar_insights_financeiros(usuario_id, mes_selecionado, ano_selecionado, mov
                 insights.append({"tipo": "error", "icone": "🚨", "titulo": "Alerta de Orçamento", "texto": f"Suas despesas já comprometeram **{pct_comprometido:.0f}%** da sua receita do período."})
 
     return insights
+
+# ==========================================
+# GESTÃO DE CONTAS A RECEBER
+# ==========================================
+
+@st.cache_data(ttl=60)
+def carregar_contas_a_receber(usuario_id):
+    """
+    Busca todas as receitas pendentes (pago = FALSE) do usuário.
+    """
+    url = f"{SUPABASE_URL}/rest/v1/movimentacoes?usuario_id=eq.{usuario_id}&tipo=eq.Receita&pago=eq.false&select=*&order=data.asc"
+    res = requests.get(url, headers=HEADERS)
+    return res.json() if res.status_code == 200 else []
+
+
+def dar_baixa_receita(movimentacao_id):
+    """
+    Marca a receita como totalmente recebida (pago = TRUE).
+    """
+    url = f"{SUPABASE_URL}/rest/v1/movimentacoes?id=eq.{movimentacao_id}"
+    payload = {"pago": True}
+    
+    res = requests.patch(url, headers=HEADERS, json=payload)
+    st.cache_data.clear()
+    return res.status_code == 200
+
+
+def salvar_conta_a_receber(usuario_id, descricao, valor, data_prevista, categoria=None, conta_id=None, forma_pag="Pix"):
+    """
+    Cadastra uma nova receita pendente de recebimento futuro (pago = FALSE).
+    """
+    url = f"{SUPABASE_URL}/rest/v1/movimentacoes"
+    payload = {
+        "usuario_id": usuario_id,
+        "descricao": descricao,
+        "valor": float(valor),
+        "tipo": "Receita",
+        "data": data_prevista.strftime('%Y-%m-%d') if hasattr(data_prevista, 'strftime') else str(data_prevista),
+        "categoria": categoria,
+        "conta_id": conta_id,
+        "forma_pag": forma_pag,
+        "pago": False
+    }
+    
+    res = requests.post(url, headers=HEADERS, json=payload)
+    st.cache_data.clear()
+    return res.status_code in [200, 201]
+
+
+def atualizar_conta_a_receber(movimentacao_id, nova_descricao, novo_valor, nova_data, nova_categoria=None):
+    """
+    Edita os dados de uma receita pendente (ex: alterar descrição, valor ou adiar vencimento).
+    """
+    url = f"{SUPABASE_URL}/rest/v1/movimentacoes?id=eq.{movimentacao_id}"
+    payload = {
+        "descricao": nova_descricao,
+        "valor": float(novo_valor),
+        "data": nova_data.strftime('%Y-%m-%d') if hasattr(nova_data, 'strftime') else str(nova_data),
+        "categoria": nova_categoria
+    }
+    res = requests.patch(url, headers=HEADERS, json=payload)
+    st.cache_data.clear()
+    return res.status_code == 200
+
+
+def receber_pagamento_parcial(movimentacao_id, valor_pago, valor_total_atual, descricao_atual, usuario_id, conta_id=None, categoria=None):
+    """
+    Lida com recebimentos parciais (abatimentos):
+    1. Registra a parte PAGA como entrada/receita confirmada de hoje (pago = TRUE).
+    2. Atualiza o saldo pendente restante na movimentação original (pago = FALSE).
+    """
+    valor_restante = float(valor_total_atual) - float(valor_pago)
+    
+    # 1. Registra no caixa o dinheiro que efetivamente entrou hoje
+    salvar_movimentacao(
+        user_id=usuario_id,
+        descricao=f"{descricao_atual} (Recebimento Parcial)",
+        valor=float(valor_pago),
+        tipo="Receita",
+        data_mov=date.today(),
+        categoria_id=categoria,
+        conta_id=conta_id,
+        pago=True
+    )
+    
+    # 2. Se sobrou saldo a receber, atualiza o valor da conta pendente
+    if valor_restante > 0:
+        url = f"{SUPABASE_URL}/rest/v1/movimentacoes?id=eq.{movimentacao_id}"
+        payload = {"valor": valor_restante}
+        requests.patch(url, headers=HEADERS, json=payload)
+    else:
+        # Se pagou tudo ou a mais, liquida totalmente a pendência original
+        dar_baixa_receita(movimentacao_id)
+        
+    st.cache_data.clear()
+    return True
