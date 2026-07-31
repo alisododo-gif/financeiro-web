@@ -56,7 +56,8 @@ from funcoes import (
     atualizar_limite_cartao,
     excluir_cartao,
     dados_grafico_tags,
-    gerar_insights_financeiros
+    gerar_insights_financeiros,
+    render_aba_contas_a_receber
 )
 
 from views import render_sidebar_footer
@@ -1961,3 +1962,7 @@ elif opcao == "💰 Contas a Receber":
                     marcar_lancamento_como_pago(rec_id)
                     st.success("Recebimento confirmado!")
                     st.rerun()
+
+# --- TELA: CONTAS A RECEBER ---
+elif opcao == "💰 Contas a Receber":
+    render_aba_contas_a_receber(st.session_state["usuario_id"])

@@ -950,16 +950,12 @@ def gerar_insights_financeiros(
 
     return insights
 
-
-# --- 🟢 NOVO: INTERFACE DA ABA CONTAS A RECEBER ---
+# --- INTERFACE DA ABA CONTAS A RECEBER (TABELA DEDICADA) ---
 
 
 def render_aba_contas_a_receber(usuario_id):
-    """Componente visual para a aba de Contas a Receber completamente autônomo."""
-    st.title("📥 Contas a Receber (Independente)")
-    st.caption(
-        "Gerencie suas cobranças e receitas futuras sem alterar saldos bancários."
-    )
+    st.title("💰 Contas a Receber")
+    st.caption("Gerencie quem te deve e acompanhe os recebimentos previstos.")
 
     # 1. FORMULÁRIO DE CADASTRO
     with st.expander("➕ Cadastrar Nova Conta a Receber", expanded=False):
@@ -967,52 +963,26 @@ def render_aba_contas_a_receber(usuario_id):
             col1, col2 = st.columns(2)
             with col1:
                 descricao = st.text_input(
-                    "Descrição / Cliente (Ex: João - Serviço X)"
+                    "Descrição / Pessoa que Deve (Ex: João - Empréstimo)"
                 )
                 valor = st.number_input(
                     "Valor (R$)", min_value=0.01, step=10.0, format="%.2f"
                 )
-                categoria = st.selectbox(
-                    "Categoria",
-                    [
-                        "Vendas",
-                        "Serviços",
-                        "Salário",
-                        "Aluguel",
-                        "Empréstimo",
-                        "Outros",
-                    ],
-                )
 
             with col2:
-                data_vencimento = st.date_input(
-                    "Data Prevista de Recebimento"
-                )
-                forma_pagamento = st.selectbox(
-                    "Forma de Pagamento Combinada",
-                    ["Pix", "Boleto", "Cartão", "Dinheiro", "A Combinar"],
-                )
-                status_inicial = st.selectbox(
-                    "Status Inicial", ["Pendente", "Recebido"]
-                )
+                data_recebimento = st.date_input("Data Prevista do Recebimento")
 
             submitted = st.form_submit_button("💾 Salvar Registro")
 
             if submitted:
                 if not descricao:
-                    st.error("Por favor, preencha a descrição do recebimento.")
+                    st.error("Por favor, preencha a descrição/nome do devedor.")
                 else:
-                    status_bool = status_inicial == "Recebido"
-                    sucesso = salvar_movimentacao(
+                    sucesso = salvar_conta_a_receber(
                         usuario_id=usuario_id,
-                        conta_id=None,  # 💡 Totalmente desvinculado de conta
                         descricao=descricao,
                         valor=valor,
-                        tipo="Receita",
-                        forma_pagamento=forma_pagamento,
-                        data_str=str(data_vencimento),
-                        categoria=categoria,
-                        pago=status_bool,
+                        data_recebimento=str(data_recebimento),
                     )
                     if sucesso:
                         st.success("Conta a receber cadastrada com sucesso!")
@@ -1036,8 +1006,10 @@ def render_aba_contas_a_receber(usuario_id):
         st.info("Nenhum lançamento encontrado para os filtros selecionados.")
     else:
         for item in registros:
-            pago = item.get("pago", False)
-            status_cor = ":green[Recebido]" if pago else ":red[Pendente]"
+            recebido = item.get("recebido", False)
+            status_cor = (
+                ":green[🟢 Recebido]" if recebido else ":red[🔴 Pendente]"
+            )
 
             with st.container(border=True):
                 col_info, col_acoes = st.columns([3, 1.2])
@@ -1045,19 +1017,17 @@ def render_aba_contas_a_receber(usuario_id):
                 with col_info:
                     val_fmt = formatar_moeda_ptbr(float(item.get("valor", 0)))
                     st.markdown(
-                        f"**{item.get('descricao')}** — **{val_fmt}** ({status_cor})"
+                        f"👤 **{item.get('descricao')}** — **{val_fmt}** ({status_cor})"
                     )
                     st.caption(
-                        f"📅 Data: {item.get('data')} | 🗂️ Categoria:"
-                        f" {item.get('categoria')} | 💳 Forma:"
-                        f" {item.get('forma_pagamento')}"
+                        f"📅 Data Prevista: {item.get('data_recebimento')}"
                     )
 
                 with col_acoes:
                     # Botão Alternar Status
                     txt_btn = (
                         "↩️ Mudar p/ Pendente"
-                        if pago
+                        if recebido
                         else "✅ Marcar Recebido"
                     )
                     if st.button(
@@ -1066,7 +1036,7 @@ def render_aba_contas_a_receber(usuario_id):
                         use_container_width=True,
                     ):
                         if alternar_status_contas_a_receber(
-                            item["id"], pago
+                            item["id"], recebido
                         ):
                             st.rerun()
 
@@ -1078,3 +1048,63 @@ def render_aba_contas_a_receber(usuario_id):
                     ):
                         if excluir_conta_a_receber(usuario_id, item["id"]):
                             st.rerun()
+
+
+# =====================================================================
+# --- FUNÇÕES DEDICADAS À TABELA 'contas_receber' ---
+# =====================================================================
+
+
+@st.cache_data(ttl=60)
+def buscar_contas_a_receber(usuario_id, status_filtro="Todos"):
+    """Busca registros diretamente da tabela 'contas_receber'."""
+    url = f"{BASE_URL}/contas_receber?usuario_id=eq.{usuario_id}&order=data_recebimento.asc"
+
+    if status_filtro == "Pendentes":
+        url += "&recebido=eq.false"
+    elif status_filtro == "Recebidos":
+        url += "&recebido=eq.true"
+
+    res = requests.get(url, headers=HEADERS)
+    return res.json() if res.status_code == 200 else []
+
+
+def salvar_conta_a_receber(usuario_id, descricao, valor, data_recebimento):
+    """Insere um novo registro na tabela 'contas_receber'."""
+    url = f"{BASE_URL}/contas_receber"
+    payload = {
+        "usuario_id": int(usuario_id),
+        "descricao": str(descricao),
+        "valor": float(valor),
+        "data_recebimento": str(data_recebimento),
+        "recebido": False,
+    }
+    res = requests.post(url, json=payload, headers=HEADERS)
+    if res.status_code in [200, 201]:
+        st.cache_data.clear()
+        return True
+    st.error(f"Erro Supabase ({res.status_code}): {res.text}")
+    return False
+
+
+def alternar_status_contas_a_receber(mov_id, recebido_atual):
+    """Alterna a coluna 'recebido' (true/false) na tabela 'contas_receber'."""
+    novo_status = not recebido_atual
+    url = f"{BASE_URL}/contas_receber?id=eq.{mov_id}"
+    res = requests.patch(url, headers=HEADERS, json={"recebido": novo_status})
+    if res.status_code in [200, 204]:
+        st.cache_data.clear()
+        return True
+    return False
+
+
+def excluir_conta_a_receber(usuario_id, mov_id):
+    """Exclui um registro da tabela 'contas_receber'."""
+    url = (
+        f"{BASE_URL}/contas_receber?id=eq.{mov_id}&usuario_id=eq.{usuario_id}"
+    )
+    res = requests.delete(url, headers=HEADERS)
+    if res.status_code in [200, 204]:
+        st.cache_data.clear()
+        return True
+    return False
