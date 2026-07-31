@@ -24,7 +24,7 @@ from telegram.ext import (
     filters,
 )
 
-from lembrete_boletos import processar_e_enviar_alertas
+from lembrete_boletos import formatar_moeda, processar_e_enviar_alertas
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -109,7 +109,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if dados_usuario:
         await update.message.reply_text(
             "👋 Você já está cadastrado no FinanceiroPro!\n\n"
-            "Pode enviar seus lançamentos diretamente (ex: 45.90 Almoço #restaurante)."
+            "• Envie lançamentos normais ex: `45.90 Almoço #restaurante`\n"
+            "• Para contas a receber ex: `receber 150.00 Freelance 2026-08-05`\n"
+            "• Para listar contas a receber digite: /receber",
+            parse_mode="Markdown"
         )
         return
 
@@ -170,6 +173,138 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ Erro no servidor: {e}")
 
 
+# =========================================================
+# MÓDULO: CONTAS A RECEBER
+# =========================================================
+
+async def cadastrar_recebimento(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Cadastra uma conta a receber quando o usuário envia:
+    receber 150.00 Freelance 2026-08-05
+    """
+    texto = update.message.text.strip()
+    partes = texto.split()
+
+    if len(partes) < 4:
+        await update.message.reply_text(
+            "⚠️ *Formato de recebimento inválido!*\n\n"
+            "Use o formato: `receber [VALOR] [DESCRIÇÃO] [DATA]`\n"
+            "Exemplo: `receber 150.00 Freelance 2026-08-05`",
+            parse_mode="Markdown"
+        )
+        return
+
+    try:
+        valor_raw = partes[1].replace(".", "").replace(",", ".")
+        valor = float(valor_raw)
+        data_recebimento = partes[-1]  # Pega a última palavra como data
+        descricao = " ".join(partes[2:-1])  # Pega o meio como descrição
+
+        # Valida formato da data YYYY-MM-DD
+        dt_valida = datetime.strptime(data_recebimento, "%Y-%m-%d")
+
+        telegram_id = update.effective_user.id
+        dados_usuario = buscar_dados_usuario(telegram_id)
+
+        if not dados_usuario:
+            await update.message.reply_text("❌ Usuário não encontrado no sistema.")
+            return
+
+        usuario_id = dados_usuario["usuario_id"]
+
+        # Insere na tabela contas_receber
+        supabase.table("contas_receber").insert({
+            "usuario_id": usuario_id,
+            "descricao": descricao,
+            "valor": valor,
+            "data_recebimento": data_recebimento,
+            "recebido": False
+        }).execute()
+
+        val_fmt = formatar_moeda(valor)
+        dt_fmt = dt_valida.strftime("%d/%m/%Y")
+
+        await update.message.reply_text(
+            f"✅ *Conta a Receber Cadastrada!*\n\n"
+            f"📄 *Descrição:* {descricao}\n"
+            f"💰 *Valor:* R$ {val_fmt}\n"
+            f"📆 *Data Prevista:* {dt_fmt}",
+            parse_mode="Markdown"
+        )
+
+    except ValueError:
+        await update.message.reply_text(
+            "⚠️ *Erro nos dados informados!*\n"
+            "Certifique-se de que a data está no formato `AAAA-MM-DD` (ex: `2026-08-05`).",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logging.error(f"Erro ao cadastrar recebimento: {e}")
+        await update.message.reply_text(f"❌ Erro ao salvar recebimento: {e}")
+
+
+async def listar_recebimentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Lista todas as contas a receber pendentes via comando /receber
+    """
+    telegram_id = update.effective_user.id
+    dados_usuario = buscar_dados_usuario(telegram_id)
+
+    if not dados_usuario:
+        await update.message.reply_text("❌ Usuário não identificado.")
+        return
+
+    usuario_id = dados_usuario["usuario_id"]
+
+    try:
+        res = (
+            supabase.table("contas_receber")
+            .select("*")
+            .eq("usuario_id", usuario_id)
+            .eq("recebido", False)
+            .order("data_recebimento")
+            .execute()
+        )
+
+        contas = res.data or []
+
+        if not contas:
+            await update.message.reply_text("ℹ️ Você não tem nenhuma conta a receber pendente!")
+            return
+
+        await update.message.reply_text("📥 *Suas Contas a Receber Pendentes:*", parse_mode="Markdown")
+
+        for c in contas:
+            cid = c["id"]
+            desc = c["descricao"]
+            val_fmt = formatar_moeda(c["valor"])
+            dt_fmt = datetime.strptime(c["data_recebimento"], "%Y-%m-%d").strftime("%d/%m/%Y")
+
+            msg = (
+                f"📄 *{desc}*\n"
+                f"💰 Valor: R$ {val_fmt}\n"
+                f"📆 Data: {dt_fmt}"
+            )
+
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ Marcar Recebido", callback_data=f"rec_pago_{cid}"),
+                    InlineKeyboardButton("🗑️ Excluir", callback_data=f"rec_del_{cid}")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=reply_markup)
+
+    except Exception as e:
+        logging.error(f"Erro ao listar recebimentos: {e}")
+        await update.message.reply_text("❌ Erro ao buscar contas a receber.")
+
+
+# =========================================================
+# MÓDULO: REGISTRO DE DESPESAS DIVERSAS
+# =========================================================
+
 async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
 
@@ -207,7 +342,8 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Exemplos aceitos:\n"
             "• `50,00 Comida pix`\n"
             "• `40 reais restaurante credito`\n"
-            "• `15.50 Lanche debito`"
+            "• `15.50 Lanche debito`\n"
+            "• `receber 150.00 Freelance 2026-08-05`"
         )
         return
 
@@ -324,6 +460,30 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     action = query.data
+
+    # Trata botões da lista de Contas a Receber (rec_pago_ e rec_del_)
+    if action.startswith("rec_"):
+        try:
+            if action.startswith("rec_pago_"):
+                cid = int(action.replace("rec_pago_", ""))
+                supabase.table("contas_receber").update({"recebido": True}).eq("id", cid).execute()
+                await query.edit_message_text(
+                    f"{query.message.text}\n\nSTATUS: ✅ *MARCADO COMO RECEBIDO*",
+                    parse_mode="Markdown"
+                )
+            elif action.startswith("rec_del_"):
+                cid = int(action.replace("rec_del_", ""))
+                supabase.table("contas_receber").delete().eq("id", cid).execute()
+                await query.edit_message_text(
+                    "🗑️ *Registro de recebimento excluído com sucesso!*",
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            logging.error(f"Erro na ação de recebimentos: {e}")
+            await query.message.reply_text("❌ Ocorreu um erro ao processar a ação.")
+        return
+
+    # Ações normais de Lançamentos
     dados_temp = context.user_data.get("temp_lancamento")
 
     if not dados_temp:
@@ -428,7 +588,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         payloads = []
         for i in range(num_parcelas):
-            # Projeta a fatura e a data dos lançamentos subsequentes
             fatura_parcela_dt = fatura_inicial_dt + relativedelta(months=i)
             str_mes_fatura = fatura_parcela_dt.strftime("%m/%Y")
 
@@ -497,11 +656,21 @@ def main():
 
     # Handlers dos comandos e eventos
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("receber", listar_recebimentos))
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     app.add_handler(MessageHandler(filters.CONTACT, receber_contato))
+
+    # Captura cadastro de recebimentos (ex: "receber 150.00 Freelance 2026-08-05")
+    app.add_handler(
+        MessageHandler(filters.Regex(r'^(?i)receber\s+'), cadastrar_recebimento)
+    )
+
+    # Captura lançamentos normais de gastos
     app.add_handler(
         MessageHandler(filters.TEXT & (~filters.COMMAND), registrar_gastos)
     )
+
+    # Handler unificado de botões (Inline Keyboard)
     app.add_handler(CallbackQueryHandler(callback_geral))
 
     app.run_polling()

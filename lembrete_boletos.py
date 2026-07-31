@@ -69,7 +69,7 @@ def consultar_view(nome_view: str, filtrar_pago: bool = True):
 
 
 async def processar_e_enviar_alertas(param=None):
-    """Busca dados nas views (hoje, amanhã e faturas de cartão) e envia mensagens."""
+    """Busca dados nas views (hoje, amanhã, faturas e contas a receber) e envia mensagens."""
     chat_id_solicitante = None
 
     if isinstance(param, int):
@@ -198,6 +198,45 @@ async def processar_e_enviar_alertas(param=None):
             except Exception as e:
                 logging.error(
                     f"Falha ao enviar aviso de Fatura para {telegram_id}: {e}"
+                )
+
+    # =========================================================
+    # 4. LEITURA E ENVIO DOS RECEBIMENTOS DE HOJE
+    # =========================================================
+    recebimentos_hoje = consultar_view("recebimentos_hoje", filtrar_pago=False)
+
+    if not recebimentos_hoje:
+        logging.info("Nenhum valor a receber HOJE.")
+
+    for rec in recebimentos_hoje:
+        telegram_id = rec.get("telegram_id")
+        nome_usuario = extrair_nome_usuario(rec)
+
+        if telegram_id:
+            descricao = rec.get("descricao", "Sem descrição")
+            valor_formatado = formatar_moeda(rec.get("valor", 0.0))
+
+            mensagem = (
+                f"Olá! *{nome_usuario}* Espero que esteja tendo um ótimo dia. 😊\n\n"
+                f"🤑 *Lembrete de Conta a Receber!*\n\n"
+                f"Você tem um valor previsto para receber na data de hoje:\n\n"
+                f"*📆 Data: {hoje_str}*\n"
+                f"*📄 Descrição: {descricao}*\n"
+                f"*💰 Valor: R$ {valor_formatado}*\n\n"
+                f"Não se esqueça de checar sua conta bancária!\n\n"
+                f"*FinanceiroPro Web Agradece a Parceria 🫡*"
+            )
+
+            try:
+                await bot.send_message(
+                    chat_id=telegram_id, text=mensagem, parse_mode="Markdown"
+                )
+                logging.info(
+                    f"Alerta de recebimento enviado para {nome_usuario} ({telegram_id})"
+                )
+            except Exception as e:
+                logging.error(
+                    f"Falha ao enviar alerta de recebimento para {telegram_id}: {e}"
                 )
 
 

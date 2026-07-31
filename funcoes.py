@@ -1,9 +1,9 @@
-import requests
-import streamlit as st
 import re
-import pandas as pd
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+import pandas as pd
+import requests
+import streamlit as st
 
 # Credenciais do Supabase
 BASE_URL = st.secrets["SUPABASE_URL"]
@@ -13,15 +13,18 @@ HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json",
-    "Prefer": "return=representation"
+    "Prefer": "return=representation",
 }
+
 
 def criar_tabelas_se_nao_existirem():
     pass
 
+
 # =====================================================================
 # --- FUNÇÕES DE BUSCA E LEITURA OTIMIZADAS (COM CACHE) ---
 # =====================================================================
+
 
 def _construir_query_data(url_base, mes, ano):
     """Auxiliar para aplicar filtros de data/fatura direto no Supabase."""
@@ -29,27 +32,27 @@ def _construir_query_data(url_base, mes, ano):
         if mes != "Todos":
             mes_int = int(mes)
             ano_int = int(ano)
-            
+
             # Formato do mês de fatura esperado no banco: "MM/YYYY" (ex: "08/2026")
             fatura_ref = f"{mes_int:02d}/{ano_int}"
-            
+
             dt_inicio = f"{ano_int:04d}-{mes_int:02d}-01"
             if mes_int == 12:
                 dt_fim = f"{ano_int + 1:04d}-01-01"
             else:
                 dt_fim = f"{ano_int:04d}-{mes_int + 1:02d}-01"
-            
+
             # Filtra registros onde:
             # - Forma de pagamento NÃO é cartão E a data cai no mês atual
             # OU
             # - Forma de pagamento É cartão E o mes_fatura é igual ao mês selecionado
             filtro_or = f"or=(and(forma_pagamento.neq.Cartão de Crédito,data.gte.{dt_inicio},data.lt.{dt_fim}),and(forma_pagamento.eq.Cartão de Crédito,mes_fatura.eq.{fatura_ref}))"
-            
+
             return f"{url_base}&{filtro_or}"
         else:
             # Filtro por ano completo
             return f"{url_base}&data=gte.{ano}-01-01&data=lt.{int(ano)+1}-01-01"
-            
+
     return url_base
 
 
@@ -57,23 +60,25 @@ def _construir_query_data(url_base, mes, ano):
 def buscar_todas_movimentacoes(usuario_id, mes, ano):
     url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&select=id,data,tipo,forma_pagamento,descricao,valor,categoria,contas(nome)&order=data.desc"
     url = _construir_query_data(url, mes, ano)
-    
+
     res = requests.get(url, headers=HEADERS)
     if res.status_code != 200 or not res.json():
         return []
-        
+
     dados_filtrados = []
     for m in res.json():
-        nome_conta = m.get('contas', {}).get('nome') if m.get('contas') else "Conta"
+        nome_conta = (
+            m.get("contas", {}).get("nome") if m.get("contas") else "Conta"
+        )
         dados_filtrados.append([
-            m.get('id'),
-            m.get('data'),
+            m.get("id"),
+            m.get("data"),
             nome_conta,
-            m.get('tipo', ''),
-            m.get('forma_pagamento', ''),
-            m.get('descricao', ''),
-            m.get('valor', 0.0),
-            m.get('categoria', '')
+            m.get("tipo", ""),
+            m.get("forma_pagamento", ""),
+            m.get("descricao", ""),
+            m.get("valor", 0.0),
+            m.get("categoria", ""),
         ])
     return dados_filtrados
 
@@ -82,43 +87,56 @@ def buscar_todas_movimentacoes(usuario_id, mes, ano):
 def dados_dashboard(usuario_id, mes, ano):
     url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&select=valor,tipo"
     url = _construir_query_data(url, mes, ano)
-    
+
     res = requests.get(url, headers=HEADERS)
     dados = {"receitas": 0.0, "despesas": 0.0, "saldo": 0.0}
-    
+
     if res.status_code == 200 and res.json():
         for m in res.json():
-            val = float(m.get('valor', 0.0))
-            if m.get('tipo') == 'Receita':
-                dados['receitas'] += val
+            val = float(m.get("valor", 0.0))
+            if m.get("tipo") == "Receita":
+                dados["receitas"] += val
             else:
-                dados['despesas'] += val
-                
-    dados['saldo'] = dados['receitas'] - dados['despesas']
+                dados["despesas"] += val
+
+    dados["saldo"] = dados["receitas"] - dados["despesas"]
     return dados
 
 
 @st.cache_data(ttl=300)
 def dados_grafico_mensal(usuario_id, ano):
-    meses_rotulos = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+    meses_rotulos = [
+        "Jan",
+        "Fev",
+        "Mar",
+        "Abr",
+        "Mai",
+        "Jun",
+        "Jul",
+        "Ago",
+        "Set",
+        "Out",
+        "Nov",
+        "Dez",
+    ]
     receitas = [0.0] * 12
     despesas = [0.0] * 12
-    
+
     url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&select=valor,tipo,data"
     url = _construir_query_data(url, "Todos", ano)
-    
+
     res = requests.get(url, headers=HEADERS)
     if res.status_code == 200 and res.json():
         for m in res.json():
-            dt = m.get('data', '')
+            dt = m.get("data", "")
             if dt and len(dt) >= 7:
                 try:
-                    mes_idx = int(dt.split('-')[1]) - 1
+                    mes_idx = int(dt.split("-")[1]) - 1
                     if 0 <= mes_idx < 12:
-                        val = float(m.get('valor', 0.0))
-                        if m.get('tipo') == 'Receita':
+                        val = float(m.get("valor", 0.0))
+                        if m.get("tipo") == "Receita":
                             receitas[mes_idx] += val
-                        elif m.get('tipo') == 'Despesa':
+                        elif m.get("tipo") == "Despesa":
                             despesas[mes_idx] += val
                 except (ValueError, IndexError):
                     continue
@@ -131,12 +149,12 @@ def dados_grafico_categorias(usuario_id, mes, ano):
     cats = {}
     url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&tipo=eq.Despesa&select=valor,categoria"
     url = _construir_query_data(url, mes, ano)
-    
+
     res = requests.get(url, headers=HEADERS)
     if res.status_code == 200 and res.json():
         for m in res.json():
-            c = m.get('categoria', 'Sem Categoria')
-            cats[c] = cats.get(c, 0.0) + float(m.get('valor', 0.0))
+            c = m.get("categoria", "Sem Categoria")
+            cats[c] = cats.get(c, 0.0) + float(m.get("valor", 0.0))
 
     return list(cats.keys()), list(cats.values())
 
@@ -146,7 +164,7 @@ def obter_limite_orcamento(usuario_id):
     url = f"{BASE_URL}/orcamentos?usuario_id=eq.{usuario_id}&select=limite"
     res = requests.get(url, headers=HEADERS)
     if res.status_code == 200 and res.json():
-        return float(res.json()[0]['limite'])
+        return float(res.json()[0]["limite"])
     return 0.0
 
 
@@ -155,17 +173,27 @@ def obter_limites_por_categoria(usuario_id):
     url = f"{BASE_URL}/orcamentos?usuario_id=eq.{usuario_id}&select=categoria,limite"
     res = requests.get(url, headers=HEADERS)
     if res.status_code == 200 and res.json():
-        return {item['categoria']: float(item['limite']) for item in res.json() if item.get('categoria') and item.get('limite')}
+        return {
+            item["categoria"]: float(item["limite"])
+            for item in res.json()
+            if item.get("categoria") and item.get("limite")
+        }
     return {}
 
 
 @st.cache_data(ttl=300)
 def listar_contas(usuario_id):
     try:
-        url = f"{BASE_URL}/contas?usuario_id=eq.{usuario_id}&select=id,nome,saldo"
-        res = requests.get(url, headers=HEADERS, timeout=5) # <--- Timeout de 5s adicionado
+        url = (
+            f"{BASE_URL}/contas?usuario_id=eq.{usuario_id}&select=id,nome,saldo"
+        )
+        res = requests.get(
+            url, headers=HEADERS, timeout=5
+        )  # <--- Timeout de 5s adicionado
         if res.status_code == 200 and res.json():
-            return [[c['id'], c['nome'], c.get('saldo', 0.0)] for c in res.json()]
+            return [
+                [c["id"], c["nome"], c.get("saldo", 0.0)] for c in res.json()
+            ]
     except Exception as e:
         print(f"Erro ao listar contas: {e}")
     return []
@@ -176,7 +204,16 @@ def listar_metas(usuario_id):
     url = f"{BASE_URL}/metas?usuario_id=eq.{usuario_id}&select=id,nome_meta,valor_alvo,valor_poupado,prazo"
     res = requests.get(url, headers=HEADERS)
     if res.status_code == 200 and res.json():
-        return [[m['id'], m['nome_meta'], m['valor_alvo'], m['valor_poupado'], m['prazo']] for m in res.json()]
+        return [
+            [
+                m["id"],
+                m["nome_meta"],
+                m["valor_alvo"],
+                m["valor_poupado"],
+                m["prazo"],
+            ]
+            for m in res.json()
+        ]
     return []
 
 
@@ -185,7 +222,7 @@ def obter_id_conta_por_nome(usuario_id, nome_conta):
     url = f"{BASE_URL}/contas?usuario_id=eq.{usuario_id}&nome=eq.{nome_conta}&select=id"
     res = requests.get(url, headers=HEADERS)
     if res.status_code == 200 and res.json():
-        return res.json()[0]['id']
+        return res.json()[0]["id"]
     return None
 
 
@@ -251,18 +288,61 @@ def dados_grafico_tags(usuario_id, mes_selecionado, ano_selecionado):
             continue
 
         valor = float(m.get("valor", 0))
-        tags_lista = [t.strip().lower() for t in str(raw_tags).split(",") if t.strip()]
+        tags_lista = [
+            t.strip().lower() for t in str(raw_tags).split(",") if t.strip()
+        ]
 
         for tag_item in tags_lista:
             tag_formatada = f"#{tag_item.lstrip('#')}"
-            agrupado_tags[tag_formatada] = agrupado_tags.get(tag_formatada, 0.0) + valor
+            agrupado_tags[tag_formatada] = (
+                agrupado_tags.get(tag_formatada, 0.0) + valor
+            )
 
     return list(agrupado_tags.keys()), list(agrupado_tags.values())
+
+
+# --- 🟢 NOVO: NOVAS FUNÇÕES EXCLUSIVAS PARA O CONTAS A RECEBER ---
+
+
+@st.cache_data(ttl=60)
+def buscar_contas_a_receber(usuario_id, status_filtro="Todos"):
+    """Busca os lançamentos do tipo Receita com suporte a filtro por status (Pendente/Recebido/Todos)."""
+    url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&tipo=eq.Receita&order=data.asc"
+
+    if status_filtro == "Pendentes":
+        url += "&pago=eq.false"
+    elif status_filtro == "Recebidos":
+        url += "&pago=eq.true"
+
+    res = requests.get(url, headers=HEADERS)
+    return res.json() if res.status_code == 200 else []
+
+
+def alternar_status_contas_a_receber(mov_id, status_pago_atual):
+    """Alterna o status de um recebível sem impactar saldo de contas."""
+    novo_status = not status_pago_atual
+    url = f"{BASE_URL}/movimentacoes?id=eq.{mov_id}"
+    res = requests.patch(url, headers=HEADERS, json={"pago": novo_status})
+    if res.status_code in [200, 204]:
+        st.cache_data.clear()
+        return True
+    return False
+
+
+def excluir_conta_a_receber(usuario_id, mov_id):
+    """Exclui um lançamento do Contas a Receber."""
+    url = f"{BASE_URL}/movimentacoes?id=eq.{mov_id}&usuario_id=eq.{usuario_id}"
+    res = requests.delete(url, headers=HEADERS)
+    if res.status_code in [200, 204]:
+        st.cache_data.clear()
+        return True
+    return False
 
 
 # =====================================================================
 # --- FUNÇÕES DE ESCRITA, EDIÇÃO E EXCLUSÃO (INVALIDAM O CACHE) ---
 # =====================================================================
+
 
 def cadastrar_cartao(usuario_id, nome, limite, dia_fechamento, dia_vencimento):
     payload = {
@@ -270,7 +350,7 @@ def cadastrar_cartao(usuario_id, nome, limite, dia_fechamento, dia_vencimento):
         "nome_cartao": str(nome),
         "limite": float(limite),
         "dia_fechamento": int(dia_fechamento),
-        "dia_vencimento": int(dia_vencimento)
+        "dia_vencimento": int(dia_vencimento),
     }
     res = requests.post(f"{BASE_URL}/cartoes", headers=HEADERS, json=payload)
     if res.status_code in [200, 201]:
@@ -278,6 +358,7 @@ def cadastrar_cartao(usuario_id, nome, limite, dia_fechamento, dia_vencimento):
         return True
     st.error(f"Erro Supabase ({res.status_code}): {res.text}")
     return False
+
 
 def excluir_cartao(usuario_id, cartao_id):
     url = f"{BASE_URL}/cartoes?id=eq.{cartao_id}&usuario_id=eq.{usuario_id}"
@@ -287,45 +368,81 @@ def excluir_cartao(usuario_id, cartao_id):
         return True
     return False
 
+
 def alterar_senha_usuario(usuario_id, nova_senha_hash):
     url = f"{BASE_URL}/usuarios?id=eq.{usuario_id}"
     res = requests.patch(url, headers=HEADERS, json={"senha": nova_senha_hash})
     return res.status_code in [200, 204]
 
+
 def definir_limite_orcamento(usuario_id, limite):
     url_check = f"{BASE_URL}/orcamentos?usuario_id=eq.{usuario_id}&select=id"
     res_check = requests.get(url_check, headers=HEADERS)
     if res_check.status_code == 200 and res_check.json():
-        oid = res_check.json()[0]['id']
-        requests.patch(f"{BASE_URL}/orcamentos?id=eq.{oid}", headers=HEADERS, json={"limite": limite})
+        oid = res_check.json()[0]["id"]
+        requests.patch(
+            f"{BASE_URL}/orcamentos?id=eq.{oid}",
+            headers=HEADERS,
+            json={"limite": limite},
+        )
     else:
-        requests.post(f"{BASE_URL}/orcamentos", headers=HEADERS, json={"usuario_id": usuario_id, "limite": limite})
+        requests.post(
+            f"{BASE_URL}/orcamentos",
+            headers=HEADERS,
+            json={"usuario_id": usuario_id, "limite": limite},
+        )
     st.cache_data.clear()
 
+
 def cadastrar_conta(usuario_id, nome, saldo=0.00):
-    payload = {"usuario_id": int(usuario_id), "nome": nome, "saldo": float(saldo)}
+    payload = {
+        "usuario_id": int(usuario_id),
+        "nome": nome,
+        "saldo": float(saldo),
+    }
     res = requests.post(f"{BASE_URL}/contas", headers=HEADERS, json=payload)
     if res.status_code in [200, 201]:
         st.cache_data.clear()
         return True
     return False
 
+
 def excluir_conta(usuario_id, conta_id):
-    res = requests.delete(f"{BASE_URL}/contas?id=eq.{conta_id}&usuario_id=eq.{usuario_id}", headers=HEADERS)
+    res = requests.delete(
+        f"{BASE_URL}/contas?id=eq.{conta_id}&usuario_id=eq.{usuario_id}",
+        headers=HEADERS,
+    )
     if res.status_code in [200, 204]:
         st.cache_data.clear()
         return True
     return False
 
+
 def criar_meta(usuario_id, nome_meta, valor_alvo, prazo):
-    res = requests.post(f"{BASE_URL}/metas", headers=HEADERS, json={"usuario_id": usuario_id, "nome_meta": nome_meta, "valor_alvo": valor_alvo, "valor_poupado": 0.00, "prazo": str(prazo)})
+    res = requests.post(
+        f"{BASE_URL}/metas",
+        headers=HEADERS,
+        json={
+            "usuario_id": usuario_id,
+            "nome_meta": nome_meta,
+            "valor_alvo": valor_alvo,
+            "valor_poupado": 0.00,
+            "prazo": str(prazo),
+        },
+    )
     if res.status_code in [200, 201]:
         st.cache_data.clear()
 
+
 def atualizar_progresso_meta(meta_id, valor_poupado):
-    res = requests.patch(f"{BASE_URL}/metas?id=eq.{meta_id}", headers=HEADERS, json={"valor_poupado": valor_poupado})
+    res = requests.patch(
+        f"{BASE_URL}/metas?id=eq.{meta_id}",
+        headers=HEADERS,
+        json={"valor_poupado": valor_poupado},
+    )
     if res.status_code in [200, 204]:
         st.cache_data.clear()
+
 
 def excluir_meta(usuario_id, meta_id):
     url = f"{BASE_URL}/metas?id=eq.{meta_id}&usuario_id=eq.{usuario_id}"
@@ -335,18 +452,39 @@ def excluir_meta(usuario_id, meta_id):
         return True
     return False
 
+
 def salvar_movimentacao(
-    usuario_id, conta_id, descricao, valor, tipo, forma_pagamento, 
-    data_str, categoria, cartao_id=None, mes_fatura=None, tags=None
+    usuario_id,
+    conta_id,
+    descricao,
+    valor,
+    tipo,
+    forma_pagamento,
+    data_str,
+    categoria,
+    cartao_id=None,
+    mes_fatura=None,
+    tags=None,
+    pago=False,  # 💡 CORREÇÃO: Permite passar o estado do 'pago' direto no salvamento
 ):
     url = f"{BASE_URL}/movimentacoes"
-    c_id = int(conta_id) if (conta_id is not None and str(conta_id).isdigit()) else None
-    crt_id = int(cartao_id) if (cartao_id is not None and str(cartao_id).isdigit()) else None
+    c_id = (
+        int(conta_id)
+        if (conta_id is not None and str(conta_id).isdigit())
+        else None
+    )
+    crt_id = (
+        int(cartao_id)
+        if (cartao_id is not None and str(cartao_id).isdigit())
+        else None
+    )
 
     tags_formatadas = None
     if tags:
         if isinstance(tags, list):
-            tags_limpas = [f"#{t.strip().lstrip('#')}" for t in tags if str(t).strip()]
+            tags_limpas = [
+                f"#{t.strip().lstrip('#')}" for t in tags if str(t).strip()
+            ]
             tags_formatadas = ", ".join(tags_limpas) if tags_limpas else None
         elif isinstance(tags, str) and tags.strip():
             tags_separadas = [t.strip() for t in tags.split(",") if t.strip()]
@@ -363,8 +501,13 @@ def salvar_movimentacao(
         "forma_pagamento": str(forma_pagamento),
         "data": str(data_str),
         "categoria": str(categoria),
-        "mes_fatura": mes_fatura if str(forma_pagamento).strip().lower() == "cartão de crédito" else None,
-        "tags": tags_formatadas
+        "mes_fatura": (
+            mes_fatura
+            if str(forma_pagamento).strip().lower() == "cartão de crédito"
+            else None
+        ),
+        "tags": tags_formatadas,
+        "pago": pago,
     }
 
     res = requests.post(url, json=payload, headers=HEADERS)
@@ -374,71 +517,112 @@ def salvar_movimentacao(
     st.error(f"❌ Erro Supabase ({res.status_code}): {res.text}")
     return False
 
+
 def salvar_movimentacao_parcelada(
-    usuario_id, conta_id, descricao, valor, tipo, forma_pagamento, 
-    parcelas, data_base, categoria, cartao_id=None, dia_fechamento=None, tags=None
+    usuario_id,
+    conta_id,
+    descricao,
+    valor,
+    tipo,
+    forma_pagamento,
+    parcelas,
+    data_base,
+    categoria,
+    cartao_id=None,
+    dia_fechamento=None,
+    tags=None,
 ):
     dt_base = datetime.strptime(data_base, "%Y-%m-%d")
-    
+
     # 💡 CORREÇÃO: Divide o valor total pelo número de parcelas
     # (Usamos round para evitar dizimas infinitas com centavos)
     valor_parcela = round(float(valor) / int(parcelas), 2)
-    
+
     for i in range(parcelas):
         ano = dt_base.year + ((dt_base.month + i - 1) // 12)
         mes = ((dt_base.month + i - 1) % 12) + 1
         dia = min(dt_base.day, 28)
-        
+
         data_parcela_str = f"{ano}-{mes:02d}-{dia:02d}"
         desc_parcela = f"{descricao} ({i+1}/{parcelas})"
-        
+
         mes_fatura_calc = None
-        if str(forma_pagamento).strip().lower() == "cartão de crédito" and cartao_id and dia_fechamento:
-            mes_fatura_calc = calcular_mes_fatura(data_parcela_str, dia_fechamento)
-            
+        if (
+            str(forma_pagamento).strip().lower() == "cartão de crédito"
+            and cartao_id
+            and dia_fechamento
+        ):
+            mes_fatura_calc = calcular_mes_fatura(
+                data_parcela_str, dia_fechamento
+            )
+
         sucesso = salvar_movimentacao(
-            usuario_id=usuario_id, 
-            conta_id=conta_id, 
+            usuario_id=usuario_id,
+            conta_id=conta_id,
             descricao=desc_parcela,
             valor=valor_parcela,  # <--- Agora envia o valor da parcela (ex: 25.00)
-            tipo=tipo, 
+            tipo=tipo,
             forma_pagamento=forma_pagamento,
-            data_str=data_parcela_str, 
-            categoria=categoria, 
+            data_str=data_parcela_str,
+            categoria=categoria,
             cartao_id=cartao_id,
-            mes_fatura=mes_fatura_calc, 
-            tags=tags
+            mes_fatura=mes_fatura_calc,
+            tags=tags,
         )
         if not sucesso:
             return False
     return True
 
+
 def salvar_movimentacao_recorrente(
-    usuario_id, conta_id, descricao, valor, tipo, forma_pagamento, 
-    meses, data_base, categoria, cartao_id=None, dia_fechamento=None, tags=None
+    usuario_id,
+    conta_id,
+    descricao,
+    valor,
+    tipo,
+    forma_pagamento,
+    meses,
+    data_base,
+    categoria,
+    cartao_id=None,
+    dia_fechamento=None,
+    tags=None,
 ):
     dt_base = datetime.strptime(data_base, "%Y-%m-%d")
     for i in range(meses):
         ano = dt_base.year + ((dt_base.month + i - 1) // 12)
         mes = ((dt_base.month + i - 1) % 12) + 1
         dia = min(dt_base.day, 28)
-        
+
         data_recorrente_str = f"{ano}-{mes:02d}-{dia:02d}"
-        
+
         mes_fatura_calc = None
-        if str(forma_pagamento).strip().lower() == "cartão de crédito" and cartao_id and dia_fechamento:
-            mes_fatura_calc = calcular_mes_fatura(data_recorrente_str, dia_fechamento)
-            
+        if (
+            str(forma_pagamento).strip().lower() == "cartão de crédito"
+            and cartao_id
+            and dia_fechamento
+        ):
+            mes_fatura_calc = calcular_mes_fatura(
+                data_recorrente_str, dia_fechamento
+            )
+
         sucesso = salvar_movimentacao(
-            usuario_id=usuario_id, conta_id=conta_id, descricao=f"{descricao} (Recorrente)",
-            valor=valor, # <--- AQUI: Envia o 'valor' original/cheio em todos os meses
-            tipo=tipo, forma_pagamento=forma_pagamento,
-            data_str=data_recorrente_str, categoria=categoria, cartao_id=cartao_id,
-            mes_fatura=mes_fatura_calc, tags=tags
+            usuario_id=usuario_id,
+            conta_id=conta_id,
+            descricao=f"{descricao} (Recorrente)",
+            valor=valor,  # <--- AQUI: Envia o 'valor' original/cheio em todos os meses
+            tipo=tipo,
+            forma_pagamento=forma_pagamento,
+            data_str=data_recorrente_str,
+            categoria=categoria,
+            cartao_id=cartao_id,
+            mes_fatura=mes_fatura_calc,
+            tags=tags,
         )
         if not sucesso:
             return False
     return True
+
 
 def excluir_movimentacao(usuario_id, mov_id):
     url = f"{BASE_URL}/movimentacoes?id=eq.{mov_id}&usuario_id=eq.{usuario_id}"
@@ -449,11 +633,19 @@ def excluir_movimentacao(usuario_id, mov_id):
     st.error(f"Erro ao excluir ({res.status_code}): {res.text}")
     return False
 
-def atualizar_categoria_e_forma(usuario_id, mov_id, categoria, forma_pagamento):
-    res = requests.patch(f"{BASE_URL}/movimentacoes?id=eq.{mov_id}", headers=HEADERS, json={"categoria": categoria, "forma_pagamento": forma_pagamento})
+
+def atualizar_categoria_e_forma(
+    usuario_id, mov_id, categoria, forma_pagamento
+):
+    res = requests.patch(
+        f"{BASE_URL}/movimentacoes?id=eq.{mov_id}",
+        headers=HEADERS,
+        json={"categoria": categoria, "forma_pagamento": forma_pagamento},
+    )
     if res.status_code in [200, 204]:
         st.cache_data.clear()
     return res.status_code in [200, 204]
+
 
 def excluir_usuario_admin(usuario_id):
     url = f"{BASE_URL}/usuarios?id=eq.{usuario_id}"
@@ -463,23 +655,35 @@ def excluir_usuario_admin(usuario_id):
         return True
     return False
 
-def atualizar_status_e_mensalidade(usuario_id, novo_status, novo_valor_mensalidade):
+
+def atualizar_status_e_mensalidade(
+    usuario_id, novo_status, novo_valor_mensalidade
+):
     url = f"{BASE_URL}/usuarios?id=eq.{usuario_id}"
-    payload = {"status": novo_status, "valor_mensalidade": float(novo_valor_mensalidade)}
+    payload = {
+        "status": novo_status,
+        "valor_mensalidade": float(novo_valor_mensalidade),
+    }
     res = requests.patch(url, headers=HEADERS, json=payload)
     if res.status_code in [200, 204]:
         st.cache_data.clear()
         return True
     return False
 
+
 def salvar_orcamento_categoria(usuario_id, categoria, valor_limite):
     url = f"{BASE_URL}/orcamentos"
-    payload = {"usuario_id": int(usuario_id), "categoria": str(categoria), "limite": float(valor_limite)}
+    payload = {
+        "usuario_id": int(usuario_id),
+        "categoria": str(categoria),
+        "limite": float(valor_limite),
+    }
     res = requests.post(url, json=payload, headers=HEADERS)
     if res.status_code in [200, 201]:
         st.cache_data.clear()
         return True
     return False
+
 
 def excluir_orcamento_categoria(usuario_id, categoria):
     url = f"{BASE_URL}/orcamentos?usuario_id=eq.{usuario_id}&categoria=eq.{categoria}"
@@ -488,6 +692,7 @@ def excluir_orcamento_categoria(usuario_id, categoria):
         st.cache_data.clear()
         return True
     return False
+
 
 def alterar_status_pagamento(id_lancamento, status_pago: bool):
     url = f"{BASE_URL}/movimentacoes?id=eq.{id_lancamento}"
@@ -498,11 +703,14 @@ def alterar_status_pagamento(id_lancamento, status_pago: bool):
         return True
     return False
 
+
 def marcar_lancamento_como_pago(id_lancamento):
     return alterar_status_pagamento(id_lancamento, True)
 
+
 def marcar_lancamento_como_pendente(id_lancamento):
     return alterar_status_pagamento(id_lancamento, False)
+
 
 def excluir_lancamento_pendente(id_lancamento):
     url = f"{BASE_URL}/movimentacoes?id=eq.{id_lancamento}"
@@ -512,8 +720,10 @@ def excluir_lancamento_pendente(id_lancamento):
         return True
     return False
 
+
 def desfazer_pagamento_lancamento(id_lancamento):
     return alterar_status_pagamento(id_lancamento, False)
+
 
 def dar_baixa_fatura_completa(usuario_id, cartao_id, mes_fatura):
     url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&cartao_id=eq.{cartao_id}&mes_fatura=eq.{mes_fatura}"
@@ -524,6 +734,7 @@ def dar_baixa_fatura_completa(usuario_id, cartao_id, mes_fatura):
         return True
     return False
 
+
 def atualizar_limite_cartao(usuario_id, cartao_id, novo_limite):
     url = f"{BASE_URL}/cartoes?id=eq.{cartao_id}&usuario_id=eq.{usuario_id}"
     payload = {"limite": float(novo_limite)}
@@ -533,15 +744,31 @@ def atualizar_limite_cartao(usuario_id, cartao_id, novo_limite):
         return True
     return False
 
-def salvar_despesa_cartao(usuario_id, cartao_id, descricao, valor, categoria, data_str, dia_fechamento, parcelas=1):
+
+def salvar_despesa_cartao(
+    usuario_id,
+    cartao_id,
+    descricao,
+    valor,
+    categoria,
+    data_str,
+    dia_fechamento,
+    parcelas=1,
+):
     try:
         valor_parcela = float(valor) / int(parcelas)
-        data_obj = datetime.strptime(data_str, "%Y-%m-%d").date() if isinstance(data_str, str) else data_str
+        data_obj = (
+            datetime.strptime(data_str, "%Y-%m-%d").date()
+            if isinstance(data_str, str)
+            else data_str
+        )
 
         for i in range(1, int(parcelas) + 1):
             data_parcela = data_obj + relativedelta(months=i - 1)
             mes_fatura = calcular_mes_fatura(data_parcela, dia_fechamento)
-            desc_final = f"{descricao} ({i}/{parcelas})" if parcelas > 1 else descricao
+            desc_final = (
+                f"{descricao} ({i}/{parcelas})" if parcelas > 1 else descricao
+            )
 
             payload = {
                 "usuario_id": int(usuario_id),
@@ -553,10 +780,12 @@ def salvar_despesa_cartao(usuario_id, cartao_id, descricao, valor, categoria, da
                 "categoria": categoria,
                 "data": data_parcela.strftime("%Y-%m-%d"),
                 "mes_fatura": mes_fatura,
-                "pago": False
+                "pago": False,
             }
-            requests.post(f"{BASE_URL}/movimentacoes", json=payload, headers=HEADERS)
-            
+            requests.post(
+                f"{BASE_URL}/movimentacoes", json=payload, headers=HEADERS
+            )
+
         st.cache_data.clear()
         return True
     except Exception as e:
@@ -568,8 +797,13 @@ def salvar_despesa_cartao(usuario_id, cartao_id, descricao, valor, categoria, da
 # --- FUNÇÕES AUXILIARES E DE INTERFACE ---
 # =====================================================================
 
+
 def calcular_mes_fatura(data_transacao_str, dia_fechamento):
-    dt = datetime.strptime(data_transacao_str, "%Y-%m-%d") if isinstance(data_transacao_str, str) else data_transacao_str
+    dt = (
+        datetime.strptime(data_transacao_str, "%Y-%m-%d")
+        if isinstance(data_transacao_str, str)
+        else data_transacao_str
+    )
     dia_fechamento = int(dia_fechamento)
 
     if dt.day >= dia_fechamento:
@@ -581,35 +815,56 @@ def calcular_mes_fatura(data_transacao_str, dia_fechamento):
 
     return f"{mes:02d}/{ano}"
 
-def formatar_moeda_ptbr(valor):
-    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-def renderizar_interface_central_downloads(usuario_id, mes, ano, ano_padrao):
+def formatar_moeda_ptbr(valor):
+    return (
+        f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    )
+
+
+def renderizar_interface_central_downloads(
+    usuario_id, mes, ano, ano_padrao
+):
     pass
 
-def gerar_insights_financeiros(usuario_id, mes_selecionado, ano_selecionado, movimentacoes_raw, metas_raw):
+
+def gerar_insights_financeiros(
+    usuario_id, mes_selecionado, ano_selecionado, movimentacoes_raw, metas_raw
+):
     insights = []
     if not movimentacoes_raw:
         return insights
 
     df = pd.DataFrame(movimentacoes_raw)
-    
+
     if mes_selecionado != "Todos" and ano_selecionado != "Todos":
         try:
             mes_int, ano_int = int(mes_selecionado), int(ano_selecionado)
-            mes_ant_str, ano_ant_str = ("12", str(ano_int - 1)) if mes_int == 1 else (f"{mes_int - 1:02d}", str(ano_int))
-                
+            mes_ant_str, ano_ant_str = (
+                ("12", str(ano_int - 1))
+                if mes_int == 1
+                else (f"{mes_int - 1:02d}", str(ano_int))
+            )
+
             prefixo_atual = f"{ano_selecionado}-{mes_selecionado}"
             prefixo_anterior = f"{ano_ant_str}-{mes_ant_str}"
 
             if "tipo" in df.columns:
-                df_despesas = df[df["tipo"].astype(str).str.lower() == "despesa"].copy()
+                df_despesas = df[
+                    df["tipo"].astype(str).str.lower() == "despesa"
+                ].copy()
             else:
                 df_despesas = pd.DataFrame()
 
             if not df_despesas.empty and "data" in df_despesas.columns:
-                df_atual = df_despesas[df_despesas["data"].astype(str).str.startswith(prefixo_atual)]
-                df_ant = df_despesas[df_despesas["data"].astype(str).str.startswith(prefixo_anterior)]
+                df_atual = df_despesas[
+                    df_despesas["data"].astype(str).str.startswith(prefixo_atual)
+                ]
+                df_ant = df_despesas[
+                    df_despesas["data"]
+                    .astype(str)
+                    .str.startswith(prefixo_anterior)
+                ]
 
                 if not df_atual.empty and not df_ant.empty:
                     cat_atual = df_atual.groupby("categoria")["valor"].sum()
@@ -622,13 +877,25 @@ def gerar_insights_financeiros(usuario_id, mes_selecionado, ano_selecionado, mov
 
                             if variacao >= 20:
                                 insights.append({
-                                    "tipo": "warning", "icone": "⚠️", "titulo": f"Aumento em {cat}",
-                                    "texto": f"Seus gastos com **{cat}** aumentaram **{variacao:.0f}%** este mês em relação ao anterior."
+                                    "tipo": "warning",
+                                    "icone": "⚠️",
+                                    "titulo": f"Aumento em {cat}",
+                                    "texto": (
+                                        f"Seus gastos com **{cat}** aumentaram"
+                                        f" **{variacao:.0f}%** este mês em"
+                                        " relação ao anterior."
+                                    ),
                                 })
                             elif variacao <= -20:
                                 insights.append({
-                                    "tipo": "success", "icone": "🎉", "titulo": f"Economia em {cat}",
-                                    "texto": f"Ótimo trabalho! Seus gastos com **{cat}** reduziram **{abs(variacao):.0f}%** este mês."
+                                    "tipo": "success",
+                                    "icone": "🎉",
+                                    "titulo": f"Economia em {cat}",
+                                    "texto": (
+                                        f"Ótimo trabalho! Seus gastos com"
+                                        f" **{cat}** reduziram"
+                                        f" **{abs(variacao):.0f}%** este mês."
+                                    ),
                                 })
         except Exception:
             pass
@@ -639,113 +906,175 @@ def gerar_insights_financeiros(usuario_id, mes_selecionado, ano_selecionado, mov
             if alvo > 0:
                 pct = (guardado / alvo) * 100
                 if 85 <= pct < 100:
-                    insights.append({"tipo": "success", "icone": "🎯", "titulo": f"Meta {nome_meta}", "texto": f"Você já atingiu **{pct:.0f}%** da sua meta **'{nome_meta}'**!"})
+                    insights.append({
+                        "tipo": "success",
+                        "icone": "🎯",
+                        "titulo": f"Meta {nome_meta}",
+                        "texto": (
+                            f"Você já atingiu **{pct:.0f}%** da sua meta"
+                            f" **'{nome_meta}'**!"
+                        ),
+                    })
                 elif pct >= 100:
-                    insights.append({"tipo": "success", "icone": "🏆", "titulo": "Meta Concluída!", "texto": f"Parabéns! Você alcançou **100%** do seu objetivo **'{nome_meta}'**!"})
+                    insights.append({
+                        "tipo": "success",
+                        "icone": "🏆",
+                        "titulo": "Meta Concluída!",
+                        "texto": (
+                            f"Parabéns! Você alcançou **100%** do seu objetivo"
+                            f" **'{nome_meta}'**!"
+                        ),
+                    })
 
     if "tipo" in df.columns and "valor" in df.columns:
-        tot_rec = df[df["tipo"].astype(str).str.lower() == "receita"]["valor"].sum()
-        tot_desp = df[df["tipo"].astype(str).str.lower() == "despesa"]["valor"].sum()
+        tot_rec = df[df["tipo"].astype(str).str.lower() == "receita"][
+            "valor"
+        ].sum()
+        tot_desp = df[df["tipo"].astype(str).str.lower() == "despesa"][
+            "valor"
+        ].sum()
 
         if tot_rec > 0:
             pct_comprometido = (tot_desp / tot_rec) * 100
             if pct_comprometido >= 85:
-                insights.append({"tipo": "error", "icone": "🚨", "titulo": "Alerta de Orçamento", "texto": f"Suas despesas já comprometeram **{pct_comprometido:.0f}%** da sua receita do período."})
+                insights.append({
+                    "tipo": "error",
+                    "icone": "🚨",
+                    "titulo": "Alerta de Orçamento",
+                    "texto": (
+                        f"Suas despesas já comprometeram"
+                        f" **{pct_comprometido:.0f}%** da sua receita do"
+                        " período."
+                    ),
+                })
 
     return insights
 
-# ==========================================
-# GESTÃO DE CONTAS A RECEBER
-# ==========================================
 
-@st.cache_data(ttl=60)
-def carregar_contas_a_receber(usuario_id):
-    """
-    Busca todas as receitas pendentes (pago = FALSE) do usuário.
-    """
-    url = f"{SUPABASE_URL}/rest/v1/movimentacoes?usuario_id=eq.{usuario_id}&tipo=eq.Receita&pago=eq.false&select=*&order=data.asc"
-    res = requests.get(url, headers=HEADERS)
-    return res.json() if res.status_code == 200 else []
+# --- 🟢 NOVO: INTERFACE DA ABA CONTAS A RECEBER ---
 
 
-def dar_baixa_receita(movimentacao_id):
-    """
-    Marca a receita como totalmente recebida (pago = TRUE).
-    """
-    url = f"{SUPABASE_URL}/rest/v1/movimentacoes?id=eq.{movimentacao_id}"
-    payload = {"pago": True}
-    
-    res = requests.patch(url, headers=HEADERS, json=payload)
-    st.cache_data.clear()
-    return res.status_code == 200
-
-
-def salvar_conta_a_receber(usuario_id, descricao, valor, data_prevista, categoria=None, conta_id=None, forma_pag="Pix"):
-    """
-    Cadastra uma nova receita pendente de recebimento futuro (pago = FALSE).
-    """
-    url = f"{SUPABASE_URL}/rest/v1/movimentacoes"
-    payload = {
-        "usuario_id": usuario_id,
-        "descricao": descricao,
-        "valor": float(valor),
-        "tipo": "Receita",
-        "data": data_prevista.strftime('%Y-%m-%d') if hasattr(data_prevista, 'strftime') else str(data_prevista),
-        "categoria": categoria,
-        "conta_id": conta_id,
-        "forma_pag": forma_pag,
-        "pago": False
-    }
-    
-    res = requests.post(url, headers=HEADERS, json=payload)
-    st.cache_data.clear()
-    return res.status_code in [200, 201]
-
-
-def atualizar_conta_a_receber(movimentacao_id, nova_descricao, novo_valor, nova_data, nova_categoria=None):
-    """
-    Edita os dados de uma receita pendente (ex: alterar descrição, valor ou adiar vencimento).
-    """
-    url = f"{SUPABASE_URL}/rest/v1/movimentacoes?id=eq.{movimentacao_id}"
-    payload = {
-        "descricao": nova_descricao,
-        "valor": float(novo_valor),
-        "data": nova_data.strftime('%Y-%m-%d') if hasattr(nova_data, 'strftime') else str(nova_data),
-        "categoria": nova_categoria
-    }
-    res = requests.patch(url, headers=HEADERS, json=payload)
-    st.cache_data.clear()
-    return res.status_code == 200
-
-
-def receber_pagamento_parcial(movimentacao_id, valor_pago, valor_total_atual, descricao_atual, usuario_id, conta_id=None, categoria=None):
-    """
-    Lida com recebimentos parciais (abatimentos):
-    1. Registra a parte PAGA como entrada/receita confirmada de hoje (pago = TRUE).
-    2. Atualiza o saldo pendente restante na movimentação original (pago = FALSE).
-    """
-    valor_restante = float(valor_total_atual) - float(valor_pago)
-    
-    # 1. Registra no caixa o dinheiro que efetivamente entrou hoje
-    salvar_movimentacao(
-        user_id=usuario_id,
-        descricao=f"{descricao_atual} (Recebimento Parcial)",
-        valor=float(valor_pago),
-        tipo="Receita",
-        data_mov=date.today(),
-        categoria_id=categoria,
-        conta_id=conta_id,
-        pago=True
+def render_aba_contas_a_receber(usuario_id):
+    """Componente visual para a aba de Contas a Receber completamente autônomo."""
+    st.title("📥 Contas a Receber (Independente)")
+    st.caption(
+        "Gerencie suas cobranças e receitas futuras sem alterar saldos bancários."
     )
-    
-    # 2. Se sobrou saldo a receber, atualiza o valor da conta pendente
-    if valor_restante > 0:
-        url = f"{SUPABASE_URL}/rest/v1/movimentacoes?id=eq.{movimentacao_id}"
-        payload = {"valor": valor_restante}
-        requests.patch(url, headers=HEADERS, json=payload)
+
+    # 1. FORMULÁRIO DE CADASTRO
+    with st.expander("➕ Cadastrar Nova Conta a Receber", expanded=False):
+        with st.form("form_novo_recebivel", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                descricao = st.text_input(
+                    "Descrição / Cliente (Ex: João - Serviço X)"
+                )
+                valor = st.number_input(
+                    "Valor (R$)", min_value=0.01, step=10.0, format="%.2f"
+                )
+                categoria = st.selectbox(
+                    "Categoria",
+                    [
+                        "Vendas",
+                        "Serviços",
+                        "Salário",
+                        "Aluguel",
+                        "Empréstimo",
+                        "Outros",
+                    ],
+                )
+
+            with col2:
+                data_vencimento = st.date_input(
+                    "Data Prevista de Recebimento"
+                )
+                forma_pagamento = st.selectbox(
+                    "Forma de Pagamento Combinada",
+                    ["Pix", "Boleto", "Cartão", "Dinheiro", "A Combinar"],
+                )
+                status_inicial = st.selectbox(
+                    "Status Inicial", ["Pendente", "Recebido"]
+                )
+
+            submitted = st.form_submit_button("💾 Salvar Registro")
+
+            if submitted:
+                if not descricao:
+                    st.error("Por favor, preencha a descrição do recebimento.")
+                else:
+                    status_bool = status_inicial == "Recebido"
+                    sucesso = salvar_movimentacao(
+                        usuario_id=usuario_id,
+                        conta_id=None,  # 💡 Totalmente desvinculado de conta
+                        descricao=descricao,
+                        valor=valor,
+                        tipo="Receita",
+                        forma_pagamento=forma_pagamento,
+                        data_str=str(data_vencimento),
+                        categoria=categoria,
+                        pago=status_bool,
+                    )
+                    if sucesso:
+                        st.success("Conta a receber cadastrada com sucesso!")
+                        st.rerun()
+
+    st.markdown("---")
+
+    # 2. FILTROS E EXIBIÇÃO
+    filtro_status = st.radio(
+        "Exibir:", ["Pendentes", "Recebidos", "Todos"], horizontal=True
+    )
+    registros = buscar_contas_a_receber(usuario_id, filtro_status)
+
+    total = sum(float(m.get("valor", 0)) for m in registros)
+    st.metric(
+        label=f"Total em Exibição ({filtro_status})",
+        value=formatar_moeda_ptbr(total),
+    )
+
+    if not registros:
+        st.info("Nenhum lançamento encontrado para os filtros selecionados.")
     else:
-        # Se pagou tudo ou a mais, liquida totalmente a pendência original
-        dar_baixa_receita(movimentacao_id)
-        
-    st.cache_data.clear()
-    return True
+        for item in registros:
+            pago = item.get("pago", False)
+            status_cor = ":green[Recebido]" if pago else ":red[Pendente]"
+
+            with st.container(border=True):
+                col_info, col_acoes = st.columns([3, 1.2])
+
+                with col_info:
+                    val_fmt = formatar_moeda_ptbr(float(item.get("valor", 0)))
+                    st.markdown(
+                        f"**{item.get('descricao')}** — **{val_fmt}** ({status_cor})"
+                    )
+                    st.caption(
+                        f"📅 Data: {item.get('data')} | 🗂️ Categoria:"
+                        f" {item.get('categoria')} | 💳 Forma:"
+                        f" {item.get('forma_pagamento')}"
+                    )
+
+                with col_acoes:
+                    # Botão Alternar Status
+                    txt_btn = (
+                        "↩️ Mudar p/ Pendente"
+                        if pago
+                        else "✅ Marcar Recebido"
+                    )
+                    if st.button(
+                        txt_btn,
+                        key=f"status_rec_{item['id']}",
+                        use_container_width=True,
+                    ):
+                        if alternar_status_contas_a_receber(
+                            item["id"], pago
+                        ):
+                            st.rerun()
+
+                    # Botão Excluir
+                    if st.button(
+                        "🗑️ Excluir",
+                        key=f"del_rec_{item['id']}",
+                        use_container_width=True,
+                    ):
+                        if excluir_conta_a_receber(usuario_id, item["id"]):
+                            st.rerun()

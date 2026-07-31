@@ -1906,3 +1906,240 @@ elif opcao == "💳 Cartões & Faturas":
                     st.error("Erro ao excluir o cartão.")
         else:
             st.info("Nenhum cartão cadastrado para gerenciar no momento.")
+
+# --- CONTAS A RECEBER COM EDIÇÃO COMPLETA ---
+elif opcao == "💰 Contas a Receber":
+    st.title("💰 Contas a Receber")
+    st.caption(
+        "Gerencie todas as suas entradas e receitas previstas. Edite valores e datas ou confirme o recebimento com 1 clique."
+    )
+
+    dias_filtro = st.slider(
+        "Visualizar recebimentos para os próximos (dias):",
+        min_value=5,
+        max_value=90,
+        value=30,
+        step=5,
+    )
+
+    vencimentos_raw = buscar_vencimentos_proximos(
+        st.session_state["usuario_id"], dias=dias_filtro
+    )
+
+    if vencimentos_raw:
+        df_venc = pd.DataFrame(vencimentos_raw)
+
+        if "tipo" in df_venc.columns:
+            df_receitas = df_venc[df_venc["tipo"].str.lower() == "receita"].copy()
+        else:
+            df_receitas = pd.DataFrame()
+    else:
+        df_receitas = pd.DataFrame()
+
+    if df_receitas.empty:
+        st.success(
+            f"🎉 Nenhuma receita pendente ou prevista para os próximos {dias_filtro} dias!"
+        )
+    else:
+        if "pago" not in df_receitas.columns:
+            df_receitas["pago"] = False
+        else:
+            df_receitas["pago"] = df_receitas["pago"].fillna(False)
+
+        df_pendentes = df_receitas[df_receitas["pago"] == False].copy()
+        df_recebidas = df_receitas[df_receitas["pago"] == True].copy()
+
+        hoje_dt = pd.to_datetime("today").normalize()
+        if not df_pendentes.empty:
+            df_pendentes["Dias_Restantes"] = (
+                pd.to_datetime(df_pendentes["data"]) - hoje_dt
+            ).dt.days
+            atrasados_qtd = len(df_pendentes[df_pendentes["Dias_Restantes"] < 0])
+        else:
+            atrasados_qtd = 0
+
+        # --- INDICADORES (KPIs) ---
+        kpi1, kpi2, kpi3 = st.columns(3)
+        with kpi1:
+            st.metric(
+                "Total a Receber",
+                fmt_moeda(df_pendentes["valor"].sum()) if not df_pendentes.empty else "R$ 0,00",
+            )
+        with kpi2:
+            st.metric("Recebimentos Pendentes", len(df_pendentes))
+        with kpi3:
+            st.metric(
+                "Em Atraso",
+                f"{atrasados_qtd} receita(s)",
+                delta_color="inverse" if atrasados_qtd > 0 else "normal",
+            )
+
+        st.markdown("---")
+
+        # --- PAINEL DE RECEITAS PENDENTES ---
+        st.subheader(f"⏳ Recebimentos Pendentes ({len(df_pendentes)})")
+
+        if df_pendentes.empty:
+            st.success("👏 Todos os recebimentos do período foram confirmados!")
+        else:
+            df_pendentes["Valor_Fmt"] = df_pendentes["valor"].apply(lambda v: fmt_moeda(v))
+            df_pendentes["Data_Fmt"] = pd.to_datetime(df_pendentes["data"]).dt.strftime("%d/%m/%Y")
+
+            for _, row in df_pendentes.iterrows():
+                id_lanc = row["id"]
+                dias = int(row["Dias_Restantes"])
+
+                if dias == 0:
+                    badge = "🟢 **RECEBER HOJE!**"
+                elif dias < 0:
+                    badge = f"🚨 **EM ATRASO HÁ {abs(dias)} DIA(S)!**"
+                else:
+                    badge = f"⏳ A receber em {dias} dia(s)"
+
+                with st.expander(
+                    f"💰 {row['Data_Fmt']} — {row['descricao']} | {row['Valor_Fmt']}"
+                ):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.write(f"**Categoria:** {row.get('categoria', 'Sem categoria')}")
+                        st.write(f"**Forma prevista:** {row.get('forma_pagamento', 'Não informada')}")
+                    with c2:
+                        st.write(f"**Status:** {badge}")
+
+                    st.markdown("---")
+
+                    # Botões de Ação Principal
+                    col_btn_confirmar, col_btn_edit, col_btn_del = st.columns([2, 1, 1])
+
+                    with col_btn_confirmar:
+                        if st.button(
+                            "✅ Confirmar Recebimento",
+                            key=f"rec_ok_{id_lanc}",
+                            type="primary",
+                            use_container_width=True,
+                        ):
+                            if marcar_lancamento_como_pago(id_lanc):
+                                st.cache_data.clear()
+                                st.success("Valor recebido e creditado com sucesso!")
+                                st.rerun()
+                            else:
+                                st.error("Erro ao confirmar o recebimento.")
+
+                    # Controle de Estado para Abrir Formulário de Edição Inline
+                    key_edit = f"edit_mode_{id_lanc}"
+                    if key_edit not in st.session_state:
+                        st.session_state[key_edit] = False
+
+                    with col_btn_edit:
+                        if st.button(
+                            "✏️ Editar",
+                            key=f"btn_toggle_edit_{id_lanc}",
+                            use_container_width=True,
+                        ):
+                            st.session_state[key_edit] = not st.session_state[key_edit]
+
+                    with col_btn_del:
+                        if st.button(
+                            "🗑️ Excluir",
+                            key=f"rec_del_{id_lanc}",
+                            use_container_width=True,
+                        ):
+                            if excluir_lancamento_pendente(id_lanc):
+                                st.cache_data.clear()
+                                st.warning("Lançamento removido com sucesso!")
+                                st.rerun()
+                            else:
+                                st.error("Erro ao excluir o lançamento.")
+
+                    # FORMULÁRIO DE EDIÇÃO DO LANÇAMENTO
+                    if st.session_state[key_edit]:
+                        st.markdown("---")
+                        st.markdown("#### 📝 Editar Dados da Receita")
+
+                        # Conversão segura da data atual do banco
+                        try:
+                            data_orig = pd.to_datetime(row["data"]).date()
+                        except Exception:
+                            data_orig = pd.to_datetime("today").date()
+
+                        with st.form(key=f"form_editar_receita_{id_lanc}"):
+                            col_e1, col_e2 = st.columns(2)
+                            with col_e1:
+                                nov_desc = st.text_input("Descrição", value=str(row["descricao"]))
+                                nov_val = st.number_input(
+                                    "Valor (R$)",
+                                    min_value=0.01,
+                                    value=float(row["valor"]),
+                                    step=10.0,
+                                )
+                            with col_e2:
+                                nov_data = st.date_input("Data Prevista", value=data_orig, format="DD/MM/YYYY")
+                                nov_cat = st.selectbox(
+                                    "Categoria",
+                                    CATEGORIAS_RECEITAS,
+                                    index=CATEGORIAS_RECEITAS.index(row["categoria"])
+                                    if row.get("categoria") in CATEGORIAS_RECEITAS
+                                    else 0,
+                                )
+
+                            nov_forma = st.selectbox(
+                                "Forma de Recebimento Prevista",
+                                ["Pix", "Dinheiro", "Boleto", "Cartão de Crédito", "Cartão de Débito"],
+                                index=0,
+                            )
+
+                            if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
+                                # Salva as alterações sobrescrevendo os dados usando a função de salvar
+                                data_str = nov_data.strftime("%Y-%m-%d")
+                                
+                                # 1. Remove o registro antigo/pendente e recria com os novos dados
+                                if excluir_lancamento_pendente(id_lanc):
+                                    sucesso = salvar_movimentacao(
+                                        usuario_id=st.session_state["usuario_id"],
+                                        conta_id=row.get("conta_id"),
+                                        descricao=nov_desc,
+                                        valor=nov_val,
+                                        tipo="Receita",
+                                        forma_pagamento=nov_forma,
+                                        data_str=data_str,
+                                        categoria=nov_cat,
+                                        tags=row.get("tags", ""),
+                                    )
+                                    if sucesso:
+                                        st.session_state[key_edit] = False
+                                        st.cache_data.clear()
+                                        st.success("Receita atualizada com sucesso!")
+                                        st.rerun()
+                                    else:
+                                        st.error("Erro ao salvar os novos dados da receita.")
+                                else:
+                                    st.error("Erro ao atualizar o registro.")
+
+        # --- PAINEL DE RECEITAS JÁ CONFIRMADAS ---
+        if not df_recebidas.empty:
+            st.markdown("---")
+            with st.expander(f"✅ Receitas Já Confirmadas no Período ({len(df_recebidas)})"):
+                df_recebidas["Valor_Fmt"] = df_recebidas["valor"].apply(lambda v: fmt_moeda(v))
+                df_recebidas["Data_Fmt"] = pd.to_datetime(df_recebidas["data"]).dt.strftime("%d/%m/%Y")
+
+                for _, row in df_recebidas.iterrows():
+                    id_lanc = row["id"]
+                    col_info, col_btn = st.columns([3, 1])
+
+                    with col_info:
+                        st.write(
+                            f"🟢 **{row['Data_Fmt']}** — {row['descricao']} | **{row['Valor_Fmt']}**"
+                        )
+
+                    with col_btn:
+                        if st.button(
+                            "↩️ Estornar / Desfazer",
+                            key=f"rec_desfazer_{id_lanc}",
+                            use_container_width=True,
+                        ):
+                            if desfazer_pagamento_lancamento(id_lanc):
+                                st.cache_data.clear()
+                                st.warning("Recebimento estornado. Voltou para Pendentes.")
+                                st.rerun()
+                            else:
+                                st.error("Erro ao estornar o recebimento.")
