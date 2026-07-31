@@ -427,6 +427,7 @@ opcoes_menu = [
     "🏦 Gerir Contas",
     "💸 Lançar Movimentações",
     "💳 Cartões & Faturas",
+    "💰 Contas a Receber",
     "📅 Próximos Vencimentos",     # <--- Nova opção 
     "🎯 Metas de Economia", 
     "🎯 Orçamentos por Categoria",  # <--- Nova opção
