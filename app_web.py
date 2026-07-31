@@ -1915,65 +1915,11 @@ elif opcao == "💳 Cartões & Faturas":
 # --- TELA: CONTAS A RECEBER ---
 elif opcao == "💰 Contas a Receber":
     st.title("💰 Contas a Receber")
-    st.caption(
-        "Gerencie todas as suas entradas e receitas previstas. Edite valores e datas ou confirme o recebimento com 1 clique."
-    )
-
-    dias_previsao = st.slider(
-        "Visualizar recebimentos para os próximos (dias):",
-        min_value=1,
-        max_value=90,
-        value=5,
-    )
-
-    try:
-        recebimentos_pendentes = buscar_vencimentos_proximos(
-            st.session_state["usuario_id"], dias=dias_previsao, tipo="receita"
-        )
-    except TypeError:
-        recebimentos_pendentes = buscar_vencimentos_proximos(
-            st.session_state["usuario_id"]
-        )
-
-    if not recebimentos_pendentes:
-        st.success(
-            f"🎉 Nenhuma receita pendente ou prevista para os próximos {dias_previsao} dias!"
-        )
-    else:
-        for idx, item in enumerate(recebimentos_pendentes):
-            # Tratamento seguro: aceita tanto Dicionário quanto Lista/Tupla
-            if isinstance(item, dict):
-                rec_id = item.get("id", idx)
-                descricao = item.get("descricao", item.get("nome", "Sem descrição"))
-                data_venc = item.get("data_vencimento", item.get("data", "N/A"))
-                valor = float(item.get("valor", 0.0))
-            else:
-                rec_id = item[0]
-                descricao = item[1]
-                data_venc = item[2]
-                valor = float(item[3])
-
-            c1, c2, c3, c4 = st.columns([2, 2, 1.5, 1])
-            c1.write(f"📌 **{descricao}**")
-            c2.write(f"📅 Vencimento: {data_venc}")
-            c3.write(f"💰 **{fmt_moeda(valor)}**")
-            
-            with c4:
-                if st.button(
-                    "✅ Baixar", key=f"btn_rec_{rec_id}_{idx}", use_container_width=True
-                ):
-                    marcar_lancamento_como_pago(rec_id)
-                    st.success("Recebimento confirmado!")
-                    st.rerun()
-
-# --- TELA: CONTAS A RECEBER ---
-elif opcao == "💰 Contas a Receber":
-    st.title("💰 Contas a Receber")
     st.caption("Gerencie quem te deve e acompanhe os recebimentos previstos.")
 
     usuario_id = st.session_state["usuario_id"]
 
-    # 1. Formulário para Cadastrar Devedor / Cobrança
+    # 1. FORMULÁRIO DE CADASTRO
     with st.expander("➕ Cadastrar Nova Conta a Receber", expanded=False):
         with st.form("form_novo_recebivel", clear_on_submit=True):
             col1, col2 = st.columns(2)
@@ -2002,15 +1948,24 @@ elif opcao == "💰 Contas a Receber":
 
     st.markdown("---")
 
-    # 2. Listagem e Filtros
+    # 2. FILTROS E EXIBIÇÃO DEDICADA DA TABELA 'contas_receber'
     filtro_status = st.radio("Exibir:", ["Pendentes", "Recebidos", "Todos"], horizontal=True)
+    
+    # 🎯 Busca DIRETA na tabela 'contas_receber'
     registros = buscar_contas_a_receber(usuario_id, filtro_status)
 
     total = sum(float(m.get("valor", 0)) for m in registros)
-    st.metric(label=f"Total em Exibição ({filtro_status})", value=fmt_moeda(total))
+    
+    # Tenta usar a função de formatação do app ou aplica uma padrão
+    try:
+        val_total_fmt = fmt_moeda(total)
+    except NameError:
+        val_total_fmt = f"R$ {total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        
+    st.metric(label=f"Total em Exibição ({filtro_status})", value=val_total_fmt)
 
     if not registros:
-        st.info("Nenhum lançamento encontrado para os filtros selecionados.")
+        st.info("Nenhum lançamento encontrado na sua lista de Contas a Receber.")
     else:
         for item in registros:
             recebido = item.get("recebido", False)
@@ -2020,8 +1975,13 @@ elif opcao == "💰 Contas a Receber":
                 col_info, col_acoes = st.columns([3, 1.2])
 
                 with col_info:
-                    val_fmt = fmt_moeda(float(item.get("valor", 0)))
-                    st.markdown(f"👤 **{item.get('descricao')}** — **{val_fmt}** ({status_cor})")
+                    val_item = float(item.get("valor", 0))
+                    try:
+                        val_item_fmt = fmt_moeda(val_item)
+                    except NameError:
+                        val_item_fmt = f"R$ {val_item:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                    st.markdown(f"👤 **{item.get('descricao')}** — **{val_item_fmt}** ({status_cor})")
                     st.caption(f"📅 Data Prevista: {item.get('data_recebimento')}")
 
                 with col_acoes:
