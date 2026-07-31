@@ -1914,13 +1914,6 @@ elif opcao == "💳 Cartões & Faturas":
 
 # --- ABA / OPÇÃO VALORES A RECEBER ---
 elif opcao == "💰 Valores a Receber":
-    st.write("### 💰 Valores a Receber")
-
-    sub_listar, sub_cadastrar = st.tabs(["📋 Lista de Recebíveis", "➕ Novo Lançamento"])
-
-# --- ABA / OPÇÃO VALORES A RECEBER ---
-elif opcao == "💰 Valores a Receber":
-    # Garante que o usuario_id seja recuperado da sessão sem gerar alerta
     usuario_id = st.session_state.get("usuario_id")
 
     st.write("### 💰 Valores a Receber")
@@ -1960,7 +1953,6 @@ elif opcao == "💰 Valores a Receber":
                         with col_v:
                             novo_valor = st.number_input("Valor (R$)", min_value=0.0, value=valor, step=10.0, key=f"edit_val_{item_id}")
                         with col_d:
-                            # Converte a data texto do banco para objeto date para o st.date_input
                             try:
                                 dt_obj = datetime.strptime(data_rec, "%Y-%m-%d").date() if data_rec else datetime.now().date()
                             except Exception:
@@ -1980,7 +1972,8 @@ elif opcao == "💰 Valores a Receber":
                         st.write("")
                         if st.button("💾 Salvar Alterações", key=f"btn_salvar_rec_{item_id}", use_container_width=True):
                             data_formatada = nova_data.strftime("%Y-%m-%d")
-                            if atualizar_valor_a_receber(usuario_id, item_id, novo_nome, novo_valor, nova_desc, novo_telegram, novo_telefone):
+                            # Passando a data_formatada corretamente no envio
+                            if atualizar_valor_a_receber(usuario_id, item_id, novo_nome, novo_valor, nova_desc, data_formatada, novo_telegram, novo_telefone):
                                 st.success("Registro atualizado com sucesso!")
                                 st.rerun()
 

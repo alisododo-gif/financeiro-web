@@ -290,12 +290,13 @@ def cadastrar_valor_a_receber(usuario_id, nome, valor, descricao, data_str, tele
     st.error(f"Erro ao cadastrar ({res.status_code}): {res.text}")
     return False
 
-def atualizar_valor_a_receber(usuario_id, item_id, nome, valor, descricao, telegram_id=None, telefone=None):
+def atualizar_valor_a_receber(usuario_id, item_id, nome, valor, descricao, data_str=None, telegram_id=None, telefone=None):
     url = f"{BASE_URL}/valores_a_receber?id=eq.{item_id}&usuario_id=eq.{usuario_id}"
     payload = {
         "nome": str(nome),
         "valor": float(valor),
         "descricao": str(descricao) if descricao else None,
+        "data": str(data_str) if data_str else None,
         "telegram_id": int(telegram_id) if (telegram_id and str(telegram_id).isdigit()) else None,
         "telefone": str(telefone) if telefone else None
     }
@@ -303,7 +304,7 @@ def atualizar_valor_a_receber(usuario_id, item_id, nome, valor, descricao, teleg
     if res.status_code in [200, 204]:
         st.cache_data.clear()
         return True
-    st.error(f"Erro ao atualizar ({res.status_code}): {res.text}")
+    st.error(f"❌ Erro ao atualizar ({res.status_code}): {res.text}")
     return False
 
 def excluir_valor_a_receber(usuario_id, item_id):
