@@ -1955,7 +1955,8 @@ elif opcao == "💰 Valores a Receber":
                                 dt_obj = datetime.strptime(data_rec, "%Y-%m-%d").date() if data_rec else datetime.now().date()
                             except Exception:
                                 dt_obj = datetime.now().date()
-                            nova_data = st.date_input("Data", value=dt_obj, key=f"edit_data_{item_id}")
+                            # Formatação da data para o padrão brasileiro na edição
+                            nova_data = st.date_input("Data", value=dt_obj, format="DD/MM/YYYY", key=f"edit_data_{item_id}")
 
                         nova_desc = st.text_area("Descrição", value=descricao, key=f"edit_desc_{item_id}")
 
@@ -1982,7 +1983,8 @@ elif opcao == "💰 Valores a Receber":
             nome = st.text_input("Nome (Pessoa / Empresa)")
             valor = st.number_input("Valor a Receber (R$)", min_value=0.0, step=10.0)
             descricao = st.text_area("Descrição / Observação (Ex: Venda, empréstimo, serviço)")
-            data_lancamento = st.date_input("Data do Ocorrido")
+            # Formatação da data para o padrão brasileiro no novo cadastro
+            data_lancamento = st.date_input("Data do Ocorrido", format="DD/MM/YYYY")
 
             if st.form_submit_button("Salvar Lançamento", use_container_width=True):
                 if nome and valor > 0:
