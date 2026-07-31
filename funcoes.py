@@ -1008,3 +1008,22 @@ def excluir_conta_a_receber(usuario_id, mov_id):
         st.cache_data.clear()
         return True
     return False
+
+def atualizar_conta_a_receber(
+    mov_id, usuario_id, nova_descricao, novo_valor, nova_data
+):
+    """Atualiza descrição, valor e data de um registro existente."""
+    url = (
+        f"{BASE_URL}/contas_receber?id=eq.{mov_id}&usuario_id=eq.{usuario_id}"
+    )
+    payload = {
+        "descricao": str(nova_descricao),
+        "valor": float(novo_valor),
+        "data_recebimento": str(nova_data),
+    }
+    res = requests.patch(url, headers=HEADERS, json=payload)
+    if res.status_code in [200, 204]:
+        st.cache_data.clear()
+        return True
+    st.error(f"Erro ao atualizar: {res.text}")
+    return False

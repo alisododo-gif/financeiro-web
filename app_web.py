@@ -60,7 +60,8 @@ from funcoes import (
     excluir_conta_a_receber,
     alternar_status_contas_a_receber,
     salvar_conta_a_receber,
-    buscar_contas_a_receber
+    buscar_contas_a_receber,
+    atualizar_conta_a_receber
 )
 
 from views import render_sidebar_footer
@@ -1928,7 +1929,7 @@ elif opcao == "💰 Contas a Receber":
                 valor = st.number_input("Valor (R$)", min_value=0.01, step=10.0, format="%.2f")
 
             with col2:
-                data_recebimento = st.date_input("Data Prevista do Recebimento")
+                data_recebimento = st.date_input("Data Prevista do Recebimento", format="DD/MM/YYYY")
 
             submitted = st.form_submit_button("💾 Salvar Registro")
 
@@ -1948,15 +1949,12 @@ elif opcao == "💰 Contas a Receber":
 
     st.markdown("---")
 
-    # 2. FILTROS E EXIBIÇÃO DEDICADA DA TABELA 'contas_receber'
+    # 2. FILTROS E EXIBIÇÃO
     filtro_status = st.radio("Exibir:", ["Pendentes", "Recebidos", "Todos"], horizontal=True)
-    
-    # 🎯 Busca DIRETA na tabela 'contas_receber'
     registros = buscar_contas_a_receber(usuario_id, filtro_status)
 
     total = sum(float(m.get("valor", 0)) for m in registros)
     
-    # Tenta usar a função de formatação do app ou aplica uma padrão
     try:
         val_total_fmt = fmt_moeda(total)
     except NameError:
@@ -1970,6 +1968,14 @@ elif opcao == "💰 Contas a Receber":
         for item in registros:
             recebido = item.get("recebido", False)
             status_cor = "🟢 Recebido" if recebido else "🔴 Pendente"
+            
+            # Formatação visual da data para BR (AAAA-MM-DD -> DD/MM/AAAA)
+            raw_data = str(item.get("data_recebimento", ""))
+            try:
+                data_dt = datetime.strptime(raw_data, "%Y-%m-%d")
+                data_fmt = data_dt.strftime("%d/%m/%Y")
+            except Exception:
+                data_fmt = raw_data
 
             with st.container(border=True):
                 col_info, col_acoes = st.columns([3, 1.2])
@@ -1982,7 +1988,7 @@ elif opcao == "💰 Contas a Receber":
                         val_item_fmt = f"R$ {val_item:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
                     st.markdown(f"👤 **{item.get('descricao')}** — **{val_item_fmt}** ({status_cor})")
-                    st.caption(f"📅 Data Prevista: {item.get('data_recebimento')}")
+                    st.caption(f"📅 Data Prevista: {data_fmt}")
 
                 with col_acoes:
                     txt_btn = "↩️ Mudar p/ Pendente" if recebido else "✅ Marcar Recebido"
@@ -1993,3 +1999,22 @@ elif opcao == "💰 Contas a Receber":
                     if st.button("🗑️ Excluir", key=f"del_rec_{item['id']}", use_container_width=True):
                         if excluir_conta_a_receber(usuario_id, item["id"]):
                             st.rerun()
+
+                # Área de Edição (Alterar valor/data/nome)
+                with st.expander("✏️ Editar dados deste registro"):
+                    with st.form(key=f"form_edit_{item['id']}"):
+                        e_desc = st.text_input("Descrição", value=item.get("descricao", ""))
+                        e_valor = st.number_input("Valor (R$)", value=float(item.get("valor", 0.0)), step=10.0, format="%.2f")
+                        
+                        try:
+                            val_date = datetime.strptime(raw_data, "%Y-%m-%d").date()
+                        except Exception:
+                            val_date = datetime.today().date()
+                            
+                        e_data = st.date_input("Data Prevista", value=val_date, format="DD/MM/YYYY")
+                        
+                        btn_salvar_edit = st.form_submit_button("💾 Salvar Alterações")
+                        if btn_salvar_edit:
+                            if atualizar_conta_a_receber(item["id"], usuario_id, e_desc, e_valor, str(e_data)):
+                                st.success("Registro atualizado com sucesso!")
+                                st.rerun()
