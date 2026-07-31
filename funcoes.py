@@ -273,32 +273,28 @@ def obter_valores_a_receber(usuario_id):
 # --- FUNÇÕES DE ESCRITA, EDIÇÃO E EXCLUSÃO (INVALIDAM O CACHE) ---
 # =====================================================================
 
-def cadastrar_valor_a_receber(usuario_id, nome, valor, descricao, data_str, telegram_id=None, telefone=None):
+def cadastrar_valor_a_receber(usuario_id, nome, valor, descricao, data_str):
     payload = {
-        "usuario_id": usuario_id,
+        "usuario_id": str(usuario_id), # Envia como string UUID compatível
         "nome": str(nome),
         "valor": float(valor),
         "descricao": str(descricao) if descricao else None,
-        "data": str(data_str),
-        "telegram_id": int(telegram_id) if (telegram_id and str(telegram_id).isdigit()) else None,
-        "telefone": str(telefone) if telefone else None
+        "data": str(data_str)
     }
     res = requests.post(f"{BASE_URL}/valores_a_receber", headers=HEADERS, json=payload)
     if res.status_code in [200, 201]:
         st.cache_data.clear()
         return True
-    st.error(f"Erro ao cadastrar ({res.status_code}): {res.text}")
+    st.error(f"❌ Erro ao cadastrar ({res.status_code}): {res.text}")
     return False
 
-def atualizar_valor_a_receber(usuario_id, item_id, nome, valor, descricao, data_str=None, telegram_id=None, telefone=None):
+def atualizar_valor_a_receber(usuario_id, item_id, nome, valor, descricao, data_str=None):
     url = f"{BASE_URL}/valores_a_receber?id=eq.{item_id}&usuario_id=eq.{usuario_id}"
     payload = {
         "nome": str(nome),
         "valor": float(valor),
         "descricao": str(descricao) if descricao else None,
-        "data": str(data_str) if data_str else None,
-        "telegram_id": int(telegram_id) if (telegram_id and str(telegram_id).isdigit()) else None,
-        "telefone": str(telefone) if telefone else None
+        "data": str(data_str) if data_str else None
     }
     res = requests.patch(url, headers=HEADERS, json=payload)
     if res.status_code in [200, 204]:
@@ -313,7 +309,7 @@ def excluir_valor_a_receber(usuario_id, item_id):
     if res.status_code in [200, 204]:
         st.cache_data.clear()
         return True
-    st.error(f"Erro ao excluir ({res.status_code}): {res.text}")
+    st.error(f"❌ Erro ao excluir ({res.status_code}): {res.text}")
     return False
 
 def cadastrar_cartao(usuario_id, nome, limite, dia_fechamento, dia_vencimento):

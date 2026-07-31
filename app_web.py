@@ -1935,8 +1935,6 @@ elif opcao == "💰 Valores a Receber":
                 valor = float(item.get("valor", 0.0))
                 descricao = item.get("descricao", "")
                 data_rec = item.get("data", "")
-                telefone_rec = item.get("telefone", "") or ""
-                telegram_rec = str(item.get("telegram_id", "")) if item.get("telegram_id") else ""
 
                 texto_valor = formatar_moeda_ptbr(valor)
                 label_expander = f"👤 {nome} — {texto_valor}"
@@ -1959,12 +1957,6 @@ elif opcao == "💰 Valores a Receber":
                                 dt_obj = datetime.now().date()
                             nova_data = st.date_input("Data", value=dt_obj, key=f"edit_data_{item_id}")
 
-                        c_tel, c_teg = st.columns(2)
-                        with c_tel:
-                            novo_telefone = st.text_input("Telefone / WhatsApp", value=telefone_rec, key=f"edit_tel_{item_id}")
-                        with c_teg:
-                            novo_telegram = st.text_input("ID Telegram", value=telegram_rec, key=f"edit_teg_{item_id}")
-
                         nova_desc = st.text_area("Descrição", value=descricao, key=f"edit_desc_{item_id}")
 
                     with col_acoes:
@@ -1972,8 +1964,7 @@ elif opcao == "💰 Valores a Receber":
                         st.write("")
                         if st.button("💾 Salvar Alterações", key=f"btn_salvar_rec_{item_id}", use_container_width=True):
                             data_formatada = nova_data.strftime("%Y-%m-%d")
-                            # Passando a data_formatada corretamente no envio
-                            if atualizar_valor_a_receber(usuario_id, item_id, novo_nome, novo_valor, nova_desc, data_formatada, novo_telegram, novo_telefone):
+                            if atualizar_valor_a_receber(usuario_id, item_id, novo_nome, novo_valor, nova_desc, data_formatada):
                                 st.success("Registro atualizado com sucesso!")
                                 st.rerun()
 
@@ -1990,20 +1981,13 @@ elif opcao == "💰 Valores a Receber":
         with st.form("form_novo_recebivel", clear_on_submit=True):
             nome = st.text_input("Nome (Pessoa / Empresa)")
             valor = st.number_input("Valor a Receber (R$)", min_value=0.0, step=10.0)
-            
-            col_tel, col_teg = st.columns(2)
-            with col_tel:
-                telefone = st.text_input("Telefone / WhatsApp (Ex: 11999998888)")
-            with col_teg:
-                telegram_id = st.text_input("ID Telegram (Opcional)")
-
             descricao = st.text_area("Descrição / Observação (Ex: Venda, empréstimo, serviço)")
             data_lancamento = st.date_input("Data do Ocorrido")
 
             if st.form_submit_button("Salvar Lançamento", use_container_width=True):
                 if nome and valor > 0:
                     data_str = data_lancamento.strftime("%Y-%m-%d")
-                    if cadastrar_valor_a_receber(usuario_id, nome, valor, descricao, data_str, telegram_id, telefone):
+                    if cadastrar_valor_a_receber(usuario_id, nome, valor, descricao, data_str):
                         st.success(f"Valor a receber de '{nome}' cadastrado com sucesso!")
                         st.rerun()
                 else:
