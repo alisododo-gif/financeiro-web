@@ -1909,7 +1909,7 @@ elif opcao == "💳 Cartões & Faturas":
             st.info("Nenhum cartão cadastrado para gerenciar no momento.")
 
 # --- TELA: CONTAS A RECEBER ---
-if opcao == "💰 Contas a Receber":
+elif opcao == "💰 Contas a Receber":
     st.title("💰 Contas a Receber")
     st.caption(
         "Gerencie todas as suas entradas e receitas previstas. Edite valores e datas ou confirme o recebimento com 1 clique."
@@ -1922,14 +1922,11 @@ if opcao == "💰 Contas a Receber":
         value=5,
     )
 
-    # Busca no banco de dados os vencimentos/recebimentos próximos
-    # Passamos o tipo "receita" para filtrar apenas entradas
     try:
         recebimentos_pendentes = buscar_vencimentos_proximos(
             st.session_state["usuario_id"], dias=dias_previsao, tipo="receita"
         )
     except TypeError:
-        # Fallback caso a função na funcoes.py receba apenas o ID do usuário
         recebimentos_pendentes = buscar_vencimentos_proximos(
             st.session_state["usuario_id"]
         )
@@ -1939,17 +1936,28 @@ if opcao == "💰 Contas a Receber":
             f"🎉 Nenhuma receita pendente ou prevista para os próximos {dias_previsao} dias!"
         )
     else:
-        df_rec = pd.DataFrame(recebimentos_pendentes)
-        # Exibe a tabela de contas a receber e botões para dar baixa/confirmar
         for idx, item in enumerate(recebimentos_pendentes):
+            # Tratamento seguro: aceita tanto Dicionário quanto Lista/Tupla
+            if isinstance(item, dict):
+                rec_id = item.get("id", idx)
+                descricao = item.get("descricao", item.get("nome", "Sem descrição"))
+                data_venc = item.get("data_vencimento", item.get("data", "N/A"))
+                valor = float(item.get("valor", 0.0))
+            else:
+                rec_id = item[0]
+                descricao = item[1]
+                data_venc = item[2]
+                valor = float(item[3])
+
             c1, c2, c3, c4 = st.columns([2, 2, 1.5, 1])
-            c1.write(f"📌 **{item[1]}**")  # Descrição
-            c2.write(f"📅 Vencimento: {item[2]}")  # Data
-            c3.write(f"💰 **{fmt_moeda(item[3])}**")  # Valor
+            c1.write(f"📌 **{descricao}**")
+            c2.write(f"📅 Vencimento: {data_venc}")
+            c3.write(f"💰 **{fmt_moeda(valor)}**")
+            
             with c4:
                 if st.button(
-                    "✅ Baixar", key=f"btn_rec_{item[0]}", use_container_width=True
+                    "✅ Baixar", key=f"btn_rec_{rec_id}_{idx}", use_container_width=True
                 ):
-                    marcar_lancamento_como_pago(item[0])
+                    marcar_lancamento_como_pago(rec_id)
                     st.success("Recebimento confirmado!")
                     st.rerun()
