@@ -57,7 +57,10 @@ from funcoes import (
     excluir_cartao,
     dados_grafico_tags,
     gerar_insights_financeiros,
-    render_aba_contas_a_receber
+    excluir_conta_a_receber,
+    alternar_status_contas_a_receber,
+    salvar_conta_a_receber,
+    buscar_contas_a_receber
 )
 
 from views import render_sidebar_footer
@@ -1965,4 +1968,68 @@ elif opcao == "💰 Contas a Receber":
 
 # --- TELA: CONTAS A RECEBER ---
 elif opcao == "💰 Contas a Receber":
-    render_aba_contas_a_receber(st.session_state["usuario_id"])
+    st.title("💰 Contas a Receber")
+    st.caption("Gerencie quem te deve e acompanhe os recebimentos previstos.")
+
+    usuario_id = st.session_state["usuario_id"]
+
+    # 1. Formulário para Cadastrar Devedor / Cobrança
+    with st.expander("➕ Cadastrar Nova Conta a Receber", expanded=False):
+        with st.form("form_novo_recebivel", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                descricao = st.text_input("Descrição / Pessoa que Deve (Ex: João - Empréstimo)")
+                valor = st.number_input("Valor (R$)", min_value=0.01, step=10.0, format="%.2f")
+
+            with col2:
+                data_recebimento = st.date_input("Data Prevista do Recebimento")
+
+            submitted = st.form_submit_button("💾 Salvar Registro")
+
+            if submitted:
+                if not descricao:
+                    st.error("Por favor, preencha a descrição/nome do devedor.")
+                else:
+                    sucesso = salvar_conta_a_receber(
+                        usuario_id=usuario_id,
+                        descricao=descricao,
+                        valor=valor,
+                        data_recebimento=str(data_recebimento),
+                    )
+                    if sucesso:
+                        st.success("Conta a receber cadastrada com sucesso!")
+                        st.rerun()
+
+    st.markdown("---")
+
+    # 2. Listagem e Filtros
+    filtro_status = st.radio("Exibir:", ["Pendentes", "Recebidos", "Todos"], horizontal=True)
+    registros = buscar_contas_a_receber(usuario_id, filtro_status)
+
+    total = sum(float(m.get("valor", 0)) for m in registros)
+    st.metric(label=f"Total em Exibição ({filtro_status})", value=fmt_moeda(total))
+
+    if not registros:
+        st.info("Nenhum lançamento encontrado para os filtros selecionados.")
+    else:
+        for item in registros:
+            recebido = item.get("recebido", False)
+            status_cor = "🟢 Recebido" if recebido else "🔴 Pendente"
+
+            with st.container(border=True):
+                col_info, col_acoes = st.columns([3, 1.2])
+
+                with col_info:
+                    val_fmt = fmt_moeda(float(item.get("valor", 0)))
+                    st.markdown(f"👤 **{item.get('descricao')}** — **{val_fmt}** ({status_cor})")
+                    st.caption(f"📅 Data Prevista: {item.get('data_recebimento')}")
+
+                with col_acoes:
+                    txt_btn = "↩️ Mudar p/ Pendente" if recebido else "✅ Marcar Recebido"
+                    if st.button(txt_btn, key=f"status_rec_{item['id']}", use_container_width=True):
+                        if alternar_status_contas_a_receber(item["id"], recebido):
+                            st.rerun()
+
+                    if st.button("🗑️ Excluir", key=f"del_rec_{item['id']}", use_container_width=True):
+                        if excluir_conta_a_receber(usuario_id, item["id"]):
+                            st.rerun()
