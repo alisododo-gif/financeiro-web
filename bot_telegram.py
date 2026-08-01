@@ -195,7 +195,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tags_final = " ".join([f"#{t.lower()}" for t in tags_encontradas]) if tags_encontradas else None
     texto_sem_tags = re.sub(r"#\w+", "", texto).strip()
 
-    # 2. Extrai data personalizada (Ex: 15/08 ou 15/08/2026).
+    # 2. Extrai data personalizada (Ex: 15/08 ou 15/08/2026). SE NÃO HOUVER, USA HOJE.
     match_data = re.search(r"\b(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b", texto_sem_tags)
     now = datetime.now()
 
@@ -215,6 +215,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data_final = f"{ano}-{mes}-{dia}"
         texto_sem_tags = re.sub(r"\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b", "", texto_sem_tags).strip()
     else:
+        # DATA ATUAL SE NENHUMA DATA FOR DIGITADA
         data_final = now.strftime("%Y-%m-%d")
 
     # 3. Extrai valor e descrição
@@ -227,11 +228,8 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Exemplos aceitos:\n"
             "• `120.00 Internet fixo` (Usa a data de hoje)\n"
             "• `120.00 Internet fixo 15/08` (Usa a data 15/08)\n"
-            "• `290.00 Teste receber 15/08` ( Lançamento te notificar no dia 15/08)\n"
-            "• `50,00 Comida pix`  ( Lançamento de Pix)\n"
-            "• `50,00 Comida credito`  ( Lançamento de Credito)\n"
-            "• `50,00 Comida debito`  ( Lançamento de Debito)",
-            parse_mode="Markdown"
+            "• `290.00 teste receber 15/08`\n"
+            "• `50,00 Comida pix`"
         )
         return
 
@@ -288,8 +286,8 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     e_debito = any(kw in texto_lower for kw in ["debito", "débito"])
     forma_pagamento = "Cartão de Crédito" if e_credito else ("Cartão de Débito" if e_debito else "Pix")
 
-    # Limpa palavras-chave da descrição (INCLUINDO FIXO E RECORRENTE)
-    palavras_remover = r"\b(pix|debito|débito|credito|crédito|cartao|cartão|fixo|recorrente)\b"
+    # Limpa palavras-chave da descrição
+    palavras_remover = r"\b(pix|debito|débito|credito|crédito|cartao|cartão)\b"
     descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
 
     context.user_data["temp_lancamento"] = {
@@ -327,19 +325,17 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Nenhuma conta bancária cadastrada no seu banco!")
             return
 
-        # SE FOR FIXO, PERGUNTA A REPETIÇÃO
+        # SE FOR FIXO, PERGUNTA A REPETIÇÃO (1x ATÉ 12x LISTADAS)
         if e_fixo:
-            botoes = [
-                [
-                    InlineKeyboardButton("1x (Apenas Este Mês)", callback_data="fixo_1"),
-                    InlineKeyboardButton("2x (2 Meses)", callback_data="fixo_2"),
-                ],
-                [
-                    InlineKeyboardButton("3x (3 Meses)", callback_data="fixo_3"),
-                    InlineKeyboardButton("12x (1 Ano)", callback_data="fixo_12"),
-                ],
-            ]
-            
+            botoes = []
+            for i in range(1, 13, 3):
+                row = [
+                    InlineKeyboardButton(f"{i}x", callback_data=f"fixo_{i}"),
+                    InlineKeyboardButton(f"{i+1}x", callback_data=f"fixo_{i+1}"),
+                    InlineKeyboardButton(f"{i+2}x", callback_data=f"fixo_{i+2}"),
+                ]
+                botoes.append(row)
+
             dt_formatada = datetime.strptime(data_final, "%Y-%m-%d").strftime("%d/%m/%Y")
             await update.message.reply_text(
                 f"🔄 **Lançamento Fixo / Recorrente**\n\n"
@@ -411,7 +407,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lista_contas = dados_usuario["contas"] if dados_usuario else []
     lista_cartoes = dados_usuario["cartoes"] if dados_usuario else []
 
-    # TRATAMENTO DOS BOTOES FIXOS (1x, 2x, 3x, 12x)
+    # TRATAMENTO DOS BOTÕES FIXOS (1x a 12x)
     if action.startswith("fixo_"):
         qtd_meses = int(action.replace("fixo_", ""))
         dados_temp["qtd_meses_fixo"] = qtd_meses
@@ -512,7 +508,9 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"💸 Valor: R$ {dados_temp['valor']:.2f}{recorrencia_str}\n"
                 f"📝 Descrição: {dados_temp['descricao']}\n"
                 f"⚡ Forma: {dados_temp['forma_pagamento']}\n"
-                f"📆 1º Vencimento: {dt_inicio_formatada}{tag_str}"
+                f"📆 1º Vencimento: {dt_inicio_formatada}{tag_str}\n\n"
+                f"🔔 *O bot enviará um lembrete no dia de cada vencimento!*",
+                parse_mode="Markdown"
             )
             context.user_data.pop("temp_lancamento", None)
         except Exception as e:
