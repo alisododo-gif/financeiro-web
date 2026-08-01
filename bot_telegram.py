@@ -286,8 +286,8 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     e_debito = any(kw in texto_lower for kw in ["debito", "débito"])
     forma_pagamento = "Cartão de Crédito" if e_credito else ("Cartão de Débito" if e_debito else "Pix")
 
-    # Limpa palavras-chave da descrição
-    palavras_remover = r"\b(pix|debito|débito|credito|crédito|cartao|cartão)\b"
+    # Limpa palavras-chave de pagamento E de recorrência/fixo da descrição
+    palavras_remover = r"\b(pix|debito|débito|credito|crédito|cartao|cartão|fixo|recorrente)\b"
     descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
 
     context.user_data["temp_lancamento"] = {
