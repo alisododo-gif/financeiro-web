@@ -10,6 +10,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import urllib.parse
 import pytz
+import re
 
 
 # Novas importações para o PDF profissional e leve
@@ -878,23 +879,33 @@ elif opcao == "🎯 Metas de Economia":
 
                 st.write(f"### {m[1]} (Até: {data_limite_fmt})")
                 
-                # Trata e converte os valores limpando qualquer caractere especial/crase
-                try:
-                    val_guardado = float(str(m[3]).replace("`", "").replace("R$", "").replace(" ", "").replace(".", "").replace(",", "."))
-                except Exception:
-                    val_guardado = float(m[3]) if m[3] is not None else 0.0
+                # --- EXTRAÇÃO E LIMPEZA TOTAL DE CRASES/FORMATOS DE CÓDIGO ---
+                def limpar_valor_numerico(val):
+                    if val is None:
+                        return 0.0
+                    # Remove crases, letras, R$, etc., mantendo só dígitos, vírgulas e pontos
+                    texto_limpo = re.sub(r"[^\d,. ]", "", str(val)).strip()
+                    try:
+                        # Se já for número formatado com vírgula no final
+                        if "," in texto_limpo:
+                            texto_limpo = texto_limpo.replace(".", "").replace(",", ".")
+                        return float(texto_limpo)
+                    except Exception:
+                        return 0.0
 
-                try:
-                    val_alvo = float(str(m[2]).replace("`", "").replace("R$", "").replace(" ", "").replace(".", "").replace(",", "."))
-                except Exception:
-                    val_alvo = float(m[2]) if m[2] is not None else 0.0
+                val_guardado = limpar_valor_numerico(m[3])
+                val_alvo = limpar_valor_numerico(m[2])
 
-                # Formatação padrão normal de moeda em texto simples
                 guardado_str = f"R$ {val_guardado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 alvo_str = f"R$ {val_alvo:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-                # Uso direto de st.write com texto puro (sem markdown customizado que gera blocos verdes)
-                st.write(f"Guardado: {guardado_str} de {alvo_str}")
+                # EXIBIÇÃO VIA HTML PURO: Impede 100% que o Streamlit formate como bloco de código
+                st.markdown(
+                    f"<p style='font-size: 1.1rem; margin-bottom: 0px;'>"
+                    f"<b>Guardado:</b> {guardado_str} de {alvo_str}"
+                    f"</p>", 
+                    unsafe_allow_html=True
+                )
                 
                 progresso = min(val_guardado / val_alvo, 1.0) if val_alvo > 0 else 0.0
                 st.progress(progresso)
