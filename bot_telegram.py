@@ -195,7 +195,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tags_final = " ".join([f"#{t.lower()}" for t in tags_encontradas]) if tags_encontradas else None
     texto_sem_tags = re.sub(r"#\w+", "", texto).strip()
 
-    # 2. Extrai data personalizada (Ex: 15/08 ou 15/08/2026). SE NÃO HOUVER, USA HOJE.
+    # 2. Extrai data personalizada (Ex: 15/08 ou 15/08/2026).
     match_data = re.search(r"\b(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b", texto_sem_tags)
     now = datetime.now()
 
@@ -215,7 +215,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data_final = f"{ano}-{mes}-{dia}"
         texto_sem_tags = re.sub(r"\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b", "", texto_sem_tags).strip()
     else:
-        # DATA ATUAL SE NENHUMA DATA FOR DIGITADA
         data_final = now.strftime("%Y-%m-%d")
 
     # 3. Extrai valor e descrição
@@ -228,8 +227,11 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Exemplos aceitos:\n"
             "• `120.00 Internet fixo` (Usa a data de hoje)\n"
             "• `120.00 Internet fixo 15/08` (Usa a data 15/08)\n"
-            "• `290.00 teste receber 15/08`\n"
-            "• `50,00 Comida pix`"
+            "• `290.00 Teste receber 15/08` ( Lançamento te notificar no dia 15/08)\n"
+            "• `50,00 Comida pix`  ( Lançamento de Pix)\n"
+            "• `50,00 Comida credito`  ( Lançamento de Credito)\n"
+            "• `50,00 Comida debito`  ( Lançamento de Debito)",
+            parse_mode="Markdown"
         )
         return
 
@@ -286,8 +288,8 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     e_debito = any(kw in texto_lower for kw in ["debito", "débito"])
     forma_pagamento = "Cartão de Crédito" if e_credito else ("Cartão de Débito" if e_debito else "Pix")
 
-    # Limpa palavras-chave da descrição
-    palavras_remover = r"\b(pix|debito|débito|credito|crédito|cartao|cartão)\b"
+    # Limpa palavras-chave da descrição (INCLUINDO FIXO E RECORRENTE)
+    palavras_remover = r"\b(pix|debito|débito|credito|crédito|cartao|cartão|fixo|recorrente)\b"
     descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
 
     context.user_data["temp_lancamento"] = {
@@ -479,7 +481,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         payloads = []
         for i in range(qtd_meses):
-            # Adiciona meses progressivos a partir da data de início definida
             data_parcela = data_vencimento_inicial + relativedelta(months=i)
             str_data = data_parcela.strftime("%Y-%m-%d")
             str_mes_fatura = data_parcela.strftime("%m/%Y")
