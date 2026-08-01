@@ -878,7 +878,7 @@ elif opcao == "🎯 Metas de Economia":
 
                 st.write(f"### {m[1]} (Até: {data_limite_fmt})")
                 
-                # CORREÇÃO DEFINITIVA: Limpa crases/símbolos e converte para float com segurança
+                # Trata e converte os valores limpando qualquer caractere especial/crase
                 try:
                     val_guardado = float(str(m[3]).replace("`", "").replace("R$", "").replace(" ", "").replace(".", "").replace(",", "."))
                 except Exception:
@@ -889,11 +889,12 @@ elif opcao == "🎯 Metas de Economia":
                 except Exception:
                     val_alvo = float(m[2]) if m[2] is not None else 0.0
 
-                guardado_fmt = f"R$ {val_guardado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                alvo_fmt = f"R$ {val_alvo:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                
-                # Exibição limpa em negrito sem bloco de código
-                st.markdown(f"**Guardado:** **{guardado_fmt}** de **{alvo_fmt}**")
+                # Formatação padrão normal de moeda em texto simples
+                guardado_str = f"R$ {val_guardado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                alvo_str = f"R$ {val_alvo:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                # Uso direto de st.write com texto puro (sem markdown customizado que gera blocos verdes)
+                st.write(f"Guardado: {guardado_str} de {alvo_str}")
                 
                 progresso = min(val_guardado / val_alvo, 1.0) if val_alvo > 0 else 0.0
                 st.progress(progresso)
@@ -917,7 +918,8 @@ elif opcao == "🎯 Metas de Economia":
                         novo_saldo = val_guardado + valor_mov
                         atualizar_progresso_meta(m[0], novo_saldo)
                         st.cache_data.clear()
-                        st.success("Guardado atualizado!")
+                        mov_fmt = f"R$ {valor_mov:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                        st.success(f"Guardado +{mov_fmt}!")
                         st.rerun()
 
                 with col_b2:
@@ -930,7 +932,8 @@ elif opcao == "🎯 Metas de Economia":
                             novo_saldo = val_guardado - valor_mov
                             atualizar_progresso_meta(m[0], novo_saldo)
                             st.cache_data.clear()
-                            st.success("Resgate efetuado!")
+                            mov_fmt = f"R$ {valor_mov:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                            st.success(f"Retirado -{mov_fmt}!")
                             st.rerun()
 
                 with col_b3:
