@@ -878,18 +878,29 @@ elif opcao == "🎯 Metas de Economia":
 
                 st.write(f"### {m[1]} (Até: {data_limite_fmt})")
                 
-                # CORREÇÃO DO GUARDADO: Formatação simples via st.write sem crases ou markdown truncado
-                g_val = f"R$ {float(m[3]):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                a_val = f"R$ {float(m[2]):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                st.write(f"Guardado: {g_val} de {a_val}")
+                # CORREÇÃO DEFINITIVA: Limpa crases/símbolos e converte para float com segurança
+                try:
+                    val_guardado = float(str(m[3]).replace("`", "").replace("R$", "").replace(" ", "").replace(".", "").replace(",", "."))
+                except Exception:
+                    val_guardado = float(m[3]) if m[3] is not None else 0.0
+
+                try:
+                    val_alvo = float(str(m[2]).replace("`", "").replace("R$", "").replace(" ", "").replace(".", "").replace(",", "."))
+                except Exception:
+                    val_alvo = float(m[2]) if m[2] is not None else 0.0
+
+                guardado_fmt = f"R$ {val_guardado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                alvo_fmt = f"R$ {val_alvo:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 
-                progresso = min(float(m[3]) / float(m[2]), 1.0) if float(m[2]) > 0 else 0.0
+                # Exibição limpa em negrito sem bloco de código
+                st.markdown(f"**Guardado:** **{guardado_fmt}** de **{alvo_fmt}**")
+                
+                progresso = min(val_guardado / val_alvo, 1.0) if val_alvo > 0 else 0.0
                 st.progress(progresso)
                 
                 col_v, col_b1, col_b2, col_b3 = st.columns([2, 1, 1, 1])
 
                 with col_v:
-                    # CORREÇÃO DO VALOR DA MOVIMENTAÇÃO: incremento de 50 em 50
                     valor_mov = st.number_input(
                         "Valor da movimentação (R$):", 
                         min_value=0.0, 
@@ -903,23 +914,23 @@ elif opcao == "🎯 Metas de Economia":
                     st.write("")
                     st.write("")
                     if st.button("➕ Depositar", key=f"dep_{m[0]}", use_container_width=True):
-                        novo_saldo = float(m[3]) + valor_mov
+                        novo_saldo = val_guardado + valor_mov
                         atualizar_progresso_meta(m[0], novo_saldo)
                         st.cache_data.clear()
-                        st.success(f"Guardado +{fmt_moeda(valor_mov)}!")
+                        st.success("Guardado atualizado!")
                         st.rerun()
 
                 with col_b2:
                     st.write("")
                     st.write("")
                     if st.button("➖ Resgatar", key=f"res_{m[0]}", use_container_width=True):
-                        if valor_mov > float(m[3]):
+                        if valor_mov > val_guardado:
                             st.error("O valor de resgate é maior do que o saldo guardado!")
                         else:
-                            novo_saldo = float(m[3]) - valor_mov
+                            novo_saldo = val_guardado - valor_mov
                             atualizar_progresso_meta(m[0], novo_saldo)
                             st.cache_data.clear()
-                            st.success(f"Retirado -{fmt_moeda(valor_mov)}!")
+                            st.success("Resgate efetuado!")
                             st.rerun()
 
                 with col_b3:
