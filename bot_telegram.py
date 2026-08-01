@@ -267,7 +267,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             supabase.table("contas_receber").insert(payload_receber).execute()
             tag_str = f"\n🏷️ Tags: {tags_final}" if tags_final else ""
             await update.message.reply_text(
-                f"📥 **Conta a Receber Cadastrada!**\n\n"
+                f"📥 Conta a Receber Cadastrada!\n\n"
                 f"📝 Descrição: {descricao_limpa or 'Recebimento'}\n"
                 f"💰 Valor: R$ {valor:.2f}\n"
                 f"📅 Data Recebimento: {data_final}\n"
