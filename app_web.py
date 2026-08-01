@@ -879,7 +879,7 @@ elif opcao == "🎯 Metas de Economia":
                 st.write(f"### {m[1]} (Até: {data_limite_fmt})")
                 
                 # CORREÇÃO DO GUARDADO: exibição sem quebrar o Markdown
-                st.markdown(f"**Guardado:** {fmt_moeda(m[3])} de **{fmt_moeda(m[2])}**", unsafe_allow_html=True)
+                st.write(f"Guardado: {fmt_moeda(m[3])} de {fmt_moeda(m[2])}")
                 
                 progresso = min(float(m[3]) / float(m[2]), 1.0) if float(m[2]) > 0 else 0.0
                 st.progress(progresso)
