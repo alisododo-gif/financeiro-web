@@ -1068,8 +1068,11 @@ elif opcao == "💸 Lançar Movimentações":
         with col_v:
             val = st.number_input(
                 "Valor da Parcela (R$)" if modalidade == "Parcelado" else "Valor (R$)", 
-                min_value=0.01
+                min_value=0.0,
+                step=50.0,
+                format="%.2f"
             )
+            
         
         num_repeticoes = 1
         with col_q:
