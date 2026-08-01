@@ -878,10 +878,10 @@ elif opcao == "🎯 Metas de Economia":
 
                 st.write(f"### {m[1]} (Até: {data_limite_fmt})")
                 
-                # CORREÇÃO DO GUARDADO: Formatação direta sem caixinhas de código
-                guardado_fmt = f"R$ {float(m[3]):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                alvo_fmt = f"R$ {float(m[2]):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                st.markdown(f"**Guardado:** **{guardado_fmt}** de **{alvo_fmt}**")
+                # CORREÇÃO DO GUARDADO: Formatação simples via st.write sem crases ou markdown truncado
+                g_val = f"R$ {float(m[3]):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                a_val = f"R$ {float(m[2]):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                st.write(f"Guardado: {g_val} de {a_val}")
                 
                 progresso = min(float(m[3]) / float(m[2]), 1.0) if float(m[2]) > 0 else 0.0
                 st.progress(progresso)
