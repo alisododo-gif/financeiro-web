@@ -338,7 +338,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             dt_formatada = datetime.strptime(data_final, "%Y-%m-%d").strftime("%d/%m/%Y")
             await update.message.reply_text(
-                f"🔄 **Lançamento Fixo / Recorrente**\n\n"
+                f"🔄 Lançamento Fixo / Recorrente\n\n"
                 f"📝 Descrição: {descricao_limpa}\n"
                 f"💸 Valor: R$ {valor:.2f}\n"
                 f"📆 1º Vencimento: {dt_formatada}\n\n"
