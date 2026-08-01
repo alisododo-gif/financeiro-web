@@ -877,17 +877,23 @@ elif opcao == "🎯 Metas de Economia":
                     data_limite_fmt = data_raw
 
                 st.write(f"### {m[1]} (Até: {data_limite_fmt})")
-                st.write(f"Guardado: **{fmt_moeda(m[3])}** de **{fmt_moeda(m[2])}**")
+                
+                # CORREÇÃO DO GUARDADO: exibição sem quebrar o Markdown
+                st.markdown(f"**Guardado:** {fmt_moeda(m[3])} de **{fmt_moeda(m[2])}**", unsafe_allow_html=True)
+                
                 progresso = min(float(m[3]) / float(m[2]), 1.0) if float(m[2]) > 0 else 0.0
                 st.progress(progresso)
                 
                 col_v, col_b1, col_b2, col_b3 = st.columns([2, 1, 1, 1])
 
                 with col_v:
+                    # CORREÇÃO DO VALOR DA MOVIMENTAÇÃO: incremento de 50 em 50
                     valor_mov = st.number_input(
                         "Valor da movimentação (R$):", 
-                        min_value=0.01, 
-                        value=100.0, 
+                        min_value=0.0, 
+                        value=100.0,
+                        step=50.0,
+                        format="%.2f",
                         key=f"val_{m[0]}"
                     )
 
