@@ -286,7 +286,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Exemplos aceitos:\n"
             "• `120.00 Internet fixo` (Usa a Data de Hoje)\n"
             "• `120.00 Internet fixo 15/08` (Usa a Data 15/08)\n"
-            "• `290.00 Teste receber 15/08` (Lançamento Para Notificar no Dia 15/08)\n"
+            "• `290.00 Alison receber 15/08` (Lançamento Para Notificar no Dia 15/08)\n"
             "• `50,00 Comida Pix` (Lançamento de Pix)\n"
             "• `50,00 Comida Crédito` (Lançamento de Crédito)\n"
             "• `50,00 Comida Débito` (Lançamento de Débito)\n"    
