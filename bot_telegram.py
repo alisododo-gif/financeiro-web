@@ -109,7 +109,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if dados_usuario:
         await update.message.reply_text(
             "👋 Você já está cadastrado no FinanceiroPro!\n\n"
-            "Pode enviar seus lançamentos diretamente (ex: 120.00 Aluguel fixo ou 45.90 Almoço #restaurante 15/08)."
+            "• Para lançar: `290.00 teste receber 15/08`\n"
+            "• Para consultar pendentes: Digite /status ou `receber`"
         )
         return
 
@@ -158,7 +159,7 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 f"✅ Conta vinculada com sucesso!\n\n"
                 f"Bem-vindo(a), {nome_telegram}! Sua conta foi vinculada ao Telegram.\n\n"
-                f"Já pode enviar seus lançamentos."
+                f"Já pode enviar seus lançamentos ou digitar /status para ver pendências."
             )
         else:
             await update.message.reply_text(
@@ -168,6 +169,59 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"Erro na vinculação de contato: {e}")
         await update.message.reply_text(f"⚠️ Erro no servidor: {e}")
+
+
+# =========================================================
+# CONSULTAR CONTAS A RECEBER PENDENTES
+# =========================================================
+async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    telegram_id = update.effective_user.id
+    dados_usuario = buscar_dados_usuario(telegram_id)
+
+    if not dados_usuario:
+        await update.message.reply_text("🚫 Acesso não autorizado! Digite /start para vincular.")
+        return
+
+    usuario_id = dados_usuario["usuario_id"]
+
+    try:
+        res = (
+            supabase.table("contas_receber")
+            .select("*")
+            .eq("usuario_id", usuario_id)
+            .eq("recebido", False)
+            .order("data_recebimento", desc=False)
+            .execute()
+        )
+
+        pendentes = res.data if res.data else []
+
+        if not pendentes:
+            await update.message.reply_text("🎉 Você não possui nenhuma conta a receber pendente!")
+            return
+
+        total_pendente = sum(item["valor"] for item in pendentes)
+
+        await update.message.reply_text(
+            f"📥 **Contas a Receber Pendentes**\n"
+            f"💰 Total a receber: **R$ {total_pendente:.2f}**\n"
+            f"───────────────"
+        )
+
+        for item in pendentes:
+            data_formatada = datetime.strptime(item["data_recebimento"], "%Y-%m-%d").strftime("%d/%m/%Y")
+            botoes = [[InlineKeyboardButton("✅ Marcar como Pago", callback_data=f"pagar_rec_{item['id']}")]]
+            
+            await update.message.reply_text(
+                f"📝 **{item['descricao']}**\n"
+                f"💵 Valor: R$ {item['valor']:.2f}\n"
+                f"📅 Previsão: {data_formatada}",
+                reply_markup=InlineKeyboardMarkup(botoes)
+            )
+
+    except Exception as e:
+        logging.error(f"Erro ao consultar contas a receber: {e}")
+        await update.message.reply_text(f"⚠️ Erro ao consultar banco de dados: {e}")
 
 
 async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -190,12 +244,17 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     texto = update.message.text.strip()
 
+    # Atalhos rápidos para consulta
+    if texto.lower() in ["status", "receber", "pendentes", "contas"]:
+        await consultar_contas_receber(update, context)
+        return
+
     # 1. Extrai hashtags
     tags_encontradas = re.findall(r"#(\w+)", texto)
     tags_final = " ".join([f"#{t.lower()}" for t in tags_encontradas]) if tags_encontradas else None
     texto_sem_tags = re.sub(r"#\w+", "", texto).strip()
 
-    # 2. Extrai data personalizada (Ex: 15/08 ou 15/08/2026). SE NÃO HOUVER, USA HOJE.
+    # 2. Extrai data personalizada (Ex: 15/08 ou 15/08/2026)
     match_data = re.search(r"\b(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b", texto_sem_tags)
     now = datetime.now()
 
@@ -215,7 +274,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data_final = f"{ano}-{mes}-{dia}"
         texto_sem_tags = re.sub(r"\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b", "", texto_sem_tags).strip()
     else:
-        # DATA ATUAL SE NENHUMA DATA FOR DIGITADA
         data_final = now.strftime("%Y-%m-%d")
 
     # 3. Extrai valor e descrição
@@ -226,12 +284,10 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "⚠️ Formato inválido!\n\n"
             "Exemplos aceitos:\n"
-            "• `120.00 Internet fixo` (Usa a Data de Hoje)\n"
-            "• `120.00 Internet fixo 15/08` (Usa a Data 15/08)\n"
-            "• `290.00 Teste receber 15/08` (Notificar no dia 15/08)\n"
-            "• `50,00 Comida pix`(Lançamento de Pix)\n"
-            "• `50,00 Comida credito`(Lançamento de Crédito)\n"
-            "• `50,00 Comida debito`(Lançamento de Débito)"
+            "• `290.00 teste receber 15/08`\n"
+            "• `50,00 Comida pix`\n"
+            "• `40 reais restaurante credito`\n"
+            "• Digite `/status` para consultar recebimentos."
         )
         return
 
@@ -245,11 +301,8 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     texto_lower = descricao_bruta.lower()
 
-    # Identifica se é lançamento FIXO / RECORRENTE
-    e_fixo = any(kw in texto_lower for kw in ["fixo", "recorrente"])
-
     # =========================================================
-    # FLUXO CONTAS A RECEBER
+    # FLUXO 0: CONTAS A RECEBER (Salva na tabela 'contas_receber')
     # =========================================================
     e_recebimento = any(kw in texto_lower for kw in ["receber", "ganho", "receita", "salario", "salário", "venda"])
 
@@ -269,7 +322,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             supabase.table("contas_receber").insert(payload_receber).execute()
             tag_str = f"\n🏷️ Tags: {tags_final}" if tags_final else ""
             await update.message.reply_text(
-                f"📥 Conta a Receber Cadastrada!\n\n"
+                f"📥 **Conta a Receber Cadastrada!**\n\n"
                 f"📝 Descrição: {descricao_limpa or 'Recebimento'}\n"
                 f"💰 Valor: R$ {valor:.2f}\n"
                 f"📅 Data Recebimento: {data_final}\n"
@@ -282,14 +335,13 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # =========================================================
-    # FLUXO DESPESAS
+    # FLUXO DESPESAS (Mantém a lógica normal para movimentações)
     # =========================================================
     e_credito = any(kw in texto_lower for kw in ["credito", "crédito", "cartao", "cartão"])
     e_debito = any(kw in texto_lower for kw in ["debito", "débito"])
     forma_pagamento = "Cartão de Crédito" if e_credito else ("Cartão de Débito" if e_debito else "Pix")
 
-    # Limpa palavras-chave de pagamento E de recorrência/fixo da descrição
-    palavras_remover = r"\b(pix|debito|débito|credito|crédito|cartao|cartão|fixo|recorrente)\b"
+    palavras_remover = r"\b(pix|debito|débito|credito|crédito|cartao|cartão)\b"
     descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
 
     context.user_data["temp_lancamento"] = {
@@ -299,9 +351,9 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "forma_pagamento": forma_pagamento,
         "data": data_final,
         "tags": tags_final,
-        "e_fixo": e_fixo,
     }
 
+    # FLUXO CRÉDITO
     if e_credito:
         if not lista_cartoes:
             await update.message.reply_text("⚠️ Nenhum cartão de crédito cadastrado no seu banco!")
@@ -322,34 +374,14 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(botoes)
         )
 
+    # FLUXO PIX / DÉBITO
     else:
         if not lista_contas:
             await update.message.reply_text("⚠️ Nenhuma conta bancária cadastrada no seu banco!")
             return
 
-        # SE FOR FIXO, PERGUNTA A REPETIÇÃO (1x ATÉ 12x LISTADAS)
-        if e_fixo:
-            botoes = []
-            for i in range(1, 13, 3):
-                row = [
-                    InlineKeyboardButton(f"{i}x", callback_data=f"fixo_{i}"),
-                    InlineKeyboardButton(f"{i+1}x", callback_data=f"fixo_{i+1}"),
-                    InlineKeyboardButton(f"{i+2}x", callback_data=f"fixo_{i+2}"),
-                ]
-                botoes.append(row)
+        mes_fatura_atual = datetime.strptime(data_final, "%Y-%m-%d").strftime("%m/%Y")
 
-            dt_formatada = datetime.strptime(data_final, "%Y-%m-%d").strftime("%d/%m/%Y")
-            await update.message.reply_text(
-                f"🔄 Lançamento Fixo / Recorrente\n\n"
-                f"📝 Descrição: {descricao_limpa}\n"
-                f"💸 Valor: R$ {valor:.2f}\n"
-                f"📆 1º Vencimento: {dt_formatada}\n\n"
-                f"Por quantos meses deseja agendar essa cobrança?",
-                reply_markup=InlineKeyboardMarkup(botoes)
-            )
-            return
-
-        # SE NÃO FOR FIXO E TIVER MAIS DE UMA CONTA
         if len(lista_contas) > 1:
             botoes = []
             for c in lista_contas:
@@ -364,7 +396,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             conta_id = lista_contas[0]["id"]
-            mes_fatura_atual = datetime.strptime(data_final, "%Y-%m-%d").strftime("%m/%Y")
             payload = {
                 "usuario_id": usuario_id,
                 "conta_id": conta_id,
@@ -399,6 +430,26 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     action = query.data
+
+    # =========================================================
+    # MARCAR CONTA A RECEBER COMO PAGO
+    # =========================================================
+    if action.startswith("pagar_rec_"):
+        receber_id = int(action.replace("pagar_rec_", ""))
+        try:
+            supabase.table("contas_receber").update({"recebido": True}).eq("id", receber_id).execute()
+            
+            texto_antigo = query.message.text
+            await query.edit_message_text(
+                f"{texto_antigo}\n\n"
+                f"✅ **STATUS ATUALIZADO: PAGO / RECEBIDO!**"
+            )
+            return
+        except Exception as e:
+            logging.error(f"Erro ao dar baixa em conta a receber: {e}")
+            await query.edit_message_text(f"⚠️ Erro ao atualizar status: {e}")
+            return
+
     dados_temp = context.user_data.get("temp_lancamento")
 
     if not dados_temp:
@@ -406,30 +457,9 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     dados_usuario = buscar_dados_usuario(query.from_user.id)
-    lista_contas = dados_usuario["contas"] if dados_usuario else []
     lista_cartoes = dados_usuario["cartoes"] if dados_usuario else []
 
-    # TRATAMENTO DOS BOTÕES FIXOS (1x a 12x)
-    if action.startswith("fixo_"):
-        qtd_meses = int(action.replace("fixo_", ""))
-        dados_temp["qtd_meses_fixo"] = qtd_meses
-
-        if len(lista_contas) > 1:
-            botoes = []
-            for c in lista_contas:
-                botoes.append([InlineKeyboardButton(f"🏦 {c['nome']}", callback_data=f"cnt_{c['id']}")])
-
-            await query.edit_message_text(
-                f"🏦 Selecione a conta para o lançamento Fixo ({qtd_meses}x):\n\n"
-                f"📝 Descrição: {dados_temp['descricao']}\n"
-                f"💸 Valor: R$ {dados_temp['valor']:.2f}",
-                reply_markup=InlineKeyboardMarkup(botoes)
-            )
-            return
-        else:
-            conta_id = lista_contas[0]["id"] if lista_contas else None
-            action = f"cnt_{conta_id}"
-
+    # 1. Escolheu 'Parcelado'
     if action == "c_parcelado_menu":
         botoes = []
         for i in range(2, 13, 2):
@@ -447,11 +477,13 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # 2. Definiu número de parcelas
     if action.startswith("parc_"):
         num_parcelas = int(action.replace("parc_", ""))
         dados_temp["parcelas"] = num_parcelas
         action = "c_avista"
 
+    # 3. Seleção de Cartão
     if action == "c_avista":
         num_parc = dados_temp.get("parcelas", 1)
         if len(lista_cartoes) > 1:
@@ -471,54 +503,39 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cartao_id = lista_cartoes[0]["id"] if lista_cartoes else None
             action = f"crt_{cartao_id}"
 
-    # SALVAR FIXO / PIX / DÉBITO
+    # 4. SALVAR PIX / DÉBITO
     if action.startswith("cnt_"):
         conta_id = int(action.replace("cnt_", ""))
-        qtd_meses = dados_temp.get("qtd_meses_fixo", 1)
-        data_vencimento_inicial = datetime.strptime(dados_temp["data"], "%Y-%m-%d")
-
-        payloads = []
-        for i in range(qtd_meses):
-            data_parcela = data_vencimento_inicial + relativedelta(months=i)
-            str_data = data_parcela.strftime("%Y-%m-%d")
-            str_mes_fatura = data_parcela.strftime("%m/%Y")
-
-            payloads.append({
-                "usuario_id": dados_temp["usuario_id"],
-                "conta_id": conta_id,
-                "cartao_id": None,
-                "descricao": dados_temp["descricao"],
-                "valor": dados_temp["valor"],
-                "tipo": "Despesa",
-                "categoria": "Outros",
-                "forma_pagamento": dados_temp["forma_pagamento"],
-                "data": str_data,
-                "mes_fatura": str_mes_fatura,
-                "pago": False if dados_temp.get("e_fixo") else True,
-                "tags": dados_temp["tags"],
-            })
-
+        mes_fatura_calc = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%m/%Y")
+        payload = {
+            "usuario_id": dados_temp["usuario_id"],
+            "conta_id": conta_id,
+            "cartao_id": None,
+            "descricao": dados_temp["descricao"],
+            "valor": dados_temp["valor"],
+            "tipo": "Despesa",
+            "categoria": "Outros",
+            "forma_pagamento": dados_temp["forma_pagamento"],
+            "data": dados_temp["data"],
+            "mes_fatura": mes_fatura_calc,
+            "pago": True,
+            "tags": dados_temp["tags"],
+        }
         try:
-            supabase.table("movimentacoes").insert(payloads).execute()
+            supabase.table("movimentacoes").insert(payload).execute()
             tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp["tags"] else ""
-            recorrencia_str = f" ({qtd_meses}x)" if qtd_meses > 1 else ""
-
-            dt_inicio_formatada = data_vencimento_inicial.strftime("%d/%m/%Y")
-
             await query.edit_message_text(
-                f"✅ **Lançamento Registrado com Sucesso!**\n\n"
-                f"💸 Valor: R$ {dados_temp['valor']:.2f}{recorrencia_str}\n"
+                f"✅ Lançamento Registrado!\n\n"
+                f"💸 Valor: R$ {dados_temp['valor']:.2f}\n"
                 f"📝 Descrição: {dados_temp['descricao']}\n"
                 f"⚡ Forma: {dados_temp['forma_pagamento']}\n"
-                f"📆 1º Vencimento: {dt_inicio_formatada}{tag_str}\n\n"
-                f"🔔 *O bot enviará um lembrete no dia de cada vencimento!*",
-                parse_mode="Markdown"
+                f"📅 Data: {dados_temp['data']}{tag_str}"
             )
             context.user_data.pop("temp_lancamento", None)
         except Exception as e:
             await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: {e}")
 
-    # SALVAR CRÉDITO
+    # 5. SALVAR CRÉDITO
     elif action.startswith("crt_"):
         cartao_id = int(action.replace("crt_", ""))
         num_parcelas = dados_temp.get("parcelas", 1)
@@ -599,8 +616,12 @@ def main():
         time=time(hour=14, minute=0, second=0, tzinfo=fuso_brasilia),
     )
 
+    # Handlers dos comandos
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("status", consultar_contas_receber))
+    app.add_handler(CommandHandler("receber", consultar_contas_receber))
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
+    
     app.add_handler(MessageHandler(filters.CONTACT, receber_contato))
     app.add_handler(
         MessageHandler(filters.TEXT & (~filters.COMMAND), registrar_gastos)
