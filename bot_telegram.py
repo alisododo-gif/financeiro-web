@@ -203,7 +203,7 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
         total_pendente = sum(item["valor"] for item in pendentes)
 
         await update.message.reply_text(
-            f"📥 **Contas a Receber Pendentes**\n"
+            f"📥 Contas a Receber Pendentes\n"
             f"💰 Total a receber: **R$ {total_pendente:.2f}**\n"
             f"───────────────"
         )
@@ -213,7 +213,7 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
             botoes = [[InlineKeyboardButton("✅ Marcar como Pago", callback_data=f"pagar_rec_{item['id']}")]]
             
             await update.message.reply_text(
-                f"📝 **{item['descricao']}**\n"
+                f"📝 {item['descricao']}\n"
                 f"💵 Valor: R$ {item['valor']:.2f}\n"
                 f"📅 Previsão: {data_formatada}",
                 reply_markup=InlineKeyboardMarkup(botoes)
@@ -284,10 +284,13 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "⚠️ Formato inválido!\n\n"
             "Exemplos aceitos:\n"
-            "• `290.00 teste receber 15/08`\n"
-            "• `50,00 Comida pix`\n"
-            "• `40 reais restaurante credito`\n"
-            "• Digite `/status` para consultar recebimentos."
+            "• `120.00 Internet fixo` (Usa a Data de Hoje)\n"
+            "• `120.00 Internet fixo 15/08` (Usa a Data 15/08)\n"
+            "• `290.00 Teste receber 15/08` (Lançamento Para Notificar no Dia 15/08)\n"
+            "• `50,00 Comida Pix` (Lançamento de Pix)\n"
+            "• `50,00 Comida Crédito` (Lançamento de Crédito)\n"
+            "• `50,00 Comida Débito` (Lançamento de Débito)\n"    
+            "• `Status, Receber ou Pendentes` (Para Consultar os Lançamentos que tem a receber)\n"
         )
         return
 
@@ -322,7 +325,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             supabase.table("contas_receber").insert(payload_receber).execute()
             tag_str = f"\n🏷️ Tags: {tags_final}" if tags_final else ""
             await update.message.reply_text(
-                f"📥 **Conta a Receber Cadastrada!**\n\n"
+                f"📥 Conta a Receber Cadastrada!\n\n"
                 f"📝 Descrição: {descricao_limpa or 'Recebimento'}\n"
                 f"💰 Valor: R$ {valor:.2f}\n"
                 f"📅 Data Recebimento: {data_final}\n"
