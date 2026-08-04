@@ -62,7 +62,8 @@ from funcoes import (
     alternar_status_contas_a_receber,
     salvar_conta_a_receber,
     buscar_contas_a_receber,
-    atualizar_conta_a_receber
+    atualizar_conta_a_receber,
+    buscar_gastos_pendentes_cartao
 )
 
 from views import render_sidebar_footer
@@ -1754,11 +1755,9 @@ elif opcao == "📅 Próximos Vencimentos":
 elif opcao == "💳 Cartões & Faturas":
     st.title("💳 Gestão de Cartões de Crédito & Faturas")
 
-    tab_faturas, tab_novo_cartao, tab_gerenciar = st.tabs([
-        "📄 Minhas Faturas", 
-        "➕ Cadastrar Novo Cartão", 
-        "⚙️ Gerenciar Cartões"
-    ])
+    tab_faturas, tab_novo_cartao, tab_gerenciar = st.tabs(
+        ["📄 Minhas Faturas", "➕ Cadastrar Novo Cartão", "⚙️ Gerenciar Cartões"]
+    )
 
     user_id = st.session_state.get("usuario_id")
     cartoes = listar_cartoes(user_id)
@@ -1769,87 +1768,167 @@ elif opcao == "💳 Cartões & Faturas":
             c1, c2, c3 = st.columns(3)
 
             with c1:
-                dict_cartoes = {c["id"]: c.get("nome_cartao") or c.get("nome") for c in cartoes}
+                dict_cartoes = {
+                    c["id"]: c.get("nome_cartao") or c.get("nome")
+                    for c in cartoes
+                }
                 cartao_id_sel = st.selectbox(
                     "Escolha o Cartão",
                     options=list(dict_cartoes.keys()),
                     format_func=lambda x: dict_cartoes[x],
-                    key="sel_cartao_fatura"
+                    key="sel_cartao_fatura",
                 )
-                cartao_info = next(c for c in cartoes if c["id"] == cartao_id_sel)
+                cartao_info = next(
+                    c for c in cartoes if c["id"] == cartao_id_sel
+                )
 
             with c2:
-                meses = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]
-                mes_fatura = st.selectbox("Mês da Fatura", meses, index=datetime.now().month - 1)
+                meses = [f"{m:02d}" for m in range(1, 13)]
+                mes_fatura = st.selectbox(
+                    "Mês da Fatura",
+                    meses,
+                    index=datetime.now().month - 1,
+                    key="sel_mes_fatura",
+                )
 
             with c3:
-                ano_fatura = st.selectbox("Ano da Fatura", ["2026", "2027", "2028"], index=0)
+                ano_atual = datetime.now().year
+                anos = [str(ano) for ano in range(ano_atual - 1, ano_atual + 5)]
+                ano_fatura = st.selectbox(
+                    "Ano da Fatura",
+                    options=anos,
+                    index=1,  # Seleciona o ano atual dinamicamente
+                    key="sel_ano_fatura",
+                )
 
             fatura_ref = f"{mes_fatura}/{ano_fatura}"
             st.markdown("---")
 
-            # Busca gastos vinculados a essa fatura no banco
+            # 1. Busca gastos da fatura selecionada
             compras = buscar_gastos_fatura(user_id, cartao_id_sel, fatura_ref)
-            total_fatura = sum(float(item["valor"]) for item in compras) if compras else 0.0
-            limite_total = float(cartao_info["limite"])
-            limite_disponivel = limite_total - total_fatura
+            total_fatura = (
+                sum(float(item["valor"]) for item in compras)
+                if compras
+                else 0.0
+            )
 
-            st.info(f"💡 **Informações:** Fechamento todo **dia {cartao_info['dia_fechamento']}** | Vencimento todo **dia {cartao_info['dia_vencimento']}**")
+            # 2. Busca lançamentos pendentes para cálculo do limite real
+            try:
+                compras_pendentes = buscar_gastos_pendentes_cartao(
+                    user_id, cartao_id_sel
+                )
+            except NameError:
+                todas_compras = buscar_gastos_fatura(
+                    user_id, cartao_id_sel, None
+                )
+                compras_pendentes = [
+                    c
+                    for c in todas_compras
+                    if not c.get("pago", False) and not c.get("paga", False)
+                ]
+
+            total_parcelas_pendentes = (
+                sum(float(item["valor"]) for item in compras_pendentes)
+                if compras_pendentes
+                else 0.0
+            )
+
+            limite_total = float(cartao_info["limite"])
+            limite_disponivel = limite_total - total_parcelas_pendentes
+
+            st.info(
+                f"💡 **Informações:** Fechamento todo **dia {cartao_info['dia_fechamento']}** | Vencimento todo **dia {cartao_info['dia_vencimento']}**"
+            )
 
             # Métricas em destaque
             m1, m2, m3 = st.columns(3)
             m1.metric("Total da Fatura", formatar_moeda_ptbr(total_fatura))
-            m2.metric("Limite Disponível", formatar_moeda_ptbr(limite_disponivel))
+            m2.metric(
+                "Limite Disponível", formatar_moeda_ptbr(limite_disponivel)
+            )
             m3.metric("Limite Total", formatar_moeda_ptbr(limite_total))
 
             st.write(f"### 🛒 Compras da Fatura ({fatura_ref})")
-            
+
             if compras:
-                if st.button("✅ Dar Baixa / Pagar Fatura Completa", type="primary"):
-                    if dar_baixa_fatura_completa(user_id, cartao_id_sel, fatura_ref):
-                        st.success(f"Fatura {fatura_ref} marcada como paga com sucesso!")
+                if st.button(
+                    "✅ Dar Baixa / Pagar Fatura Completa", type="primary"
+                ):
+                    if dar_baixa_fatura_completa(
+                        user_id, cartao_id_sel, fatura_ref
+                    ):
+                        st.success(
+                            f"Fatura {fatura_ref} marcada como paga com sucesso!"
+                        )
                         st.rerun()
                     else:
                         st.error("Erro ao dar baixa na fatura completa.")
 
+                # Formatação rica nativa de tabela no Streamlit
                 st.dataframe(
                     compras,
-                    column_order=["data", "descricao", "categoria", "tags", "valor", "pago"],
-                    use_container_width=True
+                    column_order=[
+                        "data",
+                        "descricao",
+                        "categoria",
+                        "tags",
+                        "valor",
+                        "pago",
+                    ],
+                    column_config={
+                        "data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                        "descricao": "Descrição",
+                        "categoria": "Categoria",
+                        "tags": "Tags",
+                        "valor": st.column_config.NumberColumn(
+                            "Valor", format="R$ %.2f"
+                        ),
+                        "pago": st.column_config.CheckboxColumn("Pago?"),
+                    },
+                    use_container_width=True,
                 )
 
                 # --- FERRAMENTA DE EXCLUSÃO DE ITEM DA FATURA ---
                 with st.expander("🗑️ Excluir um item desta fatura"):
-                    # Cria um dicionário identificando cada compra
                     dict_compras_excluir = {
-                        item["id"]: f"{item['data']} | {item['descricao']} - R$ {float(item['valor']):.2f}" 
+                        item["id"]: (
+                            f"{item['data']} | {item['descricao']} - R$"
+                            f" {float(item['valor']):.2f}"
+                        )
                         for item in compras
                     }
-                    
+
                     id_para_excluir = st.selectbox(
                         "Selecione o lançamento que deseja remover:",
                         options=list(dict_compras_excluir.keys()),
                         format_func=lambda x: dict_compras_excluir[x],
-                        key="select_excluir_fatura_item"
+                        key="select_excluir_fatura_item",
                     )
-                    
-                    if st.button("Confirmar Exclusão do Item", type="secondary"):
-                        if excluir_movimentacao(user_id, id_para_excluir): # <--- Passando user_id e o id da movimentação
+
+                    if st.button(
+                        "Confirmar Exclusão do Item", type="secondary"
+                    ):
+                        if excluir_movimentacao(user_id, id_para_excluir):
                             st.success("Lançamento excluído com sucesso!")
                             st.rerun()
                         else:
                             st.error("Erro ao excluir o lançamento no banco de dados.")
 
             else:
-                st.warning(f"Nenhum gasto encontrado para a fatura de {fatura_ref}.")
+                st.warning(
+                    f"Nenhum gasto encontrado para a fatura de {fatura_ref}."
+                )
 
         else:
-            st.info("Nenhum cartão cadastrado. Use a aba ao lado para cadastrar seu primeiro cartão!")
+            st.info(
+                "Nenhum cartão cadastrado. Use a aba ao lado para cadastrar seu"
+                " primeiro cartão!"
+            )
 
     # --- ABA 2: CADASTRO DE NOVO CARTÃO ---
     with tab_novo_cartao:
         st.subheader("➕ Adicionar Novo Cartão de Crédito")
-        
+
         with st.form("form_cartao"):
             opcoes_bancos = [
                 "260 - Nubank",
@@ -1863,35 +1942,47 @@ elif opcao == "💳 Cartões & Faturas":
                 "380 - PicPay",
                 "208 - BTG Pactual",
                 "102 - XP Investimentos",
-                "Outro"
+                "Outro",
             ]
 
             nome_cartao_selecionado = st.selectbox(
-                "Nome do Cartão",
-                options=opcoes_bancos,
-                index=0
+                "Nome do Cartão", options=opcoes_bancos, index=0
             )
 
-            nome_outro = st.text_input("Se selecionou 'Outro', digite o nome do cartão:")
+            nome_outro = st.text_input(
+                "Se selecionou 'Outro', digite o nome do cartão:"
+            )
 
-            if nome_cartao_selecionado == "Outro":
-                nome_c = nome_outro
-            else:
-                nome_c = nome_cartao_selecionado
+            nome_c = (
+                nome_outro
+                if nome_cartao_selecionado == "Outro"
+                else nome_cartao_selecionado
+            )
 
-            limite_c = st.number_input("Limite de Crédito Total (R$)", min_value=0.0, value=1000.0, step=100.0)
+            limite_c = st.number_input(
+                "Limite de Crédito Total (R$)",
+                min_value=0.0,
+                value=1000.0,
+                step=100.0,
+            )
 
             c_f, c_v = st.columns(2)
             with c_f:
-                fechamento_c = st.number_input("Dia do Fechamento", min_value=1, max_value=31, value=20)
+                fechamento_c = st.number_input(
+                    "Dia do Fechamento", min_value=1, max_value=31, value=20
+                )
             with c_v:
-                vencimento_c = st.number_input("Dia do Vencimento", min_value=1, max_value=31, value=30)
+                vencimento_c = st.number_input(
+                    "Dia do Vencimento", min_value=1, max_value=31, value=30
+                )
 
             btn_salvar = st.form_submit_button("Salvar Cartão")
 
             if btn_salvar:
                 if nome_c.strip():
-                    if cadastrar_cartao(user_id, nome_c, limite_c, fechamento_c, vencimento_c):
+                    if cadastrar_cartao(
+                        user_id, nome_c, limite_c, fechamento_c, vencimento_c
+                    ):
                         st.success(f"Cartão '{nome_c}' cadastrado com sucesso!")
                         st.rerun()
                     else:
@@ -1902,20 +1993,24 @@ elif opcao == "💳 Cartões & Faturas":
     # --- ABA 3: GERENCIAR (ALTERAR LIMITE E EXCLUIR) ---
     with tab_gerenciar:
         st.subheader("⚙️ Alterar Limite ou Excluir Cartão")
-        
+
         if cartoes:
-            dict_cartoes_g = {c["id"]: c.get("nome_cartao") or c.get("nome") for c in cartoes}
+            dict_cartoes_g = {
+                c["id"]: c.get("nome_cartao") or c.get("nome") for c in cartoes
+            }
             cartao_id_ger = st.selectbox(
                 "Selecione o Cartão para Configurar",
                 options=list(dict_cartoes_g.keys()),
                 format_func=lambda x: dict_cartoes_g[x],
-                key="sel_cartao_gerenciar"
+                key="sel_cartao_gerenciar",
             )
-            
-            cartao_sel_info = next(c for c in cartoes if c["id"] == cartao_id_ger)
-            
+
+            cartao_sel_info = next(
+                c for c in cartoes if c["id"] == cartao_id_ger
+            )
+
             st.markdown("---")
-            
+
             # --- Bloco 1: Alterar Limite ---
             col_lim1, col_lim2 = st.columns([2, 1])
             with col_lim1:
@@ -1924,13 +2019,15 @@ elif opcao == "💳 Cartões & Faturas":
                     min_value=0.0,
                     value=float(cartao_sel_info["limite"]),
                     step=100.0,
-                    key="input_novo_limite"
+                    key="input_novo_limite",
                 )
             with col_lim2:
-                st.write("") # Espaçamento
+                st.write("")
                 st.write("")
                 if st.button("✏️ Atualizar Limite", use_container_width=True):
-                    if atualizar_limite_cartao(user_id, cartao_id_ger, novo_limite):
+                    if atualizar_limite_cartao(
+                        user_id, cartao_id_ger, novo_limite
+                    ):
                         st.success("Limite atualizado com sucesso!")
                         st.rerun()
                     else:
@@ -1938,14 +2035,27 @@ elif opcao == "💳 Cartões & Faturas":
 
             st.markdown("---")
 
-            # --- Bloco 2: Excluir Cartão ---
-            st.warning("⚠️ **Zona de Perigo:** Excluir um cartão apaga as configurações dele.")
-            if st.button("🗑️ Excluir Cartão", type="primary"):
-                if excluir_cartao(user_id, cartao_id_ger):
-                    st.success("Cartão excluído com sucesso!")
-                    st.rerun()
-                else:
-                    st.error("Erro ao excluir o cartão.")
+            # --- Bloco 2: Excluir Cartão (Com confirmação st.popover) ---
+            st.warning(
+                "⚠️ **Zona de Perigo:** Excluir um cartão apaga as"
+                " configurações dele."
+            )
+
+            with st.popover("🗑️ Excluir Cartão", use_container_width=True):
+                st.write(
+                    f"Tem certeza que deseja excluir o cartão "
+                    f"**{dict_cartoes_g[cartao_id_ger]}**?"
+                )
+                if st.button(
+                    "Confirmar Exclusão Permanente",
+                    type="primary",
+                    key="btn_confirm_excluir_cartao",
+                ):
+                    if excluir_cartao(user_id, cartao_id_ger):
+                        st.success("Cartão excluído com sucesso!")
+                        st.rerun()
+                    else:
+                        st.error("Erro ao excluir o cartão.")
         else:
             st.info("Nenhum cartão cadastrado para gerenciar no momento.")
 
