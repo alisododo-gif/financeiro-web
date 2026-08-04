@@ -246,11 +246,15 @@ def listar_cartoes(usuario_id):
 
 
 @st.cache_data(ttl=60)
-def buscar_gastos_fatura(usuario_id, cartao_id, fatura_ref):
-    url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&cartao_id=eq.{cartao_id}&mes_fatura=eq.{fatura_ref}&select=id,data,descricao,categoria,valor,pago"
+def buscar_gastos_fatura(usuario_id, cartao_id, fatura_ref=None):
+    # Se fatura_ref for informada, filtra pelo mês; se for None, busca todas as movimentações do cartão
+    if fatura_ref:
+        url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&cartao_id=eq.{cartao_id}&mes_fatura=eq.{fatura_ref}&select=id,data,descricao,categoria,valor,pago"
+    else:
+        url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&cartao_id=eq.{cartao_id}&select=id,data,descricao,categoria,valor,pago"
+    
     res = requests.get(url, headers=HEADERS)
     return res.json() if res.status_code == 200 else []
-
 
 @st.cache_data(ttl=300)
 def obter_transacoes(usuario_id):
