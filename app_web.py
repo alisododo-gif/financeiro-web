@@ -1763,7 +1763,7 @@ elif opcao == "💳 Cartões & Faturas":
     user_id = st.session_state.get("usuario_id")
     cartoes = listar_cartoes(user_id)
 
-    # --- ABA 1: VISUALIZAR FATURAS ---
+  # --- ABA 1: VISUALIZAR FATURAS ---
     with tab_faturas:
         if cartoes:
             c1, c2, c3 = st.columns(3)
@@ -1788,11 +1788,23 @@ elif opcao == "💳 Cartões & Faturas":
             fatura_ref = f"{mes_fatura}/{ano_fatura}"
             st.markdown("---")
 
-            # Busca gastos vinculados a essa fatura no banco
+            # 1. Gastos apenas da fatura selecionada (para o card "Total da Fatura")
             compras = buscar_gastos_fatura(user_id, cartao_id_sel, fatura_ref)
             total_fatura = sum(float(item["valor"]) for item in compras) if compras else 0.0
+
+            # 2. CORREÇÃO SIMPLES: Busca TODOS os gastos do cartão (todas as faturas) para somar o saldo devedor real
+            todas_compras = buscar_gastos_fatura(user_id, cartao_id_sel, None)
+            
+            # Soma todas as parcelas de qualquer mês que ainda NÃO foram pagas
+            total_devedor_geral = sum(
+                float(item["valor"]) 
+                for item in todas_compras 
+                if not item.get("pago", False) and not item.get("paga", False)
+            ) if todas_compras else 0.0
+
+            # 3. Limite Disponível Real = Limite Total - Tudo que falta pagar (todas as parcelas)
             limite_total = float(cartao_info["limite"])
-            limite_disponivel = limite_total - total_fatura
+            limite_disponivel = limite_total - total_devedor_geral
 
             st.info(f"💡 **Informações:** Fechamento todo **dia {cartao_info['dia_fechamento']}** | Vencimento todo **dia {cartao_info['dia_vencimento']}**")
 
