@@ -18,7 +18,6 @@ HEADERS = {
 
 
 def criar_tabelas_se_nao_existirem():
-    """Garante a inicialização de tabelas e configurações de ambiente se necessário."""
     pass
 
 
@@ -188,7 +187,9 @@ def listar_contas(usuario_id):
         url = (
             f"{BASE_URL}/contas?usuario_id=eq.{usuario_id}&select=id,nome,saldo"
         )
-        res = requests.get(url, headers=HEADERS, timeout=5)
+        res = requests.get(
+            url, headers=HEADERS, timeout=5
+        )  # <--- Timeout de 5s adicionado
         if res.status_code == 200 and res.json():
             return [
                 [c["id"], c["nome"], c.get("saldo", 0.0)] for c in res.json()
@@ -298,6 +299,44 @@ def dados_grafico_tags(usuario_id, mes_selecionado, ano_selecionado):
             )
 
     return list(agrupado_tags.keys()), list(agrupado_tags.values())
+
+
+# --- 🟢 NOVO: NOVAS FUNÇÕES EXCLUSIVAS PARA O CONTAS A RECEBER ---
+
+
+@st.cache_data(ttl=60)
+def buscar_contas_a_receber(usuario_id, status_filtro="Todos"):
+    """Busca os lançamentos do tipo Receita com suporte a filtro por status (Pendente/Recebido/Todos)."""
+    url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&tipo=eq.Receita&order=data.asc"
+
+    if status_filtro == "Pendentes":
+        url += "&pago=eq.false"
+    elif status_filtro == "Recebidos":
+        url += "&pago=eq.true"
+
+    res = requests.get(url, headers=HEADERS)
+    return res.json() if res.status_code == 200 else []
+
+
+def alternar_status_contas_a_receber(mov_id, status_pago_atual):
+    """Alterna o status de um recebível sem impactar saldo de contas."""
+    novo_status = not status_pago_atual
+    url = f"{BASE_URL}/movimentacoes?id=eq.{mov_id}"
+    res = requests.patch(url, headers=HEADERS, json={"pago": novo_status})
+    if res.status_code in [200, 204]:
+        st.cache_data.clear()
+        return True
+    return False
+
+
+def excluir_conta_a_receber(usuario_id, mov_id):
+    """Exclui um lançamento do Contas a Receber."""
+    url = f"{BASE_URL}/movimentacoes?id=eq.{mov_id}&usuario_id=eq.{usuario_id}"
+    res = requests.delete(url, headers=HEADERS)
+    if res.status_code in [200, 204]:
+        st.cache_data.clear()
+        return True
+    return False
 
 
 # =====================================================================
@@ -426,7 +465,7 @@ def salvar_movimentacao(
     cartao_id=None,
     mes_fatura=None,
     tags=None,
-    pago=False,
+    pago=False,  # 💡 CORREÇÃO: Permite passar o estado do 'pago' direto no salvamento
 ):
     url = f"{BASE_URL}/movimentacoes"
     c_id = (
@@ -494,6 +533,9 @@ def salvar_movimentacao_parcelada(
     tags=None,
 ):
     dt_base = datetime.strptime(data_base, "%Y-%m-%d")
+
+    # 💡 CORREÇÃO: Divide o valor total pelo número de parcelas
+    # (Usamos round para evitar dizimas infinitas com centavos)
     valor_parcela = round(float(valor) / int(parcelas), 2)
 
     for i in range(parcelas):
@@ -518,7 +560,7 @@ def salvar_movimentacao_parcelada(
             usuario_id=usuario_id,
             conta_id=conta_id,
             descricao=desc_parcela,
-            valor=valor_parcela,
+            valor=valor_parcela,  # <--- Agora envia o valor da parcela (ex: 25.00)
             tipo=tipo,
             forma_pagamento=forma_pagamento,
             data_str=data_parcela_str,
@@ -568,7 +610,7 @@ def salvar_movimentacao_recorrente(
             usuario_id=usuario_id,
             conta_id=conta_id,
             descricao=f"{descricao} (Recorrente)",
-            valor=valor,
+            valor=valor,  # <--- AQUI: Envia o 'valor' original/cheio em todos os meses
             tipo=tipo,
             forma_pagamento=forma_pagamento,
             data_str=data_recorrente_str,
@@ -908,9 +950,8 @@ def gerar_insights_financeiros(
 
     return insights
 
-
 # =====================================================================
-# --- FUNÇÕES EXCLUSIVAS DA TABELA 'contas_receber' ---
+# --- FUNÇÕES PARA A TABELA 'contas_receber' ---
 # =====================================================================
 
 
@@ -968,7 +1009,6 @@ def excluir_conta_a_receber(usuario_id, mov_id):
         return True
     return False
 
-
 def atualizar_conta_a_receber(
     mov_id, usuario_id, nova_descricao, novo_valor, nova_data
 ):
@@ -987,41 +1027,3 @@ def atualizar_conta_a_receber(
         return True
     st.error(f"Erro ao atualizar: {res.text}")
     return False
-
-import sqlite3
-
-def buscar_gastos_pendentes_cartao(user_id: int, cartao_id: int) -> list[dict]:
-    """
-    Busca TODAS as parcelas e compras pendentes (não pagas) 
-    de um cartão específico, sem filtrar por mês/fatura.
-    """
-    conn = sqlite3.connect("financeiro.db")  # Ajuste para o nome do seu arquivo BD
-    cursor = conn.cursor()
-    
-    # Query seleciona apenas lançamentos do cartão e do usuário que NÃO foram pagos
-    query = """
-        SELECT id, data, descricao, categoria, valor, pago, fatura_ref
-        FROM movimentacoes
-        WHERE usuario_id = ? 
-          AND cartao_id = ? 
-          AND (pago = 0 OR pago IS NULL OR pago = 'False')
-    """
-    
-    cursor.execute(query, (user_id, cartao_id))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    # Formata o retorno como lista de dicionários
-    compras_pendentes = []
-    for row in rows:
-        compras_pendentes.append({
-            "id": row[0],
-            "data": row[1],
-            "descricao": row[2],
-            "categoria": row[3],
-            "valor": float(row[4]),
-            "pago": bool(row[5]),
-            "fatura_ref": row[6]
-        })
-        
-    return compras_pendentes
