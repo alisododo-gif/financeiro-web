@@ -1554,21 +1554,29 @@ elif opcao == "🎯 Orçamentos por Categoria":
                 gasto_atual = float(gastos_por_cat.get(cat_nome, 0.0))
                 porcentagem = min(gasto_atual / limite, 1.0) if limite > 0 else 0.0
 
-                # Formata os dois valores puramente como números (sem "R$" e sem crases)
+                # Formata os valores no padrão numérico brasileiro puro
                 gasto_num = f"{gasto_atual:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 limite_num = f"{limite:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
                 # Indicadores de Alerta
                 if gasto_atual > limite:
-                    status = f"🔴 **ESTOURADO!** Excedeu em R$ {f'{(gasto_atual - limite):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')}"
+                    exc = f"{(gasto_atual - limite):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                    status = f"🔴 **ESTOURADO!** Excedeu em R$ {exc}"
                 elif porcentagem >= 0.85:
-                    status = f"🟡 **Atenção!** Restam apenas R$ {f'{(limite - gasto_atual):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')}"
+                    rest = f"{(limite - gasto_atual):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                    status = f"🟡 **Atenção!** Restam apenas R$ {rest}"
                 else:
-                    status = f"🟢 **Dentro do Limite.** Restam R$ {f'{(limite - gasto_atual):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')}"
+                    rest = f"{(limite - gasto_atual):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                    status = f"🟢 **Dentro do Limite.** Restam R$ {rest}"
 
-                # Renderização 100% limpa sem acionar formatador do Streamlit
+                # RENDERIZAÇÃO 100% LIMPA EM HTML (Sem caixa verde)
                 st.markdown(f"### 📌 {cat_nome}")
-                st.write(f"**Gasto:** R$ {gasto_num} de R$ {limite_num}")
+                st.markdown(
+                    f"<p style='font-size: 1rem; margin-bottom: 4px;'>"
+                    f"<b>Gasto:</b> R$ {gasto_num} de R$ {limite_num}"
+                    f"</p>",
+                    unsafe_allow_html=True
+                )
                 st.progress(porcentagem)
                 st.caption(status)
 
