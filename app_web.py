@@ -1544,7 +1544,6 @@ elif opcao == "🎯 Orçamentos por Categoria":
             )
         else:
             for cat_nome, dados_limite in limites_dict.items():
-                # Trata estrutura caso o dict venha simples ou com ID para exclusão
                 if isinstance(dados_limite, dict):
                     limite = float(dados_limite.get("limite", 0.0))
                     orc_id = dados_limite.get("id")
@@ -1555,28 +1554,26 @@ elif opcao == "🎯 Orçamentos por Categoria":
                 gasto_atual = float(gastos_por_cat.get(cat_nome, 0.0))
                 porcentagem = min(gasto_atual / limite, 1.0) if limite > 0 else 0.0
 
-                # Formatação direta em texto puro (remove a caixa verde)
-                gasto_str = f"R$ {gasto_atual:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                limite_str = f"R$ {limite:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                # Formata os dois valores puramente como números (sem "R$" e sem crases)
+                gasto_num = f"{gasto_atual:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                limite_num = f"{limite:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
                 # Indicadores de Alerta
                 if gasto_atual > limite:
-                    status = f"🔴 **ESTOURADO!** Excedeu em {fmt_moeda(gasto_atual - limite)}"
+                    status = f"🔴 **ESTOURADO!** Excedeu em R$ {f'{(gasto_atual - limite):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')}"
                 elif porcentagem >= 0.85:
-                    status = f"🟡 **Atenção!** Restam apenas {fmt_moeda(limite - gasto_atual)}"
+                    status = f"🟡 **Atenção!** Restam apenas R$ {f'{(limite - gasto_atual):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')}"
                 else:
-                    status = f"🟢 **Dentro do Limite.** Restam {fmt_moeda(limite - gasto_atual)}"
+                    status = f"🟢 **Dentro do Limite.** Restam R$ {f'{(limite - gasto_atual):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')}"
 
-                # Exibição uniforme em texto normal
+                # Renderização 100% limpa sem acionar formatador do Streamlit
                 st.markdown(f"### 📌 {cat_nome}")
-                st.markdown(f"**Gasto:** {gasto_str} de {limite_str}")
+                st.write(f"**Gasto:** R$ {gasto_num} de R$ {limite_num}")
                 st.progress(porcentagem)
                 st.caption(status)
 
-                # Ações rápidas de alteração/exclusão embutidas diretamente
                 col_e1, col_e2 = st.columns(2)
 
-                # Novo Teto para Alteração rápida
                 novo_teto = col_e1.number_input(
                     "Alterar Limite (R$)",
                     min_value=10.0,
@@ -1593,7 +1590,6 @@ elif opcao == "🎯 Orçamentos por Categoria":
                     else:
                         st.error("Erro ao alterar o limite selecionado.")
 
-                # Botão de Excluir
                 if col_e2.button(
                     "🗑️ Excluir Orçamento",
                     key=f"btn_del_{cat_nome}",
