@@ -254,15 +254,31 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tags_final = " ".join([f"#{t.lower()}" for t in tags_encontradas]) if tags_encontradas else None
     texto_sem_tags = re.sub(r"#\w+", "", texto).strip()
 
-    # 2. Extrai Categoria personalizada (@categoria)
-    match_categoria = re.search(r"@([\wÀ-ÿ]+)", texto_sem_tags)
-    if match_categoria:
-        categoria_final = match_categoria.group(1).capitalize()
-        texto_sem_tags = re.sub(r"@[\wÀ-ÿ]+", "", texto_sem_tags).strip()
+    # 2. Identifica a Forma de Pagamento primeiro para definir a categoria padrão correta
+    texto_lower = texto_sem_tags.lower()
+    e_credito = any(kw in texto_lower.split() for kw in ["credito", "crédito"])
+    e_debito = any(kw in texto_lower.split() for kw in ["debito", "débito"])
+    
+    if e_credito:
+        forma_pagamento = "Cartão de Crédito"
+        categoria_padrao = "Cartão de Crédito"
+    elif e_debito:
+        forma_pagamento = "Cartão de Débito"
+        categoria_padrao = "Débito"
     else:
-        categoria_final = "Outros"
+        forma_pagamento = "Pix"
+        categoria_padrao = "Pix"
 
-    # 3. Extrai data personalizada (Ex: 15/08 ou 15/08/2026)
+    # 3. Extrai Categoria personalizada (@categoria) se o usuário enviar, senão usa a categoria padrão
+    match_categoria = re.search(r'@(?:"([^"]+)"|([\wÀ-ÿ]+))', texto_sem_tags)
+    if match_categoria:
+        categoria_bruta = match_categoria.group(1) or match_categoria.group(2)
+        categoria_final = categoria_bruta.strip().title()
+        texto_sem_tags = re.sub(r'@(?:"[^"]+"|[\wÀ-ÿ]+)', "", texto_sem_tags).strip()
+    else:
+        categoria_final = categoria_padrao
+
+    # 4. Extrai data personalizada (Ex: 15/08 ou 15/08/2026)
     match_data = re.search(r"\b(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b", texto_sem_tags)
     now = datetime.now()
 
@@ -284,7 +300,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         data_final = now.strftime("%Y-%m-%d")
 
-    # 4. Extrai valor e descrição
+    # 5. Extrai valor e descrição
     pattern = r"^(?:r\$\s*)?([\d.,]+)\s*(?:reais|reias)?\s+(.+)$"
     match = re.match(pattern, texto_sem_tags, re.IGNORECASE)
 
@@ -292,9 +308,13 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "⚠️ Formato inválido!\n\n"
             "Exemplos aceitos:\n\n"
-            "• `10.00 Cartao de credito @Mercado credito` (Categoria: Mercado)\n"
-            "• `120.00 Internet fixo @Moradia 15/08`\n"
-            "• `50,00 Comida @Alimentacao Pix`"
+            "• `120.00 Internet fixo` (Usa a Data de Hoje)\n\n"
+            "• `120.00 Internet fixo 15/08` (Usa a Data 15/08)\n\n"
+            "• `290.00 Alison receber 15/08` (Lançamento Para Notificar no Dia 15/08)\n\n"
+            "• `50,00 Comida Pix` (Lançamento de Pix)\n\n"
+            "• `50,00 Comida Crédito` (Lançamento de Crédito)\n\n"
+            "• `50,00 Comida Débito` (Lançamento de Débito)\n\n"    
+            "• `Status, Receber ou Pendentes` (Para Consultar os Lançamentos que tem a receber)"
         )
         return
 
@@ -306,16 +326,15 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Valor numérico inválido.")
         return
 
-    texto_lower = descricao_bruta.lower()
-
     # =========================================================
     # FLUXO 0: CONTAS A RECEBER
     # =========================================================
-    e_recebimento = any(kw in texto_lower for kw in ["receber", "ganho", "receita", "salario", "salário", "venda"])
+    e_recebimento = any(kw in descricao_bruta.lower() for kw in ["receber", "ganho", "receita", "salario", "salário", "venda"])
 
     if e_recebimento:
         palavras_remover = r"\b(receber|ganho|receita|salario|salário|venda)\b"
         descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
+        descricao_limpa = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", descricao_limpa)
 
         payload_receber = {
             "usuario_id": usuario_id,
@@ -344,14 +363,12 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =========================================================
     # FLUXO DESPESAS
     # =========================================================
-    e_credito = any(kw in texto_lower.split() for kw in ["credito", "crédito"])
-    e_debito = any(kw in texto_lower.split() for kw in ["debito", "débito"])
-    forma_pagamento = "Cartão de Crédito" if e_credito else ("Cartão de Débito" if e_debito else "Pix")
+    # Remove a palavra do método de pagamento do final do texto para manter a descrição limpa
+    descricao_limpa = re.sub(r"[\s,.-]*\b(pix|debito|débito|credito|crédito)\b[\s,.-]*$", "", descricao_bruta, flags=re.IGNORECASE).strip()
+    descricao_limpa = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", descricao_limpa)
 
-    # Remove apenas a palavra de comando no final ou isolada para não estragar a descrição
-    descricao_limpa = re.sub(r"\b(pix|debito|débito|credito|crédito)\b$", "", descricao_bruta, flags=re.IGNORECASE).strip()
     if not descricao_limpa:
-        descricao_limpa = descricao_bruta
+        descricao_limpa = "Despesa"
 
     context.user_data["temp_lancamento"] = {
         "usuario_id": usuario_id,
