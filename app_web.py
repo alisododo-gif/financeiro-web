@@ -1405,9 +1405,7 @@ elif opcao == "🎯 Orçamentos por Categoria":
     # 1. Busca dados iniciais
     uid = st.session_state["usuario_id"]
     limite_geral = obter_limite_orcamento(uid)
-    limites_dict = obter_limites_por_categoria(
-        uid
-    )  # Esperado dict { 'Categoria': limite } ou { 'Categoria': {'id': x, 'limite': y} }
+    limites_dict = obter_limites_por_categoria(uid)  # Esperado dict { 'Categoria': limite } ou { 'Categoria': {'id': x, 'limite': y} }
     movs_todas = buscar_todas_movimentacoes(uid, "Todos", "Todos")
 
     # Processa total de gastos por categoria
@@ -1471,6 +1469,23 @@ elif opcao == "🎯 Orçamentos por Categoria":
 
     st.markdown("---")
     col_cad, col_vis = st.columns([1, 2])
+
+    with col_vis:
+        st.subheader("📈 Acompanhamento de Gastos")
+        
+        if limites_dict:
+            for cat, val in limites_dict.items():
+                limite_cat = val if isinstance(val, (int, float)) else val.get("limite", 0.0)
+                gasto_cat = gastos_por_cat.get(cat, 0.0)
+                
+                # Barra de progresso (limita em 1.0 para não quebrar a UI se estourar)
+                progresso = min(gasto_cat / limite_cat, 1.0) if limite_cat > 0 else 0.0
+                
+                # Renderização limpa e padronizada com as Metas
+                st.write(f"📌 **{cat}:** {fmt_moeda(gasto_cat)} / **{fmt_moeda(limite_cat)}**")
+                st.progress(progresso)
+        else:
+            st.info("Nenhum limite por categoria cadastrado ainda.")
 
     # --- PAINEL GRÁFICO (DASHBOARD) ---
     if limites_dict:
