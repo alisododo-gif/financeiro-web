@@ -24,21 +24,14 @@ from telegram.ext import (
     filters,
 )
 
-# SDK DO MERCADO PAGO
-from mercadopago import SDK
-
 from lembrete_boletos import processar_e_enviar_alertas
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-MERCADO_PAGO_TOKEN = os.getenv("MERCADO_PAGO_TOKEN")
 
-# Inicializa Supabase e Mercado Pago
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-mp = SDK(MERCADO_PAGO_TOKEN)
-
 logging.basicConfig(level=logging.INFO)
 
 CACHE_USUARIOS = {}
@@ -109,50 +102,6 @@ def calcular_mes_fatura(data_compra, dia_fechamento):
     return data_compra.strftime("%m/%Y")
 
 
-# =========================================================
-# VENDAS / ASSINATURAS VIA PIX (MERCADO PAGO)
-# =========================================================
-async def assinar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Gera o PIX para o usuário realizar o pagamento"""
-    telegram_id = update.effective_user.id
-    nome_usuario = update.effective_user.first_name or "Cliente"
-    
-    # Exemplo: R$ 29,90 pelo plano mensal
-    valor_plano = 29.90 
-
-    payment_data = {
-        "transaction_amount": valor_plano,
-        "description": "Assinatura FinanceiroPro - Mensal",
-        "payment_method_id": "pix",
-        "payer": {
-            "email": f"user_{telegram_id}@financeiropro.com",
-            "first_name": nome_usuario,
-        }
-    }
-
-    try:
-        payment_response = mp.payment().create(payment_data)
-        payment = payment_response.get("response", {})
-
-        payment_id = payment.get("id")
-        pix_copia_e_cola = payment["point_of_interaction"]["transaction_data"]["qr_code"]
-
-        botoes = [[InlineKeyboardButton("🔄 Verificar Pagamento", callback_data=f"pag_check_{payment_id}")]]
-
-        await update.message.reply_text(
-            f"⚡ **ASSINATURA FINANCEIROPRO** ⚡\n\n"
-            f"💰 Valor: **R$ {valor_plano:.2f}**\n\n"
-            f"Copie a chave PIX abaixo e pague no seu banco:\n\n"
-            f"`{pix_copia_e_cola}`\n\n"
-            f"Assim que concluir o pagamento, clique no botão abaixo para ativar seu acesso:",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(botoes)
-        )
-    except Exception as e:
-        logging.error(f"Erro ao gerar PIX MP: {e}")
-        await update.message.reply_text("⚠️ Ocorreu um erro ao gerar a cobrança PIX. Tente novamente mais tarde.")
-
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
@@ -161,8 +110,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "👋 Você já está cadastrado no FinanceiroPro!\n\n"
             "• Para lançar: `290.00 teste receber 15/08`\n"
-            "• Para consultar pendentes: Digite /status ou `receber`\n"
-            "• Para assinar/renovar: Digite /assinar"
+            "• Para consultar pendentes: Digite /status ou `receber`"
         )
         return
 
@@ -296,12 +244,9 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     texto = update.message.text.strip()
 
-    # Atalhos rápidos para consulta e assinatura sem barra
+    # Atalhos rápidos para consulta
     if texto.lower() in ["status", "receber", "pendentes", "contas"]:
         await consultar_contas_receber(update, context)
-        return
-    elif texto.lower() in ["assinar", "comprar", "plano", "assinatura"]:
-        await assinar_cmd(update, context)
         return
 
     # 1. Extrai hashtags
@@ -309,7 +254,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tags_final = " ".join([f"#{t.lower()}" for t in tags_encontradas]) if tags_encontradas else None
     texto_sem_tags = re.sub(r"#\w+", "", texto).strip()
 
-    # 2. Extrai data personalizada
+    # 2. Extrai data personalizada (Ex: 15/08 ou 15/08/2026)
     match_data = re.search(r"\b(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b", texto_sem_tags)
     now = datetime.now()
 
@@ -360,7 +305,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto_lower = descricao_bruta.lower()
 
     # =========================================================
-    # FLUXO 0: CONTAS A RECEBER
+    # FLUXO 0: CONTAS A RECEBER (Salva na tabela 'contas_receber')
     # =========================================================
     e_recebimento = any(kw in texto_lower for kw in ["receber", "ganho", "receita", "salario", "salário", "venda"])
 
@@ -393,7 +338,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # =========================================================
-    # FLUXO DESPESAS
+    # FLUXO DESPESAS (Mantém a lógica normal para movimentações)
     # =========================================================
     e_credito = any(kw in texto_lower for kw in ["credito", "crédito", "cartao", "cartão"])
     e_debito = any(kw in texto_lower for kw in ["debito", "débito"])
@@ -488,34 +433,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     action = query.data
-
-    # =========================================================
-    # CHECAGEM DE PAGAMENTO DO MERCADO PAGO
-    # =========================================================
-    if action.startswith("pag_check_"):
-        payment_id = int(action.replace("pag_check_", ""))
-        try:
-            payment_info = mp.payment().get(payment_id).get("response", {})
-            status = payment_info.get("status")
-
-            if status == "approved":
-                telegram_id = query.from_user.id
-                dados_user = buscar_dados_usuario(telegram_id)
-                if dados_user:
-                    supabase.table("usuarios").update({"ativo": True}).eq("id", dados_user["usuario_id"]).execute()
-
-                await query.edit_message_text(
-                    "🎉 **PAGAMENTO CONFIRMADO COM SUCESSO!** 🎉\n\n"
-                    "Sua assinatura foi ativada. Você já tem acesso total aos comandos do bot!"
-                )
-            elif status == "pending":
-                await query.message.reply_text("⏳ Pagamento ainda pendente. Faça a transferência e tente novamente.")
-            else:
-                await query.message.reply_text(f"⚠️ Status do pagamento: {status}. Crie um novo pedido com /assinar.")
-        except Exception as e:
-            logging.error(f"Erro ao verificar pagamento MP: {e}")
-            await query.message.reply_text("⚠️ Ocorreu um erro ao consultar o status do pagamento.")
-        return
 
     # =========================================================
     # MARCAR CONTA A RECEBER COMO PAGO
@@ -702,12 +619,10 @@ def main():
         time=time(hour=14, minute=0, second=0, tzinfo=fuso_brasilia),
     )
 
-    # Handlers dos comandos (Ordem correta de prioridade)
+    # Handlers dos comandos
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", consultar_contas_receber))
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
-    app.add_handler(CommandHandler("assinar", assinar_cmd))
-    app.add_handler(CommandHandler("comprar", assinar_cmd))
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     
     app.add_handler(MessageHandler(filters.CONTACT, receber_contato))
