@@ -749,44 +749,44 @@ elif opcao == "📊 Dashboard":
         else:
             st.info("Nenhuma despesa registrada para o período selecionado.")
 
-    # --- SEÇÃO DE GRÁFICOS DE TAGS / EVENTOS ---
+        # --- OTIMIZAÇÃO: GRÁFICOS DE TAGS / EVENTOS ---
     st.markdown("---")
     st.markdown("### 🏷️ Gastos por Tag / Evento")
 
-    tags_retornadas, valores_tags = None, None
     try:
         tags_retornadas, valores_tags = dados_grafico_tags(st.session_state["usuario_id"], mes_selecionado, ano_selecionado)
+        if tags_retornadas and len(tags_retornadas) > 0:
+            # Processamento rápido via Dataframe direto
+            df_grouped = (
+                pd.DataFrame({"Tag": tags_retornadas, "Valor": valores_tags})
+                .assign(Tag_Norm=lambda x: "#" + x["Tag"].astype(str).str.strip().str.lower().str.lstrip("#"))
+                .groupby("Tag_Norm", as_index=False)["Valor"].sum()
+            )
+
+            col_t1, col_t2 = st.columns([1.5, 1])
+            with col_t1:
+                fig_tags = px.pie(
+                    df_grouped, 
+                    names="Tag_Norm", 
+                    values="Valor", 
+                    hole=0.4,
+                    color_discrete_sequence=px.colors.qualitative.Pastel
+                )
+                fig_tags.update_traces(textposition='inside', textinfo='percent+label')
+                fig_tags.update_layout(height=350, margin=dict(l=20, r=20, t=20, b=20))
+                st.plotly_chart(fig_tags, use_container_width=True)
+                
+            with col_t2:
+                st.write("#### 📋 Detalhamento")
+                df_tags_detalhe = pd.DataFrame({
+                    "Tag": df_grouped["Tag_Norm"],
+                    "Total Gasto": df_grouped["Valor"].apply(fmt_moeda)
+                })
+                st.dataframe(df_tags_detalhe, use_container_width=True, hide_index=True)
+        else:
+            st.info("💡 Nenhuma movimentação com tag registrada para o período selecionado.")
     except Exception:
         pass
-
-    if tags_retornadas and len(tags_retornadas) > 0:
-        df_temp_tags = pd.DataFrame({"Tag": tags_retornadas, "Valor": valores_tags})
-        df_temp_tags["Tag_Norm"] = df_temp_tags["Tag"].astype(str).str.strip().str.lower()
-        
-        df_grouped = df_temp_tags.groupby("Tag_Norm")["Valor"].sum().reset_index()
-        df_grouped["Tag"] = df_grouped["Tag_Norm"].apply(lambda t: f"#{t.lstrip('#')}")
-
-        col_t1, col_t2 = st.columns([1.5, 1])
-        with col_t1:
-            fig_tags = px.pie(
-                df_grouped, 
-                names="Tag", 
-                values="Valor", 
-                hole=0.4,
-                color_discrete_sequence=px.colors.qualitative.Pastel
-            )
-            fig_tags.update_traces(textposition='inside', textinfo='percent+label')
-            fig_tags.update_layout(height=350, margin=dict(l=20, r=20, t=20, b=20))
-            st.plotly_chart(fig_tags, width="stretch")
-        with col_t2:
-            st.write("#### 📋 Detalhamento")
-            df_tags_detalhe = pd.DataFrame({
-                "Tag": df_grouped["Tag"],
-                "Total Gasto": [fmt_moeda(v) for v in df_grouped["Valor"]]
-            })
-            st.dataframe(df_tags_detalhe, use_container_width=True, hide_index=True)
-    else:
-        st.info("💡 Nenhuma movimentação com tag registrada para o período selecionado.")
 
     # --- SEÇÃO DE GRÁFICOS DE METAS NO DASHBOARD ---
     st.markdown("---")
@@ -1788,21 +1788,38 @@ elif opcao == "💳 Cartões & Faturas":
             fatura_ref = f"{mes_fatura}/{ano_fatura}"
             st.markdown("---")
 
-            # 1. Gastos apenas da fatura selecionada (para o card "Total da Fatura")
-            compras = buscar_gastos_fatura(user_id, cartao_id_sel, fatura_ref)
-            total_fatura = sum(float(item["valor"]) for item in compras) if compras else 0.0
-
-            # 2. CORREÇÃO SIMPLES: Busca TODOS os gastos do cartão (todas as faturas) para somar o saldo devedor real
+         # 1. Busca ÚNICA no banco de dados para evitar dupla requisição HTTP/SQL
             todas_compras = buscar_gastos_fatura(user_id, cartao_id_sel, None)
-            
-            # Soma todas as parcelas de qualquer mês que ainda NÃO foram pagas
-            total_devedor_geral = sum(
-                float(item["valor"]) 
-                for item in todas_compras 
-                if not item.get("pago", False) and not item.get("paga", False)
-            ) if todas_compras else 0.0
 
-            # 3. Limite Disponível Real = Limite Total - Tudo que falta pagar (todas as parcelas)
+            if todas_compras:
+                df_compras = pd.DataFrame(todas_compras)
+
+                # Padronização rápida do campo de status de pagamento
+                col_pago = "pago" if "pago" in df_compras.columns else ("paga" if "paga" in df_compras.columns else None)
+                if col_pago:
+                    df_compras["esta_pago"] = df_compras[col_pago].fillna(False).astype(bool)
+                else:
+                    df_compras["esta_pago"] = False
+
+                # 2. Gastos apenas da fatura selecionada
+                if "mes_fatura" in df_compras.columns:
+                    df_fatura_sel = df_compras[df_compras["mes_fatura"] == fatura_ref]
+                    total_fatura = float(df_fatura_sel["valor"].sum()) if not df_fatura_sel.empty else 0.0
+                    compras = df_fatura_sel.to_dict("records")
+                else:
+                    compras = todas_compras
+                    total_fatura = float(df_compras["valor"].sum())
+
+                # 3. Saldo devedor real (apenas o que NÃO foi pago de todas as faturas)
+                df_pendentes = df_compras[~df_compras["esta_pago"]]
+                total_devedor_geral = float(df_pendentes["valor"].sum()) if not df_pendentes.empty else 0.0
+
+            else:
+                compras = []
+                total_fatura = 0.0
+                total_devedor_geral = 0.0
+
+            # 4. Limite Disponível Real
             limite_total = float(cartao_info["limite"])
             limite_disponivel = limite_total - total_devedor_geral
 
