@@ -296,9 +296,12 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     texto = update.message.text.strip()
 
-    # Atalhos rápidos para consulta
+    # Atalhos rápidos para consulta e assinatura sem barra
     if texto.lower() in ["status", "receber", "pendentes", "contas"]:
         await consultar_contas_receber(update, context)
+        return
+    elif texto.lower() in ["assinar", "comprar", "plano", "assinatura"]:
+        await assinar_cmd(update, context)
         return
 
     # 1. Extrai hashtags
@@ -496,11 +499,9 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status = payment_info.get("status")
 
             if status == "approved":
-                # Atualizar a tabela de usuários (exemplo: liberando status VIP ou estendendo data)
                 telegram_id = query.from_user.id
                 dados_user = buscar_dados_usuario(telegram_id)
                 if dados_user:
-                    # Opcional: Atualize o banco de dados marcando assinatura ativa
                     supabase.table("usuarios").update({"ativo": True}).eq("id", dados_user["usuario_id"]).execute()
 
                 await query.edit_message_text(
@@ -701,7 +702,7 @@ def main():
         time=time(hour=14, minute=0, second=0, tzinfo=fuso_brasilia),
     )
 
-    # Handlers dos comandos
+    # Handlers dos comandos (Ordem correta de prioridade)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", consultar_contas_receber))
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
