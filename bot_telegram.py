@@ -254,31 +254,16 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tags_final = " ".join([f"#{t.lower()}" for t in tags_encontradas]) if tags_encontradas else None
     texto_sem_tags = re.sub(r"#\w+", "", texto).strip()
 
-    # 2. Identifica a Forma de Pagamento primeiro para definir a categoria padrão correta
-    texto_lower = texto_sem_tags.lower()
-    e_credito = any(kw in texto_lower.split() for kw in ["credito", "crédito"])
-    e_debito = any(kw in texto_lower.split() for kw in ["debito", "débito"])
-    
-    if e_credito:
-        forma_pagamento = "Cartão de Crédito"
-        categoria_padrao = "Cartão de Crédito"
-    elif e_debito:
-        forma_pagamento = "Cartão de Débito"
-        categoria_padrao = "Débito"
-    else:
-        forma_pagamento = "Pix"
-        categoria_padrao = "Pix"
-
-    # 3. Extrai Categoria personalizada (@categoria) se o usuário enviar, senão usa a categoria padrão
+    # 2. Extrai Categoria personalizada (@categoria) primeiro
     match_categoria = re.search(r'@(?:"([^"]+)"|([\wÀ-ÿ]+))', texto_sem_tags)
     if match_categoria:
         categoria_bruta = match_categoria.group(1) or match_categoria.group(2)
-        categoria_final = categoria_bruta.strip().title()
+        categoria_usuario = categoria_bruta.strip().title()
         texto_sem_tags = re.sub(r'@(?:"[^"]+"|[\wÀ-ÿ]+)', "", texto_sem_tags).strip()
     else:
-        categoria_final = categoria_padrao
+        categoria_usuario = None
 
-    # 4. Extrai data personalizada (Ex: 15/08 ou 15/08/2026)
+    # 3. Extrai data personalizada (Ex: 15/08 ou 15/08/2026)
     match_data = re.search(r"\b(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b", texto_sem_tags)
     now = datetime.now()
 
@@ -300,7 +285,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         data_final = now.strftime("%Y-%m-%d")
 
-    # 5. Extrai valor e descrição
+    # 4. Extrai valor e descrição
     pattern = r"^(?:r\$\s*)?([\d.,]+)\s*(?:reais|reias)?\s+(.+)$"
     match = re.match(pattern, texto_sem_tags, re.IGNORECASE)
 
@@ -325,6 +310,26 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("❌ Valor numérico inválido.")
         return
+
+    # 5. Identifica Forma de Pagamento e Categoria Padrão baseada na mensagem
+    texto_analise = descricao_bruta.lower()
+    
+    # Busca por palavras-chave isoladas ou no final da frase
+    e_credito = bool(re.search(r"\b(credito|crédito)\b", texto_analise))
+    e_debito = bool(re.search(r"\b(debito|débito)\b", texto_analise))
+
+    if e_credito:
+        forma_pagamento = "Cartão de Crédito"
+        categoria_padrao = "Cartão de Crédito"
+    elif e_debito:
+        forma_pagamento = "Cartão de Débito"
+        categoria_padrao = "Débito"
+    else:
+        forma_pagamento = "Pix"
+        categoria_padrao = "Pix"
+
+    # Define categoria final (Personalizada ou Padrão)
+    categoria_final = categoria_usuario if categoria_usuario else categoria_padrao
 
     # =========================================================
     # FLUXO 0: CONTAS A RECEBER
@@ -363,7 +368,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =========================================================
     # FLUXO DESPESAS
     # =========================================================
-    # Remove a palavra do método de pagamento do final do texto para manter a descrição limpa
+    # Remove apenas o modificador de pagamento que fica ao final do texto (ex: "... crédito")
     descricao_limpa = re.sub(r"[\s,.-]*\b(pix|debito|débito|credito|crédito)\b[\s,.-]*$", "", descricao_bruta, flags=re.IGNORECASE).strip()
     descricao_limpa = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", descricao_limpa)
 
