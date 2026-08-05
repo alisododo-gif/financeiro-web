@@ -466,177 +466,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     action = query.data
 
-    # MARCAR CONTA A RECEBER COMO PAGO
-    if action.startswith("pagar_rec_"):
-        receber_id = int(action.replace("pagar_rec_", ""))
-        try:
-            supabase.table("contas_receber").update({"recebido": True}).eq("id", receber_id).execute()
-            texto_antigo = query.message.text
-            await query.edit_message_text(
-                f"{texto_antigo}\n\n"
-                f"✅ **STATUS ATUALIZADO: PAGO / RECEBIDO!**"
-            )
-            return
-        except Exception as e:
-            logging.error(f"Erro ao dar baixa em conta a receber: {e}")
-            await query.edit_message_text(f"⚠️ Erro ao atualizar status: {e}")
-            return
-
-    dados_temp = context.user_data.get("temp_lancamento")
-
-    if not dados_temp:
-        await query.edit_message_text("⚠️ Sessão expirada. Por favor, envie o lançamento novamente.")
-        return
-
-    dados_usuario = buscar_dados_usuario(query.from_user.id)
-    lista_cartoes = dados_usuario["cartoes"] if dados_usuario else []
-
-    # 1. Escolheu 'Parcelado'
-    if action == "c_parcelado_menu":
-        botoes = []
-        for i in range(2, 13, 2):
-            p1_valor = dados_temp["valor"] / i
-            p2_valor = dados_temp["valor"] / (i + 1) if (i + 1) <= 12 else None
-
-            row = [InlineKeyboardButton(f"{i}x (R$ {p1_valor:.2f})", callback_data=f"parc_{i}")]
-            if p2_valor:
-                row.append(InlineKeyboardButton(f"{i+1}x (R$ {p2_valor:.2f})", callback_data=f"parc_{i+1}"))
-            botoes.append(row)
-
-        await query.edit_message_text(
-            f"📅 Selecione a quantidade de parcelas para R$ {dados_temp['valor']:.2f}:",
-            reply_markup=InlineKeyboardMarkup(botoes)
-        )
-        return
-
-    # 2. Definiu número de parcelas
-    if action.startswith("parc_"):
-        num_parcelas = int(action.replace("parc_", ""))
-        dados_temp["parcelas"] = num_parcelas
-        action = "c_avista"
-
-    # 3. Seleção de Cartão
-    if action == "c_avista":
-        num_parc = dados_temp.get("parcelas", 1)
-        if len(lista_cartoes) > 1:
-            botoes = []
-            for c in lista_cartoes:
-                botoes.append([InlineKeyboardButton(f"💳 {c['nome_cartao']}", callback_data=f"crt_{c['id']}")])
-
-            parc_str = f"({num_parc}x)" if num_parc > 1 else "(À Vista)"
-            await query.edit_message_text(
-                f"💳 Selecione qual CARTÃO foi utilizado {parc_str}:\n\n"
-                f"📝 Descrição: {dados_temp['descricao']}\n"
-                f"🏷️ Categoria: {dados_temp['categoria']}\n"
-                f"💸 Valor Total: R$ {dados_temp['valor']:.2f}",
-                reply_markup=InlineKeyboardMarkup(botoes)
-            )
-            return
-        else:
-            cartao_id = lista_cartoes[0]["id"] if lista_cartoes else None
-            action = f"crt_{cartao_id}"
-
-    # 4. SALVAR PIX / DÉBITO
-    if action.startswith("cnt_"):
-        conta_id = int(action.replace("cnt_", ""))
-        mes_fatura_calc = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%m/%Y")
-        payload = {
-            "usuario_id": dados_temp["usuario_id"],
-            "conta_id": conta_id,
-            "cartao_id": None,
-            "descricao": dados_temp["descricao"],
-            "valor": dados_temp["valor"],
-            "tipo": "Despesa",
-            "categoria": dados_temp["categoria"],
-            "forma_pagamento": dados_temp["forma_pagamento"],
-            "data": dados_temp["data"],
-            "mes_fatura": mes_fatura_calc,
-            "pago": True,
-            "tags": dados_temp["tags"],
-        }
-        try:
-            supabase.table("movimentacoes").insert(payload).execute()
-            tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp["tags"] else ""
-            await query.edit_message_text(
-                f"✅ Lançamento Registrado!\n\n"
-                f"💸 Valor: R$ {dados_temp['valor']:.2f}\n"
-                f"📝 Descrição: {dados_temp['descricao']}\n"
-                f"🏷️ Categoria: {dados_temp['categoria']}\n"
-                f"⚡ Forma: {dados_temp['forma_pagamento']}\n"
-                f"📅 Data: {dados_temp['data']}{tag_str}"
-            )
-            context.user_data.pop("temp_lancamento", None)
-        except Exception as e:
-            await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: {e}")
-
-    # 5. SALVAR CRÉDITO
-    elif action.startswith("crt_"):
-        cartao_id = int(action.replace("crt_", ""))
-        num_parcelas = dados_temp.get("parcelas", 1)
-        valor_total = dados_temp["valor"]
-        valor_parcela = round(valor_total / num_parcelas, 2)
-
-        cartao_info = next((c for c in lista_cartoes if c["id"] == cartao_id), None)
-        dia_fechamento = cartao_info.get("dia_fechamento") if cartao_info else None
-
-        data_compra = datetime.strptime(dados_temp["data"], "%Y-%m-%d")
-
-        fatura_inicial_str = calcular_mes_fatura(data_compra, dia_fechamento)
-        fatura_inicial_dt = datetime.strptime(fatura_inicial_str, "%m/%Y")
-
-        payloads = []
-        for i in range(num_parcelas):
-            fatura_parcela_dt = fatura_inicial_dt + relativedelta(months=i)
-            str_mes_fatura = fatura_parcela_dt.strftime("%m/%Y")
-
-            data_parcela_dt = data_compra + relativedelta(months=i)
-            str_data_parcela = data_parcela_dt.strftime("%Y-%m-%d")
-
-            desc_final = dados_temp["descricao"]
-            if num_parcelas > 1:
-                desc_final = f"{dados_temp['descricao']} ({i+1}/{num_parcelas})"
-
-            payloads.append({
-                "usuario_id": dados_temp["usuario_id"],
-                "conta_id": None,
-                "cartao_id": cartao_id,
-                "descricao": desc_final,
-                "valor": valor_parcela,
-                "tipo": "Despesa",
-                "categoria": dados_temp["categoria"],
-                "forma_pagamento": "Cartão de Crédito",
-                "data": str_data_parcela,
-                "mes_fatura": str_mes_fatura,
-                "pago": False,
-                "tags": dados_temp["tags"],
-            })
-
-        try:
-            supabase.table("movimentacoes").insert(payloads).execute()
-
-            tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp["tags"] else ""
-            detalhe_parc = f" em {num_parcelas}x de R$ {valor_parcela:.2f}" if num_parcelas > 1 else ""
-
-            await query.edit_message_text(
-                f"✅ Lançamento no Crédito Registrado!\n\n"
-                f"💸 Valor Total: R$ {valor_total:.2f}{detalhe_parc}\n"
-                f"📝 Descrição: {dados_temp['descricao']}\n"
-                f"🏷️ Categoria: {dados_temp['categoria']}\n"
-                f"💳 Forma: Cartão de Crédito\n"
-                f"📌 Primeiros Vencimentos/Fatura: {payloads[0]['mes_fatura']}{tag_str}"
-            )
-            context.user_data.pop("temp_lancamento", None)
-        except Exception as e:
-            logging.error(f"Erro ao salvar crédito: {e}")
-            await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: {e}")
-
-
-async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    action = query.data
-
     # =========================================================
     # MARCAR CONTA A RECEBER COMO PAGO
     # =========================================================
@@ -701,6 +530,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 f"💳 Selecione qual CARTÃO foi utilizado {parc_str}:\n\n"
                 f"📝 Descrição: {dados_temp['descricao']}\n"
+                f"🏷️ Categoria: {dados_temp.get('categoria', 'Outros')}\n"
                 f"💸 Valor Total: R$ {dados_temp['valor']:.2f}",
                 reply_markup=InlineKeyboardMarkup(botoes)
             )
@@ -713,6 +543,8 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action.startswith("cnt_"):
         conta_id = int(action.replace("cnt_", ""))
         mes_fatura_calc = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%m/%Y")
+        categoria_salvar = dados_temp.get("categoria", "Outros")
+
         payload = {
             "usuario_id": dados_temp["usuario_id"],
             "conta_id": conta_id,
@@ -720,7 +552,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "descricao": dados_temp["descricao"],
             "valor": dados_temp["valor"],
             "tipo": "Despesa",
-            "categoria": "Outros",
+            "categoria": categoria_salvar,
             "forma_pagamento": dados_temp["forma_pagamento"],
             "data": dados_temp["data"],
             "mes_fatura": mes_fatura_calc,
@@ -734,6 +566,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✅ Lançamento Registrado!\n\n"
                 f"💸 Valor: R$ {dados_temp['valor']:.2f}\n"
                 f"📝 Descrição: {dados_temp['descricao']}\n"
+                f"🏷️ Categoria: {categoria_salvar}\n"
                 f"⚡ Forma: {dados_temp['forma_pagamento']}\n"
                 f"📅 Data: {dados_temp['data']}{tag_str}"
             )
@@ -747,6 +580,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         num_parcelas = dados_temp.get("parcelas", 1)
         valor_total = dados_temp["valor"]
         valor_parcela = round(valor_total / num_parcelas, 2)
+        categoria_salvar = dados_temp.get("categoria", "Outros")
 
         cartao_info = next((c for c in lista_cartoes if c["id"] == cartao_id), None)
         dia_fechamento = cartao_info.get("dia_fechamento") if cartao_info else None
@@ -775,7 +609,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "descricao": desc_final,
                 "valor": valor_parcela,
                 "tipo": "Despesa",
-                "categoria": "Outros",
+                "categoria": categoria_salvar,
                 "forma_pagamento": "Cartão de Crédito",
                 "data": str_data_parcela,
                 "mes_fatura": str_mes_fatura,
@@ -793,6 +627,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✅ Lançamento no Crédito Registrado!\n\n"
                 f"💸 Valor Total: R$ {valor_total:.2f}{detalhe_parc}\n"
                 f"📝 Descrição: {dados_temp['descricao']}\n"
+                f"🏷️ Categoria: {categoria_salvar}\n"
                 f"💳 Forma: Cartão de Crédito\n"
                 f"📌 Primeiros Vencimentos/Fatura: {payloads[0]['mes_fatura']}{tag_str}"
             )
@@ -800,7 +635,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logging.error(f"Erro ao salvar crédito: {e}")
             await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: {e}")
-
 
 async def testar_alertas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔎 Verificando e enviando alertas de boletos do dia...")
