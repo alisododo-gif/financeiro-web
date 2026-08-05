@@ -1513,27 +1513,6 @@ elif opcao == "🎯 Orçamentos por Categoria":
 
         st.markdown("---")
 
-    # --- LADO ESQUERDO: FORMULÁRIO DE CADASTRO ---
-    with col_cad:
-        with st.form("form_orcamento", clear_on_submit=True):
-            st.subheader("⚙️ Definir Limite")
-            cat_orc = st.selectbox("Categoria", CATEGORIAS_DESPADREVAL)
-            limite_val = st.number_input(
-                "Teto Mensal (R$)", min_value=10.0, value=500.0, step=50.0
-            )
-
-            if st.form_submit_button(
-                "Salvar Limite", use_container_width=True
-            ):
-                if salvar_orcamento_categoria(uid, cat_orc, limite_val):
-                    st.cache_data.clear()
-                    st.success(
-                        f"Limite para '{cat_orc}' atualizado com sucesso!"
-                    )
-                    st.rerun()
-                else:
-                    st.error("Erro ao salvar limite no banco de dados. Tente novamente.")
-
     # --- LADO DIREITO: ACOMPANHAMENTO, ALTERAÇÃO E EXCLUSÃO ---
     with col_vis:
         st.subheader("📈 Acompanhamento de Gastos")
@@ -1543,35 +1522,65 @@ elif opcao == "🎯 Orçamentos por Categoria":
                 "Nenhum limite por categoria cadastrado ainda. Defina um no formulário ao lado!"
             )
         else:
+            # Função de limpeza idêntica à das Metas
+            def limpar_valor_numerico(val):
+                if val is None:
+                    return 0.0
+                texto_limpo = re.sub(r"[^\d,. ]", "", str(val)).strip()
+                try:
+                    if "," in texto_limpo:
+                        texto_limpo = texto_limpo.replace(".", "").replace(",", ".")
+                    return float(texto_limpo)
+                except Exception:
+                    return 0.0
+
             for cat_nome, dados_limite in limites_dict.items():
+                # Extrai os valores brutos
                 if isinstance(dados_limite, dict):
-                    limite = float(dados_limite.get("limite", 0.0))
+                    raw_limite = dados_limite.get("limite", 0.0)
                     orc_id = dados_limite.get("id")
                 else:
-                    limite = float(dados_limite)
+                    raw_limite = dados_limite
                     orc_id = cat_nome
 
-                gasto_atual = float(gastos_por_cat.get(cat_nome, 0.0))
-                porcentagem = min(gasto_atual / limite, 1.0) if limite > 0 else 0.0
+                raw_gasto = gastos_por_cat.get(cat_nome, 0.0)
 
-                # Formata os dois valores puramente como números (sem "R$" e sem crases)
-                gasto_num = f"{gasto_atual:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                limite_num = f"{limite:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                # Limpa e converte usando a função segura
+                gasto_atual = limpar_valor_numerico(raw_gasto)
+                limite = limpar_valor_numerico(raw_limite)
+
+                # Formata os textos
+                gasto_str = f"R$ {gasto_atual:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                limite_str = f"R$ {limite:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                porcentagem = min(gasto_atual / limite, 1.0) if limite > 0 else 0.0
 
                 # Indicadores de Alerta
                 if gasto_atual > limite:
-                    status = f"🔴 **ESTOURADO!** Excedeu em R$ {f'{(gasto_atual - limite):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')}"
+                    excedente = gasto_atual - limite
+                    exc_str = f"R$ {excedente:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    status = f"🔴 <b>ESTOURADO!</b> Excedeu em {exc_str}"
                 elif porcentagem >= 0.85:
-                    status = f"🟡 **Atenção!** Restam apenas R$ {f'{(limite - gasto_atual):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')}"
+                    restante = limite - gasto_atual
+                    rest_str = f"R$ {restante:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    status = f"🟡 <b>Atenção!</b> Restam apenas {rest_str}"
                 else:
-                    status = f"🟢 **Dentro do Limite.** Restam R$ {f'{(limite - gasto_atual):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')}"
+                    restante = limite - gasto_atual
+                    rest_str = f"R$ {restante:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    status = f"🟢 <b>Dentro do Limite.</b> Restam {rest_str}"
 
-                # Renderização 100% limpa sem acionar formatador do Streamlit
+                # EXIBIÇÃO VIA HTML PURO (Igualzinho ao menu Metas)
                 st.markdown(f"### 📌 {cat_nome}")
-                st.write(f"**Gasto:** R$ {gasto_num} de R$ {limite_num}")
+                st.markdown(
+                    f"<p style='font-size: 1.1rem; margin-bottom: 0px;'>"
+                    f"<b>Gasto:</b> {gasto_str} de {limite_str}"
+                    f"</p>", 
+                    unsafe_allow_html=True
+                )
                 st.progress(porcentagem)
-                st.caption(status)
+                st.markdown(f"<p style='font-size: 0.85rem; color: #888; margin-top: 4px;'>{status}</p>", unsafe_allow_html=True)
 
+                # Ações de Alteração/Exclusão
                 col_e1, col_e2 = st.columns(2)
 
                 novo_teto = col_e1.number_input(
