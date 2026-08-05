@@ -249,12 +249,20 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await consultar_contas_receber(update, context)
         return
 
-    # 1. Extrai hashtags
+    # 1. Extrai hashtags (#tag)
     tags_encontradas = re.findall(r"#(\w+)", texto)
     tags_final = " ".join([f"#{t.lower()}" for t in tags_encontradas]) if tags_encontradas else None
     texto_sem_tags = re.sub(r"#\w+", "", texto).strip()
 
-    # 2. Extrai data personalizada (Ex: 15/08 ou 15/08/2026)
+    # 2. Extrai Categoria personalizada (@categoria)
+    match_categoria = re.search(r"@([\wÀ-ÿ]+)", texto_sem_tags)
+    if match_categoria:
+        categoria_final = match_categoria.group(1).capitalize()
+        texto_sem_tags = re.sub(r"@[\wÀ-ÿ]+", "", texto_sem_tags).strip()
+    else:
+        categoria_final = "Outros"
+
+    # 3. Extrai data personalizada (Ex: 15/08 ou 15/08/2026)
     match_data = re.search(r"\b(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b", texto_sem_tags)
     now = datetime.now()
 
@@ -276,7 +284,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         data_final = now.strftime("%Y-%m-%d")
 
-    # 3. Extrai valor e descrição
+    # 4. Extrai valor e descrição
     pattern = r"^(?:r\$\s*)?([\d.,]+)\s*(?:reais|reias)?\s+(.+)$"
     match = re.match(pattern, texto_sem_tags, re.IGNORECASE)
 
@@ -284,13 +292,9 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "⚠️ Formato inválido!\n\n"
             "Exemplos aceitos:\n\n"
-            "• `120.00 Internet fixo` (Usa a Data de Hoje)\n\n"
-            "• `120.00 Internet fixo 15/08` (Usa a Data 15/08)\n\n"
-            "• `290.00 Alison receber 15/08` (Lançamento Para Notificar no Dia 15/08)\n\n"
-            "• `50,00 Comida Pix` (Lançamento de Pix)\n\n"
-            "• `50,00 Comida Crédito` (Lançamento de Crédito)\n\n"
-            "• `50,00 Comida Débito` (Lançamento de Débito)\n\n"    
-            "• `Status, Receber ou Pendentes` (Para Consultar os Lançamentos que tem a receber)"
+            "• `10.00 Cartao de credito @Mercado credito` (Categoria: Mercado)\n"
+            "• `120.00 Internet fixo @Moradia 15/08`\n"
+            "• `50,00 Comida @Alimentacao Pix`"
         )
         return
 
@@ -305,7 +309,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto_lower = descricao_bruta.lower()
 
     # =========================================================
-    # FLUXO 0: CONTAS A RECEBER (Salva na tabela 'contas_receber')
+    # FLUXO 0: CONTAS A RECEBER
     # =========================================================
     e_recebimento = any(kw in texto_lower for kw in ["receber", "ganho", "receita", "salario", "salário", "venda"])
 
@@ -338,19 +342,22 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # =========================================================
-    # FLUXO DESPESAS (Mantém a lógica normal para movimentações)
+    # FLUXO DESPESAS
     # =========================================================
-    e_credito = any(kw in texto_lower for kw in ["credito", "crédito", "cartao", "cartão"])
-    e_debito = any(kw in texto_lower for kw in ["debito", "débito"])
+    e_credito = any(kw in texto_lower.split() for kw in ["credito", "crédito"])
+    e_debito = any(kw in texto_lower.split() for kw in ["debito", "débito"])
     forma_pagamento = "Cartão de Crédito" if e_credito else ("Cartão de Débito" if e_debito else "Pix")
 
-    palavras_remover = r"\b(pix|debito|débito|credito|crédito|cartao|cartão)\b"
-    descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
+    # Remove apenas a palavra de comando no final ou isolada para não estragar a descrição
+    descricao_limpa = re.sub(r"\b(pix|debito|débito|credito|crédito)\b$", "", descricao_bruta, flags=re.IGNORECASE).strip()
+    if not descricao_limpa:
+        descricao_limpa = descricao_bruta
 
     context.user_data["temp_lancamento"] = {
         "usuario_id": usuario_id,
         "valor": valor,
         "descricao": descricao_limpa,
+        "categoria": categoria_final,
         "forma_pagamento": forma_pagamento,
         "data": data_final,
         "tags": tags_final,
@@ -372,6 +379,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"💳 Pagamento no Crédito\n\n"
             f"📝 Descrição: {descricao_limpa}\n"
+            f"🏷️ Categoria: {categoria_final}\n"
             f"💸 Valor: R$ {valor:.2f}\n\n"
             f"Como deseja registrar esse pagamento?",
             reply_markup=InlineKeyboardMarkup(botoes)
@@ -393,6 +401,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 f"🏦 Selecione a conta utilizada:\n\n"
                 f"📝 Descrição: {descricao_limpa}\n"
+                f"🏷️ Categoria: {categoria_final}\n"
                 f"💸 Valor: R$ {valor:.2f}\n"
                 f"⚡ Forma: {forma_pagamento}",
                 reply_markup=InlineKeyboardMarkup(botoes)
@@ -406,7 +415,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "descricao": descricao_limpa,
                 "valor": valor,
                 "tipo": "Despesa",
-                "categoria": "Outros",
+                "categoria": categoria_final,
                 "forma_pagamento": forma_pagamento,
                 "data": data_final,
                 "mes_fatura": mes_fatura_atual,
@@ -421,11 +430,183 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"✅ Lançamento Registrado!\n\n"
                     f"💸 Valor: R$ {valor:.2f}\n"
                     f"📝 Descrição: {descricao_limpa}\n"
+                    f"🏷️ Categoria: {categoria_final}\n"
                     f"{icone} Forma: {forma_pagamento}\n"
                     f"📅 Data: {data_final}{tag_str}"
                 )
             except Exception as e:
                 await update.message.reply_text(f"⚠️ Erro ao salvar no Supabase: {e}")
+
+
+async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    action = query.data
+
+    # MARCAR CONTA A RECEBER COMO PAGO
+    if action.startswith("pagar_rec_"):
+        receber_id = int(action.replace("pagar_rec_", ""))
+        try:
+            supabase.table("contas_receber").update({"recebido": True}).eq("id", receber_id).execute()
+            texto_antigo = query.message.text
+            await query.edit_message_text(
+                f"{texto_antigo}\n\n"
+                f"✅ **STATUS ATUALIZADO: PAGO / RECEBIDO!**"
+            )
+            return
+        except Exception as e:
+            logging.error(f"Erro ao dar baixa em conta a receber: {e}")
+            await query.edit_message_text(f"⚠️ Erro ao atualizar status: {e}")
+            return
+
+    dados_temp = context.user_data.get("temp_lancamento")
+
+    if not dados_temp:
+        await query.edit_message_text("⚠️ Sessão expirada. Por favor, envie o lançamento novamente.")
+        return
+
+    dados_usuario = buscar_dados_usuario(query.from_user.id)
+    lista_cartoes = dados_usuario["cartoes"] if dados_usuario else []
+
+    # 1. Escolheu 'Parcelado'
+    if action == "c_parcelado_menu":
+        botoes = []
+        for i in range(2, 13, 2):
+            p1_valor = dados_temp["valor"] / i
+            p2_valor = dados_temp["valor"] / (i + 1) if (i + 1) <= 12 else None
+
+            row = [InlineKeyboardButton(f"{i}x (R$ {p1_valor:.2f})", callback_data=f"parc_{i}")]
+            if p2_valor:
+                row.append(InlineKeyboardButton(f"{i+1}x (R$ {p2_valor:.2f})", callback_data=f"parc_{i+1}"))
+            botoes.append(row)
+
+        await query.edit_message_text(
+            f"📅 Selecione a quantidade de parcelas para R$ {dados_temp['valor']:.2f}:",
+            reply_markup=InlineKeyboardMarkup(botoes)
+        )
+        return
+
+    # 2. Definiu número de parcelas
+    if action.startswith("parc_"):
+        num_parcelas = int(action.replace("parc_", ""))
+        dados_temp["parcelas"] = num_parcelas
+        action = "c_avista"
+
+    # 3. Seleção de Cartão
+    if action == "c_avista":
+        num_parc = dados_temp.get("parcelas", 1)
+        if len(lista_cartoes) > 1:
+            botoes = []
+            for c in lista_cartoes:
+                botoes.append([InlineKeyboardButton(f"💳 {c['nome_cartao']}", callback_data=f"crt_{c['id']}")])
+
+            parc_str = f"({num_parc}x)" if num_parc > 1 else "(À Vista)"
+            await query.edit_message_text(
+                f"💳 Selecione qual CARTÃO foi utilizado {parc_str}:\n\n"
+                f"📝 Descrição: {dados_temp['descricao']}\n"
+                f"🏷️ Categoria: {dados_temp['categoria']}\n"
+                f"💸 Valor Total: R$ {dados_temp['valor']:.2f}",
+                reply_markup=InlineKeyboardMarkup(botoes)
+            )
+            return
+        else:
+            cartao_id = lista_cartoes[0]["id"] if lista_cartoes else None
+            action = f"crt_{cartao_id}"
+
+    # 4. SALVAR PIX / DÉBITO
+    if action.startswith("cnt_"):
+        conta_id = int(action.replace("cnt_", ""))
+        mes_fatura_calc = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%m/%Y")
+        payload = {
+            "usuario_id": dados_temp["usuario_id"],
+            "conta_id": conta_id,
+            "cartao_id": None,
+            "descricao": dados_temp["descricao"],
+            "valor": dados_temp["valor"],
+            "tipo": "Despesa",
+            "categoria": dados_temp["categoria"],
+            "forma_pagamento": dados_temp["forma_pagamento"],
+            "data": dados_temp["data"],
+            "mes_fatura": mes_fatura_calc,
+            "pago": True,
+            "tags": dados_temp["tags"],
+        }
+        try:
+            supabase.table("movimentacoes").insert(payload).execute()
+            tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp["tags"] else ""
+            await query.edit_message_text(
+                f"✅ Lançamento Registrado!\n\n"
+                f"💸 Valor: R$ {dados_temp['valor']:.2f}\n"
+                f"📝 Descrição: {dados_temp['descricao']}\n"
+                f"🏷️ Categoria: {dados_temp['categoria']}\n"
+                f"⚡ Forma: {dados_temp['forma_pagamento']}\n"
+                f"📅 Data: {dados_temp['data']}{tag_str}"
+            )
+            context.user_data.pop("temp_lancamento", None)
+        except Exception as e:
+            await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: {e}")
+
+    # 5. SALVAR CRÉDITO
+    elif action.startswith("crt_"):
+        cartao_id = int(action.replace("crt_", ""))
+        num_parcelas = dados_temp.get("parcelas", 1)
+        valor_total = dados_temp["valor"]
+        valor_parcela = round(valor_total / num_parcelas, 2)
+
+        cartao_info = next((c for c in lista_cartoes if c["id"] == cartao_id), None)
+        dia_fechamento = cartao_info.get("dia_fechamento") if cartao_info else None
+
+        data_compra = datetime.strptime(dados_temp["data"], "%Y-%m-%d")
+
+        fatura_inicial_str = calcular_mes_fatura(data_compra, dia_fechamento)
+        fatura_inicial_dt = datetime.strptime(fatura_inicial_str, "%m/%Y")
+
+        payloads = []
+        for i in range(num_parcelas):
+            fatura_parcela_dt = fatura_inicial_dt + relativedelta(months=i)
+            str_mes_fatura = fatura_parcela_dt.strftime("%m/%Y")
+
+            data_parcela_dt = data_compra + relativedelta(months=i)
+            str_data_parcela = data_parcela_dt.strftime("%Y-%m-%d")
+
+            desc_final = dados_temp["descricao"]
+            if num_parcelas > 1:
+                desc_final = f"{dados_temp['descricao']} ({i+1}/{num_parcelas})"
+
+            payloads.append({
+                "usuario_id": dados_temp["usuario_id"],
+                "conta_id": None,
+                "cartao_id": cartao_id,
+                "descricao": desc_final,
+                "valor": valor_parcela,
+                "tipo": "Despesa",
+                "categoria": dados_temp["categoria"],
+                "forma_pagamento": "Cartão de Crédito",
+                "data": str_data_parcela,
+                "mes_fatura": str_mes_fatura,
+                "pago": False,
+                "tags": dados_temp["tags"],
+            })
+
+        try:
+            supabase.table("movimentacoes").insert(payloads).execute()
+
+            tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp["tags"] else ""
+            detalhe_parc = f" em {num_parcelas}x de R$ {valor_parcela:.2f}" if num_parcelas > 1 else ""
+
+            await query.edit_message_text(
+                f"✅ Lançamento no Crédito Registrado!\n\n"
+                f"💸 Valor Total: R$ {valor_total:.2f}{detalhe_parc}\n"
+                f"📝 Descrição: {dados_temp['descricao']}\n"
+                f"🏷️ Categoria: {dados_temp['categoria']}\n"
+                f"💳 Forma: Cartão de Crédito\n"
+                f"📌 Primeiros Vencimentos/Fatura: {payloads[0]['mes_fatura']}{tag_str}"
+            )
+            context.user_data.pop("temp_lancamento", None)
+        except Exception as e:
+            logging.error(f"Erro ao salvar crédito: {e}")
+            await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: {e}")
 
 
 async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
