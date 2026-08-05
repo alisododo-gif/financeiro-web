@@ -1470,6 +1470,10 @@ elif opcao == "🎯 Orçamentos por Categoria":
     st.markdown("---")
     col_cad, col_vis = st.columns([1, 2])
 
+    with col_cad:
+        st.subheader("⚙️ Definir Limite")
+        # INSIRA AQUI O SEU FORMULÁRIO DE CADASTRO DE LIMITES
+
     with col_vis:
         st.subheader("📈 Acompanhamento de Gastos")
 
@@ -1478,16 +1482,18 @@ elif opcao == "🎯 Orçamentos por Categoria":
                 limite_cat = val if isinstance(val, (int, float)) else val.get("limite", 0.0)
                 gasto_cat = gastos_por_cat.get(cat, 0.0)
 
-                # Calcula porcentagem para a barra de progresso
+                # Progresso limitado a 1.0 para não quebrar a barra visual
                 progresso = min(gasto_cat / limite_cat, 1.0) if limite_cat > 0 else 0.0
 
-                # Renderização correta estilo "Metas" dentro da caixa retrátil (Expander)
-                with st.expander(f"📌 {cat}", expanded=True):
-                    gasto_txt = fmt_moeda(gasto_cat)
-                    limite_txt = fmt_moeda(limite_cat)
-                    
-                    st.markdown(f"**Gasto:** {gasto_txt} de {limite_txt}")
-                    st.progress(progresso)
+                # Formatações manuais sem tags Markdown corrompidas
+                gasto_str = f"R$ {gasto_cat:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                limite_str = f"R$ {limite_cat:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                # Layout exatamente igual ao painel de "Metas"
+                st.markdown(f"### 📌 {cat}")
+                st.markdown(f"**Gasto:** {gasto_str} de {limite_str}")
+                st.progress(progresso)
+                st.write("")  # Espaçamento entre itens
         else:
             st.info("Nenhum limite por categoria cadastrado ainda.")
 
