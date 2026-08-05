@@ -1472,18 +1472,22 @@ elif opcao == "🎯 Orçamentos por Categoria":
 
     with col_vis:
         st.subheader("📈 Acompanhamento de Gastos")
-        
+
         if limites_dict:
             for cat, val in limites_dict.items():
                 limite_cat = val if isinstance(val, (int, float)) else val.get("limite", 0.0)
                 gasto_cat = gastos_por_cat.get(cat, 0.0)
-                
-                # Barra de progresso (limita em 1.0 para não quebrar a UI se estourar)
+
+                # Calcula porcentagem para a barra de progresso
                 progresso = min(gasto_cat / limite_cat, 1.0) if limite_cat > 0 else 0.0
-                
-                # Renderização limpa e padronizada com as Metas
-                st.write(f"📌 **{cat}:** {fmt_moeda(gasto_cat)} / **{fmt_moeda(limite_cat)}**")
-                st.progress(progresso)
+
+                # Renderização correta estilo "Metas" dentro da caixa retrátil (Expander)
+                with st.expander(f"📌 {cat}", expanded=True):
+                    gasto_txt = fmt_moeda(gasto_cat)
+                    limite_txt = fmt_moeda(limite_cat)
+                    
+                    st.markdown(f"**Gasto:** {gasto_txt} de {limite_txt}")
+                    st.progress(progresso)
         else:
             st.info("Nenhum limite por categoria cadastrado ainda.")
 
