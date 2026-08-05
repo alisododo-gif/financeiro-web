@@ -1405,7 +1405,9 @@ elif opcao == "🎯 Orçamentos por Categoria":
     # 1. Busca dados iniciais
     uid = st.session_state["usuario_id"]
     limite_geral = obter_limite_orcamento(uid)
-    limites_dict = obter_limites_por_categoria(uid)
+    limites_dict = obter_limites_por_categoria(
+        uid
+    )  # Esperado dict { 'Categoria': limite } ou { 'Categoria': {'id': x, 'limite': y} }
     movs_todas = buscar_todas_movimentacoes(uid, "Todos", "Todos")
 
     # Processa total de gastos por categoria
@@ -1426,11 +1428,15 @@ elif opcao == "🎯 Orçamentos por Categoria":
         )
         df_despesas = df_m[df_m["Tipo"] == "Despesa"].copy()
         if not df_despesas.empty:
+            # Converte a coluna Data para o formato datetime
             df_despesas["Data"] = pd.to_datetime(df_despesas["Data"], errors="coerce")
+            
+            # Filtra conforme Mês e Ano selecionados
             df_despesas = df_despesas[
                 (df_despesas["Data"].dt.month == mes_sel) & 
                 (df_despesas["Data"].dt.year == ano_sel)
             ]
+            
             df_despesas["Valor"] = pd.to_numeric(
                 df_despesas["Valor"], errors="coerce"
             )
@@ -1448,51 +1454,87 @@ elif opcao == "🎯 Orçamentos por Categoria":
     )
     saldo_restante = total_orcado - total_gasto
 
-    # Ajuste para métricas não exibirem crases
-    t_orc_str = f"R$ {total_orcado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    t_gst_str = f"R$ {total_gasto:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    s_rst_str = f"R$ {saldo_restante:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
     col_m1, col_m2, col_m3 = st.columns(3)
-    col_m1.metric("🎯 Total Orçado", t_orc_str)
-    col_m2.metric("💸 Total Gasto", t_gst_str)
+    col_m1.metric("🎯 Total Orçado", fmt_moeda(total_orcado))
+    col_m2.metric("💸 Total Gasto", fmt_moeda(total_gasto))
     col_m3.metric(
         "💰 Saldo Restante",
-        s_rst_str,
-        delta=s_rst_str,
+        fmt_moeda(saldo_restante),
+        delta=fmt_moeda(saldo_restante),
         delta_color="normal" if saldo_restante >= 0 else "inverse",
     )
 
     if limite_geral > 0:
-        lim_geral_str = f"R$ {limite_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        st.info(f"💡 Seu teto global cadastrado no sistema é de **{lim_geral_str}**")
+        st.info(
+            f"💡 Seu teto global cadastrado no sistema é de **{fmt_moeda(limite_geral)}**"
+        )
 
     st.markdown("---")
     col_cad, col_vis = st.columns([1, 2])
 
-    # --- COLUNA DA ESQUERDA: FORMULÁRIO "DEFINIR LIMITE" RESTAURADO ---
-    with col_cad:
-        with st.container(border=True):
-            st.subheader("⚙️ Definir Limite")
-            
-            # Categorias disponíveis (altere a lista conforme o seu padrão se necessário)
-            categorias_disponiveis = [
-                "Alimentação", "Moradia", "Transporte", "Saúde", 
-                "Lazer", "Educação", "Outros", "Cartão de Crédito"
-            ]
-            
-            cat_selecionada = st.selectbox("Categoria", options=categorias_disponiveis)
-            novo_teto_cad = st.number_input("Teto Mensal (R$)", min_value=10.0, value=500.00, step=50.0)
+    # --- PAINEL GRÁFICO (DASHBOARD) ---
+    if limites_dict:
+        st.subheader("📈 Visão Geral dos Orçamentos")
 
-            if st.button("Salvar Limite", use_container_width=True):
-                if salvar_orcamento_categoria(uid, cat_selecionada, novo_teto_cad):
+        # Prepara dados para o gráfico
+        dados_grafico = []
+        for cat, dados in limites_dict.items():
+            lim = (
+                float(dados.get("limite", 0.0))
+                if isinstance(dados, dict)
+                else float(dados)
+            )
+            gst = float(gastos_por_cat.get(cat, 0.0))
+            dados_grafico.append(
+                {"Categoria": cat, "Gasto Atual": gst, "Limite": lim}
+            )
+
+        df_chart = pd.DataFrame(dados_grafico)
+
+        if not df_chart.empty:
+            col_g1, col_g2 = st.columns(2)
+
+            with col_g1:
+                st.markdown("**Comparativo: Gasto vs. Limite**")
+                # Gráfico de barras lado a lado
+                st.bar_chart(
+                    df_chart.set_index("Categoria")[["Gasto Atual", "Limite"]],
+                    height=250,
+                )
+
+            with col_g2:
+                st.markdown("**Distribuição do Teto Orçado**")
+                # Gráfico de rosca simples via st.bar_chart horizontal
+                st.bar_chart(
+                    df_chart.set_index("Categoria")["Limite"],
+                    horizontal=True,
+                    height=250,
+                )
+
+        st.markdown("---")
+
+    # --- LADO ESQUERDO: FORMULÁRIO DE CADASTRO ---
+    with col_cad:
+        with st.form("form_orcamento", clear_on_submit=True):
+            st.subheader("⚙️ Definir Limite")
+            cat_orc = st.selectbox("Categoria", CATEGORIAS_DESPADREVAL)
+            limite_val = st.number_input(
+                "Teto Mensal (R$)", min_value=10.0, value=500.0, step=50.0
+            )
+
+            if st.form_submit_button(
+                "Salvar Limite", use_container_width=True
+            ):
+                if salvar_orcamento_categoria(uid, cat_orc, limite_val):
                     st.cache_data.clear()
-                    st.success(f"Limite para {cat_selecionada} salvo com sucesso!")
+                    st.success(
+                        f"Limite para '{cat_orc}' atualizado com sucesso!"
+                    )
                     st.rerun()
                 else:
-                    st.error("Erro ao salvar limite.")
+                    st.error("Erro ao salvar limite no banco de dados. Tente novamente.")
 
-    # --- COLUNA DA DIREITA: ACOMPANHAMENTO DE GASTOS ESTILO METAS ---
+    # --- LADO DIREITO: ACOMPANHAMENTO, ALTERAÇÃO E EXCLUSÃO ---
     with col_vis:
         st.subheader("📈 Acompanhamento de Gastos")
 
@@ -1501,58 +1543,34 @@ elif opcao == "🎯 Orçamentos por Categoria":
                 "Nenhum limite por categoria cadastrado ainda. Defina um no formulário ao lado!"
             )
         else:
-            def limpar_valor_numerico(val):
-                if val is None:
-                    return 0.0
-                texto_limpo = re.sub(r"[^\d,. ]", "", str(val)).strip()
-                try:
-                    if "," in texto_limpo:
-                        texto_limpo = texto_limpo.replace(".", "").replace(",", ".")
-                    return float(texto_limpo)
-                except Exception:
-                    return 0.0
-
             for cat_nome, dados_limite in limites_dict.items():
                 if isinstance(dados_limite, dict):
-                    raw_limite = dados_limite.get("limite", 0.0)
+                    limite = float(dados_limite.get("limite", 0.0))
                     orc_id = dados_limite.get("id")
                 else:
-                    raw_limite = dados_limite
+                    limite = float(dados_limite)
                     orc_id = cat_nome
 
-                raw_gasto = gastos_por_cat.get(cat_nome, 0.0)
-
-                gasto_atual = limpar_valor_numerico(raw_gasto)
-                limite = limpar_valor_numerico(raw_limite)
-
-                gasto_str = f"R$ {gasto_atual:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                limite_str = f"R$ {limite:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
+                gasto_atual = float(gastos_por_cat.get(cat_nome, 0.0))
                 porcentagem = min(gasto_atual / limite, 1.0) if limite > 0 else 0.0
 
-                if gasto_atual > limite:
-                    excedente = gasto_atual - limite
-                    exc_str = f"R$ {excedente:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                    status = f"🔴 <b>ESTOURADO!</b> Excedeu em {exc_str}"
-                elif porcentagem >= 0.85:
-                    restante = limite - gasto_atual
-                    rest_str = f"R$ {restante:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                    status = f"🟡 <b>Atenção!</b> Restam apenas {rest_str}"
-                else:
-                    restante = limite - gasto_atual
-                    rest_str = f"R$ {restante:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                    status = f"🟢 <b>Dentro do Limite.</b> Restam {rest_str}"
+                # Formata os dois valores puramente como números (sem "R$" e sem crases)
+                gasto_num = f"{gasto_atual:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                limite_num = f"{limite:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-                # Exibição HTML limpa igual à tela de Metas
+                # Indicadores de Alerta
+                if gasto_atual > limite:
+                    status = f"🔴 **ESTOURADO!** Excedeu em R$ {f'{(gasto_atual - limite):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')}"
+                elif porcentagem >= 0.85:
+                    status = f"🟡 **Atenção!** Restam apenas R$ {f'{(limite - gasto_atual):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')}"
+                else:
+                    status = f"🟢 **Dentro do Limite.** Restam R$ {f'{(limite - gasto_atual):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')}"
+
+                # Renderização 100% limpa sem acionar formatador do Streamlit
                 st.markdown(f"### 📌 {cat_nome}")
-                st.markdown(
-                    f"<p style='font-size: 1.1rem; margin-bottom: 0px;'>"
-                    f"<b>Gasto:</b> {gasto_str} de {limite_str}"
-                    f"</p>", 
-                    unsafe_allow_html=True
-                )
+                st.write(f"**Gasto:** R$ {gasto_num} de R$ {limite_num}")
                 st.progress(porcentagem)
-                st.markdown(f"<p style='font-size: 0.85rem; color: #888; margin-top: 4px;'>{status}</p>", unsafe_allow_html=True)
+                st.caption(status)
 
                 col_e1, col_e2 = st.columns(2)
 
