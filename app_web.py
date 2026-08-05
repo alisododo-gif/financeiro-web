@@ -1405,9 +1405,7 @@ elif opcao == "🎯 Orçamentos por Categoria":
     # 1. Busca dados iniciais
     uid = st.session_state["usuario_id"]
     limite_geral = obter_limite_orcamento(uid)
-    limites_dict = obter_limites_por_categoria(
-        uid
-    )  # Esperado dict { 'Categoria': limite } ou { 'Categoria': {'id': x, 'limite': y} }
+    limites_dict = obter_limites_por_categoria(uid)  # Esperado dict { 'Categoria': limite } ou { 'Categoria': {'id': x, 'limite': y} }
     movs_todas = buscar_todas_movimentacoes(uid, "Todos", "Todos")
 
     # Processa total de gastos por categoria
@@ -1471,6 +1469,34 @@ elif opcao == "🎯 Orçamentos por Categoria":
 
     st.markdown("---")
     col_cad, col_vis = st.columns([1, 2])
+
+    with col_cad:
+        st.subheader("⚙️ Definir Limite")
+        # INSIRA AQUI O SEU FORMULÁRIO DE CADASTRO DE LIMITES
+
+    with col_vis:
+        st.subheader("📈 Acompanhamento de Gastos")
+
+        if limites_dict:
+            for cat, val in limites_dict.items():
+                limite_cat = val if isinstance(val, (int, float)) else val.get("limite", 0.0)
+                gasto_cat = gastos_por_cat.get(cat, 0.0)
+
+                progresso = min(gasto_cat / limite_cat, 1.0) if limite_cat > 0 else 0.0
+
+                # Formatações manuais sem tags Markdown/crases
+                gasto_str = f"R$ {gasto_cat:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                limite_str = f"R$ {limite_cat:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                # Layout idêntico ao da tela "Suas Metas"
+                st.markdown(f"### 📌 {cat}")
+                st.markdown(f"**Gasto:** {gasto_str} de {limite_str}")
+                st.progress(progresso)
+                st.write("")
+        else:
+            st.info("Nenhum limite por categoria cadastrado ainda.")
+
+    st.markdown("---")
 
     # --- PAINEL GRÁFICO (DASHBOARD) ---
     if limites_dict:
