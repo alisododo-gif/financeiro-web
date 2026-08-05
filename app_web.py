@@ -1472,27 +1472,6 @@ elif opcao == "🎯 Orçamentos por Categoria":
     st.markdown("---")
     col_cad, col_vis = st.columns([1, 2])
 
-    with col_vis:
-        st.subheader("📈 Acompanhamento de Gastos")
-        if limites_dict:
-            for cat, val in limites_dict.items():
-                limite_cat = val if isinstance(val, (int, float)) else val.get("limite", 0.0)
-                gasto_cat = gastos_por_cat.get(cat, 0.0)
-
-                progresso = min(gasto_cat / limite_cat, 1.0) if limite_cat > 0 else 0.0
-
-                # Formata limpo sem crases e sem fundo verde
-                gasto_str = f"R$ {gasto_cat:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                limite_str = f"R$ {limite_cat:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-                # Renderização estilo "Metas"
-                st.markdown(f"### {cat}")
-                st.markdown(f"**Gasto:** {gasto_str} de {limite_str}")
-                st.progress(progresso)
-                st.write("")
-        else:
-            st.info("Nenhum limite por categoria cadastrado ainda.")
-
     # --- PAINEL GRÁFICO (DASHBOARD) ---
     if limites_dict:
         st.subheader("📈 Visão Geral dos Orçamentos")
@@ -1576,6 +1555,10 @@ elif opcao == "🎯 Orçamentos por Categoria":
                 gasto_atual = float(gastos_por_cat.get(cat_nome, 0.0))
                 porcentagem = min(gasto_atual / limite, 1.0) if limite > 0 else 0.0
 
+                # Formatações limpas sem acionar caixas de código
+                gasto_str = f"R$ {gasto_atual:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                limite_str = f"R$ {limite:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
                 # Indicadores de Alerta
                 if gasto_atual > limite:
                     status = f"🔴 **ESTOURADO!** Excedeu em {fmt_moeda(gasto_atual - limite)}"
@@ -1584,46 +1567,46 @@ elif opcao == "🎯 Orçamentos por Categoria":
                 else:
                     status = f"🟢 **Dentro do Limite.** Restam {fmt_moeda(limite - gasto_atual)}"
 
-                # Bloco Interativo com Expander
-                with st.expander(
-                    f"📌 **{cat_nome}**: {fmt_moeda(gasto_atual)} / **{fmt_moeda(limite)}**"
+                # --- EXIBIÇÃO NO ESTILO "METAS" ---
+                st.markdown(f"### 📌 {cat_nome}")
+                st.markdown(f"**Gasto:** {gasto_str} de {limite_str}")
+                st.progress(porcentagem)
+                st.caption(status)
+
+                # Ações rápidas de alteração/exclusão embutidas diretamente
+                col_e1, col_e2 = st.columns(2)
+
+                # Novo Teto para Alteração rápida
+                novo_teto = col_e1.number_input(
+                    "Alterar Limite (R$)",
+                    min_value=10.0,
+                    value=limite,
+                    step=50.0,
+                    key=f"edit_{cat_nome}",
+                )
+
+                if col_e1.button("💾 Salvar Alteração", key=f"btn_save_{cat_nome}"):
+                    if salvar_orcamento_categoria(uid, cat_nome, novo_teto):
+                        st.cache_data.clear()
+                        st.success(f"Limite de {cat_nome} atualizado com sucesso!")
+                        st.rerun()
+                    else:
+                        st.error("Erro ao alterar o limite selecionado.")
+
+                # Botão de Excluir
+                if col_e2.button(
+                    "🗑️ Excluir Orçamento",
+                    key=f"btn_del_{cat_nome}",
+                    type="secondary",
                 ):
-                    st.progress(porcentagem)
-                    st.caption(status)
-
-                    st.markdown("---")
-                    st.write("**Ações do Orçamento:**")
-                    col_e1, col_e2 = st.columns(2)
-
-                    # Novo Teto para Alteração rápida
-                    novo_teto = col_e1.number_input(
-                        "Alterar Limite (R$)",
-                        min_value=10.0,
-                        value=limite,
-                        step=50.0,
-                        key=f"edit_{cat_nome}",
-                    )
-
-                    if col_e1.button("💾 Salvar Alteração", key=f"btn_save_{cat_nome}"):
-                        if salvar_orcamento_categoria(uid, cat_nome, novo_teto):
-                            st.cache_data.clear()
-                            st.success(f"Limite de {cat_nome} atualizado com sucesso!")
-                            st.rerun()
-                        else:
-                            st.error("Erro ao alterar o limite selecionado.")
-
-                    # Botão de Excluir
-                    if col_e2.button(
-                        "🗑️ Excluir Orçamento",
-                        key=f"btn_del_{cat_nome}",
-                        type="secondary",
-                    ):
-                        if excluir_orcamento_categoria(uid, cat_nome):
-                            st.cache_data.clear()
-                            st.success(f"Orçamento de {cat_nome} removido com sucesso!")
-                            st.rerun()
-                        else:
-                            st.error("Erro ao excluir o orçamento selecionado.")
+                    if excluir_orcamento_categoria(uid, cat_nome):
+                        st.cache_data.clear()
+                        st.success(f"Orçamento de {cat_nome} removido com sucesso!")
+                        st.rerun()
+                    else:
+                        st.error("Erro ao excluir o orçamento selecionado.")
+                
+                st.markdown("---")
 
 # --- ABA: PRÓXIMOS VENCIMENTOS ---
 elif opcao == "📅 Próximos Vencimentos":
