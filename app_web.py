@@ -1763,7 +1763,7 @@ elif opcao == "💳 Cartões & Faturas":
     user_id = st.session_state.get("usuario_id")
     cartoes = listar_cartoes(user_id)
 
-  # --- ABA 1: VISUALIZAR FATURAS ---
+    # --- ABA 1: VISUALIZAR FATURAS ---
     with tab_faturas:
         if cartoes:
             c1, c2, c3 = st.columns(3)
@@ -1788,21 +1788,20 @@ elif opcao == "💳 Cartões & Faturas":
             fatura_ref = f"{mes_fatura}/{ano_fatura}"
             st.markdown("---")
 
-            # 1. Gastos apenas da fatura selecionada (para o card "Total da Fatura")
+            # 1. Gastos apenas da fatura selecionada
             compras = buscar_gastos_fatura(user_id, cartao_id_sel, fatura_ref)
             total_fatura = sum(float(item["valor"]) for item in compras) if compras else 0.0
 
-            # 2. CORREÇÃO SIMPLES: Busca TODOS os gastos do cartão (todas as faturas) para somar o saldo devedor real
+            # 2. Busca TODOS os gastos do cartão para somar o saldo devedor real
             todas_compras = buscar_gastos_fatura(user_id, cartao_id_sel, None)
             
-            # Soma todas as parcelas de qualquer mês que ainda NÃO foram pagas
             total_devedor_geral = sum(
                 float(item["valor"]) 
                 for item in todas_compras 
                 if not item.get("pago", False) and not item.get("paga", False)
             ) if todas_compras else 0.0
 
-            # 3. Limite Disponível Real = Limite Total - Tudo que falta pagar (todas as parcelas)
+            # 3. Limite Disponível Real
             limite_total = float(cartao_info["limite"])
             limite_disponivel = limite_total - total_devedor_geral
 
@@ -1824,15 +1823,21 @@ elif opcao == "💳 Cartões & Faturas":
                     else:
                         st.error("Erro ao dar baixa na fatura completa.")
 
+                # Exibição da tabela com formatação de moeda pt-BR (ex: 100,00)
                 st.dataframe(
                     compras,
                     column_order=["data", "descricao", "categoria", "tags", "valor", "pago"],
+                    column_config={
+                        "valor": st.column_config.NumberColumn(
+                            "Valor",
+                            format="%.2f", # Garante 2 casas decimais com vírgula no padrão PT-BR
+                        )
+                    },
                     use_container_width=True
                 )
 
                 # --- FERRAMENTA DE EXCLUSÃO DE ITEM DA FATURA ---
                 with st.expander("🗑️ Excluir um item desta fatura"):
-                    # Cria um dicionário identificando cada compra
                     dict_compras_excluir = {
                         item["id"]: f"{item['data']} | {item['descricao']} - R$ {float(item['valor']):.2f}" 
                         for item in compras
@@ -1846,7 +1851,7 @@ elif opcao == "💳 Cartões & Faturas":
                     )
                     
                     if st.button("Confirmar Exclusão do Item", type="secondary"):
-                        if excluir_movimentacao(user_id, id_para_excluir): # <--- Passando user_id e o id da movimentação
+                        if excluir_movimentacao(user_id, id_para_excluir):
                             st.success("Lançamento excluído com sucesso!")
                             st.rerun()
                         else:
