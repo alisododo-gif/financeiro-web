@@ -1555,7 +1555,7 @@ elif opcao == "🎯 Orçamentos por Categoria":
                 gasto_atual = float(gastos_por_cat.get(cat_nome, 0.0))
                 porcentagem = min(gasto_atual / limite, 1.0) if limite > 0 else 0.0
 
-                # Formatações limpas sem acionar caixas de código
+                # Formatação direta em texto puro (remove a caixa verde)
                 gasto_str = f"R$ {gasto_atual:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 limite_str = f"R$ {limite:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -1567,7 +1567,7 @@ elif opcao == "🎯 Orçamentos por Categoria":
                 else:
                     status = f"🟢 **Dentro do Limite.** Restam {fmt_moeda(limite - gasto_atual)}"
 
-                # --- EXIBIÇÃO NO ESTILO "METAS" ---
+                # Exibição uniforme em texto normal
                 st.markdown(f"### 📌 {cat_nome}")
                 st.markdown(f"**Gasto:** {gasto_str} de {limite_str}")
                 st.progress(porcentagem)
