@@ -9,3 +9,4 @@ python-telegram-bot[job-queue]
 supabase
 python-dotenv
 pytz
+starlette<0.39.0
