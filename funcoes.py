@@ -56,7 +56,7 @@ def _construir_query_data(url_base, mes, ano):
     return url_base
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def buscar_todas_movimentacoes(usuario_id, mes, ano):
     url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&select=id,data,tipo,forma_pagamento,descricao,valor,categoria,contas(nome)&order=data.desc"
     url = _construir_query_data(url, mes, ano)
@@ -83,7 +83,7 @@ def buscar_todas_movimentacoes(usuario_id, mes, ano):
     return dados_filtrados
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def dados_dashboard(usuario_id, mes, ano):
     url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&select=valor,tipo"
     url = _construir_query_data(url, mes, ano)
@@ -103,7 +103,7 @@ def dados_dashboard(usuario_id, mes, ano):
     return dados
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def dados_grafico_mensal(usuario_id, ano):
     meses_rotulos = [
         "Jan",
@@ -144,7 +144,7 @@ def dados_grafico_mensal(usuario_id, ano):
     return meses_rotulos, receitas, despesas
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def dados_grafico_categorias(usuario_id, mes, ano):
     cats = {}
     url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&tipo=eq.Despesa&select=valor,categoria"
@@ -159,7 +159,7 @@ def dados_grafico_categorias(usuario_id, mes, ano):
     return list(cats.keys()), list(cats.values())
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def obter_limite_orcamento(usuario_id):
     url = f"{BASE_URL}/orcamentos?usuario_id=eq.{usuario_id}&select=limite"
     res = requests.get(url, headers=HEADERS)
@@ -168,7 +168,7 @@ def obter_limite_orcamento(usuario_id):
     return 0.0
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def obter_limites_por_categoria(usuario_id):
     url = f"{BASE_URL}/orcamentos?usuario_id=eq.{usuario_id}&select=categoria,limite"
     res = requests.get(url, headers=HEADERS)
@@ -181,7 +181,7 @@ def obter_limites_por_categoria(usuario_id):
     return {}
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def listar_contas(usuario_id):
     try:
         url = (
@@ -199,7 +199,7 @@ def listar_contas(usuario_id):
     return []
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def listar_metas(usuario_id):
     url = f"{BASE_URL}/metas?usuario_id=eq.{usuario_id}&select=id,nome_meta,valor_alvo,valor_poupado,prazo"
     res = requests.get(url, headers=HEADERS)
@@ -217,7 +217,7 @@ def listar_metas(usuario_id):
     return []
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def obter_id_conta_por_nome(usuario_id, nome_conta):
     url = f"{BASE_URL}/contas?usuario_id=eq.{usuario_id}&nome=eq.{nome_conta}&select=id"
     res = requests.get(url, headers=HEADERS)
@@ -226,26 +226,26 @@ def obter_id_conta_por_nome(usuario_id, nome_conta):
     return None
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def nomes_contas(usuario_id):
     return [c[1] for c in listar_contas(usuario_id)]
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def listar_todos_usuarios_admin():
     url = f"{BASE_URL}/usuarios?select=id,usuario,role,status,valor_mensalidade,telefone"
     res = requests.get(url, headers=HEADERS)
     return res.json() if res.status_code == 200 else []
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def listar_cartoes(usuario_id):
     url = f"{BASE_URL}/cartoes?usuario_id=eq.{usuario_id}&select=id,nome_cartao,limite,dia_fechamento,dia_vencimento"
     res = requests.get(url, headers=HEADERS)
     return res.json() if res.status_code == 200 and res.json() else []
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300, show_spinner=False)
 def buscar_gastos_fatura(usuario_id, cartao_id, fatura_ref=None):
     # Se fatura_ref for informada, filtra pelo mês; se for None, busca todas as movimentações do cartão
     if fatura_ref:
@@ -256,7 +256,7 @@ def buscar_gastos_fatura(usuario_id, cartao_id, fatura_ref=None):
     res = requests.get(url, headers=HEADERS)
     return res.json() if res.status_code == 200 else []
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def obter_transacoes(usuario_id):
     try:
         url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&select=*,contas(nome)&order=data.desc"
@@ -267,7 +267,7 @@ def obter_transacoes(usuario_id):
         return []
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def buscar_vencimentos_proximos(usuario_id, dias=15):
     hoje = datetime.now().strftime("%Y-%m-%d")
     data_limite = (datetime.now() + timedelta(days=dias)).strftime("%Y-%m-%d")
@@ -276,7 +276,7 @@ def buscar_vencimentos_proximos(usuario_id, dias=15):
     return res.json() if res.status_code == 200 else []
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def dados_grafico_tags(usuario_id, mes_selecionado, ano_selecionado):
     url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&select=tags,valor"
     url = _construir_query_data(url, mes_selecionado, ano_selecionado)
@@ -308,7 +308,7 @@ def dados_grafico_tags(usuario_id, mes_selecionado, ano_selecionado):
 # --- 🟢 NOVO: NOVAS FUNÇÕES EXCLUSIVAS PARA O CONTAS A RECEBER ---
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300, show_spinner=False)
 def buscar_contas_a_receber(usuario_id, status_filtro="Todos"):
     """Busca os lançamentos do tipo Receita com suporte a filtro por status (Pendente/Recebido/Todos)."""
     url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&tipo=eq.Receita&order=data.asc"
@@ -958,8 +958,7 @@ def gerar_insights_financeiros(
 # --- FUNÇÕES PARA A TABELA 'contas_receber' ---
 # =====================================================================
 
-
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300, show_spinner=False)
 def buscar_contas_a_receber(usuario_id, status_filtro="Todos"):
     """Busca os registros de devedores na tabela 'contas_receber'."""
     url = f"{BASE_URL}/contas_receber?usuario_id=eq.{usuario_id}&order=data_recebimento.asc"
