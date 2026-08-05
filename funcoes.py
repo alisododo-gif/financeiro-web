@@ -4,7 +4,6 @@ from dateutil.relativedelta import relativedelta
 import pandas as pd
 import requests
 import streamlit as st
-from supabase import create_client, Client
 
 # Credenciais do Supabase
 BASE_URL = st.secrets["SUPABASE_URL"]
@@ -959,7 +958,8 @@ def gerar_insights_financeiros(
 # --- FUNÇÕES PARA A TABELA 'contas_receber' ---
 # =====================================================================
 
-@st.cache_data(ttl=300, show_spinner=False)
+
+@st.cache_data(ttl=60)
 def buscar_contas_a_receber(usuario_id, status_filtro="Todos"):
     """Busca os registros de devedores na tabela 'contas_receber'."""
     url = f"{BASE_URL}/contas_receber?usuario_id=eq.{usuario_id}&order=data_recebimento.asc"
@@ -1031,28 +1031,3 @@ def atualizar_conta_a_receber(
         return True
     st.error(f"Erro ao atualizar: {res.text}")
     return False
-
-
-@st.cache_data(ttl=30)
-def buscar_resumo_fatura(_supabase_client, user_id: int, cartao_id: int, mes_fatura: str):
-    """
-    Nota: O prefixo '_' no parâmetro '_supabase_client' avisa o Streamlit 
-    para ignorar esse objeto no cálculo do hash do cache (@st.cache_data).
-    """
-    try:
-        response = _supabase_client.rpc(
-            "obter_resumo_fatura",
-            {
-                "p_user_id": int(user_id),
-                "p_cartao_id": int(cartao_id),
-                "p_mes_fatura": str(mes_fatura).strip()
-            }
-        ).execute()
-
-        if getattr(response, "data", None) and len(response.data) > 0:
-            return response.data[0]
-
-    except Exception as e:
-        st.warning(f"⚠️ Erro ao consultar resumo da fatura: {e}")
-
-    return {"total_fatura": 0.0, "total_devedor": 0.0}

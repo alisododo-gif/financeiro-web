@@ -62,8 +62,7 @@ from funcoes import (
     alternar_status_contas_a_receber,
     salvar_conta_a_receber,
     buscar_contas_a_receber,
-    atualizar_conta_a_receber,
-    buscar_resumo_fatura
+    atualizar_conta_a_receber
 )
 
 from views import render_sidebar_footer
@@ -750,7 +749,7 @@ elif opcao == "📊 Dashboard":
         else:
             st.info("Nenhuma despesa registrada para o período selecionado.")
 
-        # --- OTIMIZAÇÃO: GRÁFICOS DE TAGS / EVENTOS ---
+    # --- OTIMIZAÇÃO: GRÁFICOS DE TAGS / EVENTOS ---
     st.markdown("---")
     st.markdown("### 🏷️ Gastos por Tag / Evento")
 
@@ -1764,7 +1763,7 @@ elif opcao == "💳 Cartões & Faturas":
     user_id = st.session_state.get("usuario_id")
     cartoes = listar_cartoes(user_id)
 
-    # --- ABA 1: VISUALIZAR FATURAS ---
+  # --- ABA 1: VISUALIZAR FATURAS ---
     with tab_faturas:
         if cartoes:
             c1, c2, c3 = st.columns(3)
@@ -1789,19 +1788,25 @@ elif opcao == "💳 Cartões & Faturas":
             fatura_ref = f"{mes_fatura}/{ano_fatura}"
             st.markdown("---")
 
-            # 1. TOTAIS OTIMIZADOS VIA RPC (Processado direto no Banco de Dados em ms)
-            resumo = buscar_resumo_fatura(user_id, cartao_id_sel, fatura_ref)
-            total_fatura = float(resumo.get("total_fatura", 0.0))
-            total_devedor_geral = float(resumo.get("total_devedor", 0.0))
+            # 1. Gastos apenas da fatura selecionada (para o card "Total da Fatura")
+            compras = buscar_gastos_fatura(user_id, cartao_id_sel, fatura_ref)
+            total_fatura = sum(float(item["valor"]) for item in compras) if compras else 0.0
 
-            # 2. Busca APENAS os itens específicos da fatura selecionada para exibição
-            compras = buscar_gastos_fatura(user_id, cartao_id_sel, fatura_ref) or []
+            # 2. CORREÇÃO SIMPLES: Busca TODOS os gastos do cartão (todas as faturas) para somar o saldo devedor real
+            todas_compras = buscar_gastos_fatura(user_id, cartao_id_sel, None)
+            
+            # Soma todas as parcelas de qualquer mês que ainda NÃO foram pagas
+            total_devedor_geral = sum(
+                float(item["valor"]) 
+                for item in todas_compras 
+                if not item.get("pago", False) and not item.get("paga", False)
+            ) if todas_compras else 0.0
 
-            # 3. Limite Disponível Real
-            limite_total = float(cartao_info.get("limite", 0.0))
+            # 3. Limite Disponível Real = Limite Total - Tudo que falta pagar (todas as parcelas)
+            limite_total = float(cartao_info["limite"])
             limite_disponivel = limite_total - total_devedor_geral
 
-            st.info(f"💡 **Informações:** Fechamento todo **dia {cartao_info.get('dia_fechamento', '--')}** | Vencimento todo **dia {cartao_info.get('dia_vencimento', '--')}**")
+            st.info(f"💡 **Informações:** Fechamento todo **dia {cartao_info['dia_fechamento']}** | Vencimento todo **dia {cartao_info['dia_vencimento']}**")
 
             # Métricas em destaque
             m1, m2, m3 = st.columns(3)
@@ -1814,8 +1819,6 @@ elif opcao == "💳 Cartões & Faturas":
             if compras:
                 if st.button("✅ Dar Baixa / Pagar Fatura Completa", type="primary"):
                     if dar_baixa_fatura_completa(user_id, cartao_id_sel, fatura_ref):
-                        # Invalida o cache da função RPC para atualizar os totais imediatamente
-                        buscar_resumo_fatura.clear()
                         st.success(f"Fatura {fatura_ref} marcada como paga com sucesso!")
                         st.rerun()
                     else:
@@ -1829,6 +1832,7 @@ elif opcao == "💳 Cartões & Faturas":
 
                 # --- FERRAMENTA DE EXCLUSÃO DE ITEM DA FATURA ---
                 with st.expander("🗑️ Excluir um item desta fatura"):
+                    # Cria um dicionário identificando cada compra
                     dict_compras_excluir = {
                         item["id"]: f"{item['data']} | {item['descricao']} - R$ {float(item['valor']):.2f}" 
                         for item in compras
@@ -1842,9 +1846,7 @@ elif opcao == "💳 Cartões & Faturas":
                     )
                     
                     if st.button("Confirmar Exclusão do Item", type="secondary"):
-                        if excluir_movimentacao(user_id, id_para_excluir):
-                            # Invalida o cache da RPC para recalcular o limite e totais na tela
-                            buscar_resumo_fatura.clear()
+                        if excluir_movimentacao(user_id, id_para_excluir): # <--- Passando user_id e o id da movimentação
                             st.success("Lançamento excluído com sucesso!")
                             st.rerun()
                         else:
@@ -1855,6 +1857,7 @@ elif opcao == "💳 Cartões & Faturas":
 
         else:
             st.info("Nenhum cartão cadastrado. Use a aba ao lado para cadastrar seu primeiro cartão!")
+
     # --- ABA 2: CADASTRO DE NOVO CARTÃO ---
     with tab_novo_cartao:
         st.subheader("➕ Adicionar Novo Cartão de Crédito")
