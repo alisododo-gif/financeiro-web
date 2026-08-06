@@ -1616,7 +1616,7 @@ elif opcao == "🎯 Orçamentos por Categoria":
 elif opcao == "📅 Próximos Vencimentos":
     st.title("📅 Próximos Vencimentos")
     st.caption(
-        "Acompanhe despesas, contas fixas e faturas consolidadas de cartão com vencimento nos próximos dias."
+        "Acompanhe despesas, contas fixas e faturas consolidadas por cartão com vencimento nos próximos dias."
     )
 
     # Controle deslizante
@@ -1654,7 +1654,7 @@ elif opcao == "📅 Próximos Vencimentos":
         )
         df_outras_contas = df_raw[cond_recorrente | cond_boleto].copy()
 
-        # 2. ISOLA E AGRUPA AS FATURAS DE CARTÃO DE CRÉDITO (CONSOLIDAÇÃO POR MES_FATURA)
+        # 2. ISOLA E AGRUPA AS FATURAS POR NOME DO CARTÃO E MÊS DA FATURA
         cond_cartao = df_raw["forma_pagamento"].str.contains(
             r"cartão de crédito|credito", case=False, na=False
         )
@@ -1662,25 +1662,41 @@ elif opcao == "📅 Próximos Vencimentos":
 
         df_faturas_agrupadas = pd.DataFrame()
         if not df_credito.empty:
-            # Agrupa por mês de fatura, data de vencimento e status pago
-            # Obs: Se não houver a coluna 'cartao_id' ou 'cartao_nome', agrupa pela data/mes_fatura
-            colunas_agrupamento = ["mes_fatura", "data", "pago"]
+            # Verifica qual coluna traz o nome do cartão. Ajusta o fallback se necessário
+            coluna_nome_cartao = None
+            for col in ["cartao_nome", "nome_cartao", "cartao", "nome"]:
+                if col in df_credito.columns:
+                    coluna_nome_cartao = col
+                    break
+            
+            if coluna_nome_cartao:
+                df_credito["nome_exibicao_cartao"] = df_credito[coluna_nome_cartao].fillna("Cartão de Crédito")
+            elif "cartao_id" in df_credito.columns:
+                df_credito["nome_exibicao_cartao"] = df_credito["cartao_id"].apply(
+                    lambda x: f"Cartão #{x}" if pd.notnull(x) else "Cartão de Crédito"
+                )
+            else:
+                df_credito["nome_exibicao_cartao"] = "Cartão de Crédito"
+
+            # Agrupa por Cartão, Mês de Fatura, Data de Vencimento e Status Pago
+            colunas_agrupamento = ["nome_exibicao_cartao", "mes_fatura", "data", "pago"]
             
             df_faturas_agrupadas = (
                 df_credito.groupby(colunas_agrupamento, as_index=False)
                 .agg({
                     "valor": "sum",
-                    "id": "first", # ID de referência para ações no Streamlit
+                    "id": "first", # Guarda o ID de referência
                     "categoria": lambda x: "Fatura de Cartão",
                     "forma_pagamento": lambda x: "Cartão de Crédito"
                 })
             )
-            # Cria a descrição consolidada
-            df_faturas_agrupadas["descricao"] = df_faturas_agrupadas["mes_fatura"].apply(
-                lambda m: f"💳 Fatura Cartão de Crédito ({m})"
+            
+            # Monta a descrição com o nome do cartão e o mês da fatura
+            df_faturas_agrupadas["descricao"] = df_faturas_agrupadas.apply(
+                lambda r: f"💳 Fatura {r['nome_exibicao_cartao']} ({r['mes_fatura']})", axis=1
             )
 
-        # 3. UNIFICA AS CONTAS FIXAS COM AS FATURAS CONSOLIDADAS
+        # 3. UNIFICA AS CONTAS FIXAS/BOLETOS COM AS FATURAS DOS CARTÕES
         df_venc = pd.concat([df_outras_contas, df_faturas_agrupadas], ignore_index=True)
 
         if df_venc.empty:
@@ -1800,7 +1816,7 @@ elif opcao == "📅 Próximos Vencimentos":
                                     st.warning("Pagamento estornado! Voltou para Pendentes.")
                                     st.rerun()
                                 else:
-                                    st.error("Erro ao desfazer o pagamento.")                 
+                                    st.error("Erro ao desfazer o pagamento.")                
 
 
 # --- ABA: CARTÕES & FATURAS ---
