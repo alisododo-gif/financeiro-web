@@ -1662,14 +1662,18 @@ elif opcao == "📅 Próximos Vencimentos":
 
         df_faturas_agrupadas = pd.DataFrame()
         if not df_credito.empty:
-            # Define o nome que vai aparecer no título da fatura diretamente das colunas existentes
-            if "nome_cartao" in df_credito.columns and df_credito["nome_cartao"].notna().any():
-                df_credito["nome_exibicao_cartao"] = df_credito["nome_cartao"].fillna("Cartão de Crédito")
-            elif "cartao_nome" in df_credito.columns and df_credito["cartao_nome"].notna().any():
-                df_credito["nome_exibicao_cartao"] = df_credito["cartao_nome"].fillna("Cartão de Crédito")
+            # Verifica qual coluna traz o nome do cartão. Ajusta o fallback se necessário
+            coluna_nome_cartao = None
+            for col in ["cartao_nome", "nome_cartao", "cartao", "nome"]:
+                if col in df_credito.columns:
+                    coluna_nome_cartao = col
+                    break
+            
+            if coluna_nome_cartao:
+                df_credito["nome_exibicao_cartao"] = df_credito[coluna_nome_cartao].fillna("Cartão de Crédito")
             elif "cartao_id" in df_credito.columns:
                 df_credito["nome_exibicao_cartao"] = df_credito["cartao_id"].apply(
-                    lambda x: f"Cartão #{int(x)}" if pd.notna(x) else "Cartão de Crédito"
+                    lambda x: f"Cartão #{x}" if pd.notnull(x) else "Cartão de Crédito"
                 )
             else:
                 df_credito["nome_exibicao_cartao"] = "Cartão de Crédito"
