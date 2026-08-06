@@ -1646,116 +1646,134 @@ elif opcao == "📅 Próximos Vencimentos":
         else:
             df_venc["pago"] = df_venc["pago"].fillna(False)
 
-        # Separa os dataframes entre Pendentes e Pagos
-        df_pendentes = df_venc[df_venc["pago"] == False].copy()
-        df_pagos = df_venc[df_venc["pago"] == True].copy()
+        # =========================================================================
+        # FILTRO EXCLUSIVO: FIXO/RECORRENTE, BOLETOS E CARTÃO DE CRÉDITO
+        # =========================================================================
+        cond_recorrente = df_venc["descricao"].str.contains(
+            r"recorrente|fixo|fixa", case=False, na=False
+        )
+        cond_forma_pagto = df_venc["forma_pagamento"].str.contains(
+            r"boleto|cartão de crédito|credito", case=False, na=False
+        )
 
-        # --- CARDS RESUMO (KPIs) ---
-        col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
-        with col_kpi1:
-            st.metric(
-                "Total Pendente no Período",
-                fmt_moeda(df_pendentes["valor"].sum()) if not df_pendentes.empty else "R$ 0,00",
+        # Aplica o filtro no dataframe principal
+        df_venc = df_venc[cond_recorrente | cond_forma_pagto].copy()
+
+        if df_venc.empty:
+            st.success(
+                f"🎉 Nenhuma conta fixa, boleto ou cartão pendente para os próximos {dias_filtro} dias!"
             )
-        with col_kpi2:
-            st.metric("Contas a Vencer", len(df_pendentes))
-        with col_kpi3:
-            st.metric("Contas Já Pagas", len(df_pagos))
-
-        st.markdown("---")
-
-        # --- SEÇÃO 1: CONTAS PENDENTES ---
-        st.subheader(f"⏳ Contas Pendentes ({len(df_pendentes)})")
-
-        if df_pendentes.empty:
-            st.success("🎉 Nenhuma conta pendente para o período selecionado!")
         else:
-            df_pendentes["Valor_Fmt"] = df_pendentes["valor"].apply(lambda v: fmt_moeda(v))
-            df_pendentes["Data_Fmt"] = pd.to_datetime(df_pendentes["data"]).dt.strftime("%d/%m/%Y")
-            hoje_dt = pd.to_datetime("today").normalize()
-            df_pendentes["Dias_Restantes"] = (pd.to_datetime(df_pendentes["data"]) - hoje_dt).dt.days
+            # Separa os dataframes entre Pendentes e Pagos
+            df_pendentes = df_venc[df_venc["pago"] == False].copy()
+            df_pagos = df_venc[df_venc["pago"] == True].copy()
 
-            for _, row in df_pendentes.iterrows():
-                id_lanc = row["id"]
-                dias = int(row["Dias_Restantes"])
+            # --- CARDS RESUMO (KPIs) ---
+            col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
+            with col_kpi1:
+                st.metric(
+                    "Total Pendente no Período",
+                    fmt_moeda(df_pendentes["valor"].sum()) if not df_pendentes.empty else "R$ 0,00",
+                )
+            with col_kpi2:
+                st.metric("Contas a Vencer", len(df_pendentes))
+            with col_kpi3:
+                st.metric("Contas Já Pagas", len(df_pagos))
 
-                if dias == 0:
-                    badge = "⚠️ **VENCE HOJE!**"
-                elif dias < 0:
-                    badge = f"🚨 **VENCIDA HÁ {abs(dias)} DIA(S)!**"
-                else:
-                    badge = f"⏳ Vence em {dias} dia(s)"
-
-                with st.expander(
-                    f"📅 {row['Data_Fmt']} — {row['descricao']} | {row['Valor_Fmt']}"
-                ):
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.write(f"**Categoria:** {row.get('categoria', 'Não informada')}")
-                        st.write(f"**Forma de Pagamento:** {row.get('forma_pagamento', 'Não informada')}")
-                    with c2:
-                        st.write(f"**Status:** {badge}")
-
-                    st.markdown("---")
-                    col_btn_pago, col_btn_del, _ = st.columns([2, 1, 3])
-
-                    with col_btn_pago:
-                        if st.button(
-                            "✅ Marcar como Pago",
-                            key=f"pago_{id_lanc}",
-                            type="primary",
-                            use_container_width=True,
-                        ):
-                            if marcar_lancamento_como_pago(id_lanc):
-                                st.cache_data.clear()
-                                st.success("Lançamento baixado e marcado como pago com sucesso!")
-                                st.rerun()
-                            else:
-                                st.error("Erro ao registrar o pagamento do lançamento.")
-
-                    with col_btn_del:
-                        if st.button(
-                            "🗑️ Excluir",
-                            key=f"del_venc_{id_lanc}",
-                            use_container_width=True,
-                        ):
-                            if excluir_lancamento_pendente(id_lanc):
-                                st.cache_data.clear()
-                                st.warning("Lançamento removido com sucesso!")
-                                st.rerun()
-                            else:
-                                st.error("Erro ao excluir o lançamento pendente.")
-
-        # --- SEÇÃO 2: CONTAS JÁ PAGAS ---
-        if not df_pagos.empty:
             st.markdown("---")
-            with st.expander(f"✅ Ver Contas Já Pagas no Período ({len(df_pagos)})"):
-                df_pagos["Valor_Fmt"] = df_pagos["valor"].apply(lambda v: fmt_moeda(v))
-                df_pagos["Data_Fmt"] = pd.to_datetime(df_pagos["data"]).dt.strftime("%d/%m/%Y")
 
-                for _, row in df_pagos.iterrows():
+            # --- SEÇÃO 1: CONTAS PENDENTES ---
+            st.subheader(f"⏳ Contas Pendentes ({len(df_pendentes)})")
+
+            if df_pendentes.empty:
+                st.success("🎉 Nenhuma conta pendente para o período selecionado!")
+            else:
+                df_pendentes["Valor_Fmt"] = df_pendentes["valor"].apply(lambda v: fmt_moeda(v))
+                df_pendentes["Data_Fmt"] = pd.to_datetime(df_pendentes["data"]).dt.strftime("%d/%m/%Y")
+                hoje_dt = pd.to_datetime("today").normalize()
+                df_pendentes["Dias_Restantes"] = (pd.to_datetime(df_pendentes["data"]) - hoje_dt).dt.days
+
+                for _, row in df_pendentes.iterrows():
                     id_lanc = row["id"]
-                    
-                    col_info, col_btn = st.columns([3, 1])
-                    
-                    with col_info:
-                        st.write(
-                            f"✔️ **{row['Data_Fmt']}** — {row['descricao']} | **{row['Valor_Fmt']}**"
-                        )
-                    
-                    with col_btn:
-                        if st.button(
-                            "↩️ Desfazer",
-                            key=f"desfazer_{id_lanc}",
-                            use_container_width=True,
-                            help="Voltar esta conta para o status Pendente"
-                        ):
-                            if desfazer_pagamento_lancamento(id_lanc):
-                                st.cache_data.clear()
-                                st.warning("Pagamento estornado! Conta voltou para Pendentes.")
-                                st.rerun()
-                            else:
-                                st.error("Erro ao desfazer o pagamento do lançamento.")                    
+                    dias = int(row["Dias_Restantes"])
+
+                    if dias == 0:
+                        badge = "⚠️ **VENCE HOJE!**"
+                    elif dias < 0:
+                        badge = f"🚨 **VENCIDA HÁ {abs(dias)} DIA(S)!**"
+                    else:
+                        badge = f"⏳ Vence em {dias} dia(s)"
+
+                    with st.expander(
+                        f"📅 {row['Data_Fmt']} — {row['descricao']} | {row['Valor_Fmt']}"
+                    ):
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.write(f"**Categoria:** {row.get('categoria', 'Não informada')}")
+                            st.write(f"**Forma de Pagamento:** {row.get('forma_pagamento', 'Não informada')}")
+                        with c2:
+                            st.write(f"**Status:** {badge}")
+
+                        st.markdown("---")
+                        col_btn_pago, col_btn_del, _ = st.columns([2, 1, 3])
+
+                        with col_btn_pago:
+                            if st.button(
+                                "✅ Marcar como Pago",
+                                key=f"pago_{id_lanc}",
+                                type="primary",
+                                use_container_width=True,
+                            ):
+                                if marcar_lancamento_como_pago(id_lanc):
+                                    st.cache_data.clear()
+                                    st.success("Lançamento baixado e marcado como pago com sucesso!")
+                                    st.rerun()
+                                else:
+                                    st.error("Erro ao registrar o pagamento do lançamento.")
+
+                        with col_btn_del:
+                            if st.button(
+                                "🗑️ Excluir",
+                                key=f"del_venc_{id_lanc}",
+                                use_container_width=True,
+                            ):
+                                if excluir_lancamento_pendente(id_lanc):
+                                    st.cache_data.clear()
+                                    st.warning("Lançamento removido com sucesso!")
+                                    st.rerun()
+                                else:
+                                    st.error("Erro ao excluir o lançamento pendente.")
+
+            # --- SEÇÃO 2: CONTAS JÁ PAGAS ---
+            if not df_pagos.empty:
+                st.markdown("---")
+                with st.expander(f"✅ Ver Contas Já Pagas no Período ({len(df_pagos)})"):
+                    df_pagos["Valor_Fmt"] = df_pagos["valor"].apply(lambda v: fmt_moeda(v))
+                    df_pagos["Data_Fmt"] = pd.to_datetime(df_pagos["data"]).dt.strftime("%d/%m/%Y")
+
+                    for _, row in df_pagos.iterrows():
+                        id_lanc = row["id"]
+                        
+                        col_info, col_btn = st.columns([3, 1])
+                        
+                        with col_info:
+                            st.write(
+                                f"✔️ **{row['Data_Fmt']}** — {row['descricao']} | **{row['Valor_Fmt']}**"
+                            )
+                        
+                        with col_btn:
+                            if st.button(
+                                "↩️ Desfazer",
+                                key=f"desfazer_{id_lanc}",
+                                use_container_width=True,
+                                help="Voltar esta conta para o status Pendente"
+                            ):
+                                if desfazer_pagamento_lancamento(id_lanc):
+                                    st.cache_data.clear()
+                                    st.warning("Pagamento estornado! Conta voltou para Pendentes.")
+                                    st.rerun()
+                                else:
+                                    st.error("Erro ao desfazer o pagamento do lançamento.")                   
 
 
 # --- ABA: CARTÕES & FATURAS ---
