@@ -272,10 +272,10 @@ def buscar_vencimentos_proximos(usuario_id, dias=15):
     hoje = datetime.now().strftime("%Y-%m-%d")
     data_limite = (datetime.now() + timedelta(days=dias)).strftime("%Y-%m-%d")
     
-    # 1. Traz todas as colunas + a relação da tabela de cartões
+    # Adicionamos dia_vencimento na busca dos cartões
     url = (
         f"{BASE_URL}/movimentacoes"
-        f"?select=*,cartoes(nome_cartao)"
+        f"?select=*,cartoes(nome_cartao,dia_vencimento)"
         f"&usuario_id=eq.{usuario_id}"
         f"&tipo=eq.Despesa"
         f"&data=gte.{hoje}"
@@ -288,13 +288,14 @@ def buscar_vencimentos_proximos(usuario_id, dias=15):
     if res.status_code == 200:
         dados = res.json()
         
-        # 2. EXTRAI O NOME DO CARTÃO DO DICIONÁRIO ANINHADO
         for item in dados:
             cartao_obj = item.get("cartoes")
             if isinstance(cartao_obj, dict):
                 item["nome_cartao"] = cartao_obj.get("nome_cartao")
+                item["dia_vencimento_cartao"] = cartao_obj.get("dia_vencimento")
             elif isinstance(cartao_obj, list) and len(cartao_obj) > 0:
                 item["nome_cartao"] = cartao_obj[0].get("nome_cartao")
+                item["dia_vencimento_cartao"] = cartao_obj[0].get("dia_vencimento")
         
         return dados
     

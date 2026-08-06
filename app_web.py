@@ -1676,12 +1676,12 @@ elif opcao == "📅 Próximos Vencimentos":
             # Garante que contas de cartão não entrem nesta lista para evitar duplicidade
             df_outras_contas = df_raw[~cond_cartao & (cond_recorrente | cond_boleto)].copy()
 
-            # 2. FATURAS DE CARTÃO DE CRÉDITO (AGRUPAMENTO RÍGIDO POR CARTÃO E MÊS)
+            # 2. FATURAS DE CARTÃO DE CRÉDITO (AGRUPAMENTO POR CARTÃO E VENCIMENTO REAL)
             df_credito = df_raw[cond_cartao].copy()
 
             df_faturas_agrupadas = pd.DataFrame()
             if not df_credito.empty:
-                # Extrai o nome do cartão
+                # Função para extrair o nome do cartão
                 def extrair_nome_cartao(row):
                     for col in ["nome_cartao", "cartao_nome", "cartao", "nome"]:
                         if col in row and pd.notna(row[col]):
@@ -1693,23 +1693,25 @@ elif opcao == "📅 Próximos Vencimentos":
                         return f"Cartão #{int(row['cartao_id'])}"
                     return "Cartão de Crédito"
 
-                # Extrai o dia do vencimento do cartão (ex: 10, 15, 20)
-                def extrair_dia_venc(row):
-                    for col in ["dia_vencimento", "vencimento", "dia_vencer"]:
+                # Função para buscar o dia do vencimento em qualquer estrutura possível
+                def extrair_dia_vencimento(row):
+                    # Checa colunas diretas
+                    for col in ["dia_vencimento_cartao", "dia_vencimento", "vencimento", "dia_venc"]:
                         if col in row and pd.notna(row[col]):
-                            v = str(row[col])
-                            if v.isdigit():
-                                return int(v)
+                            val = str(row[col]).strip()
+                            if val.isdigit():
+                                return int(val)
+                    # Checa dentro do objeto 'cartoes'
                     if "cartoes" in row and isinstance(row["cartoes"], dict):
-                        v = row["cartoes"].get("dia_vencimento") or row["cartoes"].get("vencimento")
-                        if v and str(v).isdigit():
-                            return int(v)
+                        v = row["cartoes"].get("dia_vencimento") or row["cartoes"].get("dia_venc") or row["cartoes"].get("vencimento")
+                        if v and str(v).strip().isdigit():
+                            return int(str(v).strip())
                     return None
 
                 df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
-                df_credito["dia_venc_cartao"] = df_credito.apply(extrair_dia_venc, axis=1)
+                df_credito["dia_venc_cartao"] = df_credito.apply(extrair_dia_vencimento, axis=1)
 
-                # Trata mes_fatura (MM/YYYY)
+                # Garantia do mês da fatura (MM/YYYY)
                 if "mes_fatura" not in df_credito.columns:
                     df_credito["mes_fatura"] = pd.to_datetime(df_credito["data"]).dt.strftime("%m/%Y")
                 else:
@@ -1717,7 +1719,7 @@ elif opcao == "📅 Próximos Vencimentos":
                         pd.to_datetime(df_credito["data"]).dt.strftime("%m/%Y")
                     )
 
-                # AGRUPAMENTO RÍGIDO: Apenas Cartão, Mês e Status (Nenhuma data individual entra aqui)
+                # Agrupa mantendo os totais e o dia de vencimento
                 colunas_agrupamento = ["nome_exibicao_cartao", "mes_fatura", "pago"]
                 
                 df_faturas_agrupadas = (
@@ -1725,15 +1727,15 @@ elif opcao == "📅 Próximos Vencimentos":
                     .agg({
                         "valor": "sum",
                         "id": "first",
-                        "data": "max",  # Pega uma data de referência do grupo
+                        "data": "max",
                         "dia_venc_cartao": "first",
                         "categoria": lambda x: "Fatura de Cartão",
                         "forma_pagamento": lambda x: "Cartão de Crédito"
                     })
                 )
 
-                # Calcula a data de exibição final da fatura
-                def definir_data_exibicao(row):
+                # Monta a DATA DE VENCIMENTO FINAL (YYYY-MM-DD)
+                def calcular_data_vencimento_oficial(row):
                     dia = row["dia_venc_cartao"]
                     mes_fat = str(row["mes_fatura"])
                     
@@ -1747,15 +1749,20 @@ elif opcao == "📅 Próximos Vencimentos":
                         except Exception:
                             pass
                     
-                    # Fallback: Se não encontrar o dia do cartão, usa a última data de compra do grupo
-                    return str(row["data"])[:10]
+                    # Se não houver dia cadastrado no cartão, usa o padrão dia 10 do mês da fatura
+                    try:
+                        mes, ano = map(int, mes_fat.split("/"))
+                        return f"{ano:04d}-{mes:02d}-10"
+                    except Exception:
+                        return str(row["data"])[:10]
 
-                df_faturas_agrupadas["data"] = df_faturas_agrupadas.apply(definir_data_exibicao, axis=1)
+                df_faturas_agrupadas["data"] = df_faturas_agrupadas.apply(calcular_data_vencimento_oficial, axis=1)
 
-                # Descrição da fatura consolidada
+                # Descrição formatada
                 df_faturas_agrupadas["descricao"] = df_faturas_agrupadas.apply(
                     lambda r: f"💳 Fatura {r['nome_exibicao_cartao']} ({r['mes_fatura']})", axis=1
                 )
+                
             # 3. UNIFICA AS CONTAS INDIVIDUAIS COM AS FATURAS CONSOLIDADAS
             df_venc = pd.concat([df_outras_contas, df_faturas_agrupadas], ignore_index=True)
 
