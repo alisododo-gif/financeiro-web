@@ -1681,7 +1681,27 @@ elif opcao == "📅 Próximos Vencimentos":
 
             df_faturas_agrupadas = pd.DataFrame()
             if not df_credito.empty:
-                # Trata a coluna mes_fatura se não existir
+                # Função helper para capturar o nome do cartão de qualquer formato
+                def extrair_nome_cartao(row):
+                    # Checa colunas diretas
+                    for col in ["nome_cartao", "cartao_nome", "cartao", "nome"]:
+                        if col in row and pd.notna(row[col]):
+                            val = row[col]
+                            if isinstance(val, dict):
+                                return val.get("nome_cartao", "Cartão de Crédito")
+                            return str(val)
+                    # Checa o dicionário 'cartoes' vindo do Supabase/PostgREST
+                    if "cartoes" in row and isinstance(row["cartoes"], dict):
+                        return row["cartoes"].get("nome_cartao", "Cartão de Crédito")
+                    # Fallback com ID se existir
+                    if "cartao_id" in row and pd.notna(row["cartao_id"]):
+                        return f"Cartão #{int(row['cartao_id'])}"
+                    return "Cartão de Crédito"
+
+                # Aplica a extração para cada linha
+                df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
+
+                # Trata a coluna mes_fatura
                 if "mes_fatura" not in df_credito.columns:
                     df_credito["mes_fatura"] = pd.to_datetime(df_credito["data"]).dt.strftime("%m/%Y")
                 else:
@@ -1689,23 +1709,7 @@ elif opcao == "📅 Próximos Vencimentos":
                         pd.to_datetime(df_credito["data"]).dt.strftime("%m/%Y")
                     )
 
-                # Mapeia dinamicamente a coluna com o nome do cartão
-                coluna_nome_cartao = None
-                for col in ["nome_cartao", "cartao_nome", "cartao", "nome"]:
-                    if col in df_credito.columns and df_credito[col].notna().any():
-                        coluna_nome_cartao = col
-                        break
-
-                if coluna_nome_cartao:
-                    df_credito["nome_exibicao_cartao"] = df_credito[coluna_nome_cartao].fillna("Cartão de Crédito")
-                elif "cartao_id" in df_credito.columns:
-                    df_credito["nome_exibicao_cartao"] = df_credito["cartao_id"].apply(
-                        lambda x: f"Cartão #{int(x)}" if pd.notnull(x) and str(x).isdigit() else "Cartão de Crédito"
-                    )
-                else:
-                    df_credito["nome_exibicao_cartao"] = "Cartão de Crédito"
-
-                # Agrupa faturas mantendo o nome do cartão
+                # Agrupa faturas mantendo o nome individual do cartão
                 colunas_agrupamento = ["nome_exibicao_cartao", "mes_fatura", "data", "pago"]
                 
                 df_faturas_agrupadas = (
@@ -1718,7 +1722,7 @@ elif opcao == "📅 Próximos Vencimentos":
                     })
                 )
                 
-                # Monta a descrição legível
+                # Monta a descrição legível com o nome correto do cartão
                 df_faturas_agrupadas["descricao"] = df_faturas_agrupadas.apply(
                     lambda r: f"💳 Fatura {r['nome_exibicao_cartao']} ({r['mes_fatura']})", axis=1
                 )

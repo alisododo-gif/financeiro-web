@@ -272,8 +272,7 @@ def buscar_vencimentos_proximos(usuario_id, dias=15):
     hoje = datetime.now().strftime("%Y-%m-%d")
     data_limite = (datetime.now() + timedelta(days=dias)).strftime("%Y-%m-%d")
     
-    # 1. Traz todas as colunas + o NOME DO CARTÃO da tabela de cartões
-    # 2. Aplica o filtro estrito de usuario_id, tipo Despesa e o intervalo de datas
+    # 1. Traz todas as colunas + a relação da tabela de cartões
     url = (
         f"{BASE_URL}/movimentacoes"
         f"?select=*,cartoes(nome_cartao)"
@@ -289,10 +288,13 @@ def buscar_vencimentos_proximos(usuario_id, dias=15):
     if res.status_code == 200:
         dados = res.json()
         
-        # Achata a estrutura do nome do cartão para o Pandas ler diretamente como 'nome_cartao'
+        # 2. EXTRAI O NOME DO CARTÃO DO DICIONÁRIO ANINHADO
         for item in dados:
-            if isinstance(item.get("cartoes"), dict):
-                item["nome_cartao"] = item["cartoes"].get("nome_cartao")
+            cartao_obj = item.get("cartoes")
+            if isinstance(cartao_obj, dict):
+                item["nome_cartao"] = cartao_obj.get("nome_cartao")
+            elif isinstance(cartao_obj, list) and len(cartao_obj) > 0:
+                item["nome_cartao"] = cartao_obj[0].get("nome_cartao")
         
         return dados
     
