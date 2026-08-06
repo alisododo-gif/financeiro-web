@@ -1676,32 +1676,44 @@ elif opcao == "📅 Próximos Vencimentos":
             # Garante que contas de cartão não entrem nesta lista para evitar duplicidade
             df_outras_contas = df_raw[~cond_cartao & (cond_recorrente | cond_boleto)].copy()
 
-            # 2. FATURAS DE CARTÃO DE CRÉDITO (AGRUPADAS POR CARTÃO E MÊS)
+            # 2. FATURAS DE CARTÃO DE CRÉDITO (AGRUPADAS POR CARTÃO E VENCIMENTO REAL)
             df_credito = df_raw[cond_cartao].copy()
 
             df_faturas_agrupadas = pd.DataFrame()
             if not df_credito.empty:
-                # Função helper para capturar o nome do cartão de qualquer formato
+                # 1. Função helper para capturar o nome do cartão
                 def extrair_nome_cartao(row):
-                    # Checa colunas diretas
                     for col in ["nome_cartao", "cartao_nome", "cartao", "nome"]:
                         if col in row and pd.notna(row[col]):
                             val = row[col]
                             if isinstance(val, dict):
                                 return val.get("nome_cartao", "Cartão de Crédito")
                             return str(val)
-                    # Checa o dicionário 'cartoes' vindo do Supabase/PostgREST
                     if "cartoes" in row and isinstance(row["cartoes"], dict):
                         return row["cartoes"].get("nome_cartao", "Cartão de Crédito")
-                    # Fallback com ID se existir
                     if "cartao_id" in row and pd.notna(row["cartao_id"]):
                         return f"Cartão #{int(row['cartao_id'])}"
                     return "Cartão de Crédito"
 
-                # Aplica a extração para cada linha
-                df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
+                # 2. Função helper para extrair o dia de vencimento do cartão
+                def extrair_dia_vencimento(row):
+                    # Tenta pegar diretamente de colunas do dataframe
+                    for col in ["dia_vencimento", "vencimento", "data_vencimento"]:
+                        if col in row and pd.notna(row[col]):
+                            val = str(row[col])
+                            if val.isdigit():
+                                return int(val)
+                    # Tenta pegar do objeto de cartão se veio via join/relacionamento
+                    if "cartoes" in row and isinstance(row["cartoes"], dict):
+                        v_cartao = row["cartoes"].get("dia_vencimento") or row["cartoes"].get("vencimento")
+                        if v_cartao and str(v_cartao).isdigit():
+                            return int(v_cartao)
+                    return None
 
-                # Trata a coluna mes_fatura
+                df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
+                df_credito["dia_venc_cartao"] = df_credito.apply(extrair_dia_vencimento, axis=1)
+
+                # 3. Trata a coluna mes_fatura (MM/YYYY)
                 if "mes_fatura" not in df_credito.columns:
                     df_credito["mes_fatura"] = pd.to_datetime(df_credito["data"]).dt.strftime("%m/%Y")
                 else:
@@ -1709,8 +1721,30 @@ elif opcao == "📅 Próximos Vencimentos":
                         pd.to_datetime(df_credito["data"]).dt.strftime("%m/%Y")
                     )
 
-                # Agrupa faturas mantendo o nome individual do cartão
-                colunas_agrupamento = ["nome_exibicao_cartao", "mes_fatura", "data", "pago"]
+                # 4. Determina a DATA REAL de vencimento da fatura (YYYY-MM-DD)
+                def calcular_data_vencimento(row):
+                    dia = row["dia_venc_cartao"]
+                    mes_fat = str(row["mes_fatura"])
+                    
+                    if dia and "/" in mes_fat:
+                        try:
+                            mes, ano = map(int, mes_fat.split("/"))
+                            # Trata meses com 28/30 dias caso o dia configurado seja ex: 31
+                            import calendar
+                            max_dias = calendar.monthrange(ano, mes)[1]
+                            dia_valido = min(int(dia), max_dias)
+                            return f"{ano:04d}-{mes:02d}-{dia_valido:02d}"
+                        except Exception:
+                            pass
+                    
+                    # Se não souber o dia do cartão, usa a primeira data registrada do mês
+                    return str(row["data"])[:10]
+
+                df_credito["data_vencimento_fatura"] = df_credito.apply(calcular_data_vencimento, axis=1)
+
+                # 5. AGRUPAMENTO: Agrupa POR CARTÃO + MÊS DA FATURA + DATA REAL DE VENCIMENTO
+                # (A data da compra individual NÃO ENTRA no groupby)
+                colunas_agrupamento = ["nome_exibicao_cartao", "mes_fatura", "data_vencimento_fatura", "pago"]
                 
                 df_faturas_agrupadas = (
                     df_credito.groupby(colunas_agrupamento, as_index=False)
@@ -1722,7 +1756,10 @@ elif opcao == "📅 Próximos Vencimentos":
                     })
                 )
                 
-                # Monta a descrição legível com o nome correto do cartão
+                # Renomeia a coluna calculada para 'data' para manter a compatibilidade
+                df_faturas_agrupadas.rename(columns={"data_vencimento_fatura": "data"}, inplace=True)
+                
+                # Monta a descrição legível com o nome do cartão e mês da fatura
                 df_faturas_agrupadas["descricao"] = df_faturas_agrupadas.apply(
                     lambda r: f"💳 Fatura {r['nome_exibicao_cartao']} ({r['mes_fatura']})", axis=1
                 )
