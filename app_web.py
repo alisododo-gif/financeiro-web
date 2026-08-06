@@ -1616,7 +1616,7 @@ elif opcao == "🎯 Orçamentos por Categoria":
 elif opcao == "📅 Próximos Vencimentos":
     st.title("📅 Próximos Vencimentos")
     st.caption(
-        "Acompanhe despesas e contas com vencimento nos próximos dias e realize baixas rápidas."
+        "Acompanhe despesas, contas fixas e faturas consolidadas de cartão com vencimento nos próximos dias."
     )
 
     # Controle deslizante
@@ -1638,32 +1638,59 @@ elif opcao == "📅 Próximos Vencimentos":
             f"🎉 Nenhuma despesa registrada para os próximos {dias_filtro} dias!"
         )
     else:
-        df_venc = pd.DataFrame(vencimentos)
+        df_raw = pd.DataFrame(vencimentos)
 
-        # Garante o campo de pago tratado
-        if "pago" not in df_venc.columns:
-            df_venc["pago"] = False
+        if "pago" not in df_raw.columns:
+            df_raw["pago"] = False
         else:
-            df_venc["pago"] = df_venc["pago"].fillna(False)
+            df_raw["pago"] = df_raw["pago"].fillna(False)
 
-        # =========================================================================
-        # FILTRO EXCLUSIVO: FIXO/RECORRENTE, BOLETOS E CARTÃO DE CRÉDITO
-        # =========================================================================
-        cond_recorrente = df_venc["descricao"].str.contains(
+        # 1. ISOLA CONTAS FIXAS/RECORRENTES E BOLETOS (LANÇAMENTOS INDIVIDUAIS)
+        cond_recorrente = df_raw["descricao"].str.contains(
             r"recorrente|fixo|fixa", case=False, na=False
         )
-        cond_forma_pagto = df_venc["forma_pagamento"].str.contains(
-            r"boleto|cartão de crédito|credito", case=False, na=False
+        cond_boleto = df_raw["forma_pagamento"].str.contains(
+            r"boleto", case=False, na=False
         )
+        df_outras_contas = df_raw[cond_recorrente | cond_boleto].copy()
 
-        # Aplica o filtro no dataframe principal
-        df_venc = df_venc[cond_recorrente | cond_forma_pagto].copy()
+        # 2. ISOLA E AGRUPA AS FATURAS DE CARTÃO DE CRÉDITO (CONSOLIDAÇÃO POR MES_FATURA)
+        cond_cartao = df_raw["forma_pagamento"].str.contains(
+            r"cartão de crédito|credito", case=False, na=False
+        )
+        df_credito = df_raw[cond_cartao].copy()
+
+        df_faturas_agrupadas = pd.DataFrame()
+        if not df_credito.empty:
+            # Agrupa por mês de fatura, data de vencimento e status pago
+            # Obs: Se não houver a coluna 'cartao_id' ou 'cartao_nome', agrupa pela data/mes_fatura
+            colunas_agrupamento = ["mes_fatura", "data", "pago"]
+            
+            df_faturas_agrupadas = (
+                df_credito.groupby(colunas_agrupamento, as_index=False)
+                .agg({
+                    "valor": "sum",
+                    "id": "first", # ID de referência para ações no Streamlit
+                    "categoria": lambda x: "Fatura de Cartão",
+                    "forma_pagamento": lambda x: "Cartão de Crédito"
+                })
+            )
+            # Cria a descrição consolidada
+            df_faturas_agrupadas["descricao"] = df_faturas_agrupadas["mes_fatura"].apply(
+                lambda m: f"💳 Fatura Cartão de Crédito ({m})"
+            )
+
+        # 3. UNIFICA AS CONTAS FIXAS COM AS FATURAS CONSOLIDADAS
+        df_venc = pd.concat([df_outras_contas, df_faturas_agrupadas], ignore_index=True)
 
         if df_venc.empty:
             st.success(
-                f"🎉 Nenhuma conta fixa, boleto ou cartão pendente para os próximos {dias_filtro} dias!"
+                f"🎉 Nenhuma conta fixa, boleto ou fatura pendente para os próximos {dias_filtro} dias!"
             )
         else:
+            # Ordena por data de vencimento
+            df_venc = df_venc.sort_values(by="data").reset_index(drop=True)
+
             # Separa os dataframes entre Pendentes e Pagos
             df_pendentes = df_venc[df_venc["pago"] == False].copy()
             df_pagos = df_venc[df_venc["pago"] == True].copy()
@@ -1726,10 +1753,10 @@ elif opcao == "📅 Próximos Vencimentos":
                             ):
                                 if marcar_lancamento_como_pago(id_lanc):
                                     st.cache_data.clear()
-                                    st.success("Lançamento baixado e marcado como pago com sucesso!")
+                                    st.success("Lançamento/Fatura baixado com sucesso!")
                                     st.rerun()
                                 else:
-                                    st.error("Erro ao registrar o pagamento do lançamento.")
+                                    st.error("Erro ao registrar o pagamento.")
 
                         with col_btn_del:
                             if st.button(
@@ -1739,10 +1766,10 @@ elif opcao == "📅 Próximos Vencimentos":
                             ):
                                 if excluir_lancamento_pendente(id_lanc):
                                     st.cache_data.clear()
-                                    st.warning("Lançamento removido com sucesso!")
+                                    st.warning("Removido com sucesso!")
                                     st.rerun()
                                 else:
-                                    st.error("Erro ao excluir o lançamento pendente.")
+                                    st.error("Erro ao excluir.")
 
             # --- SEÇÃO 2: CONTAS JÁ PAGAS ---
             if not df_pagos.empty:
@@ -1770,10 +1797,10 @@ elif opcao == "📅 Próximos Vencimentos":
                             ):
                                 if desfazer_pagamento_lancamento(id_lanc):
                                     st.cache_data.clear()
-                                    st.warning("Pagamento estornado! Conta voltou para Pendentes.")
+                                    st.warning("Pagamento estornado! Voltou para Pendentes.")
                                     st.rerun()
                                 else:
-                                    st.error("Erro ao desfazer o pagamento do lançamento.")                   
+                                    st.error("Erro ao desfazer o pagamento.")                 
 
 
 # --- ABA: CARTÕES & FATURAS ---
