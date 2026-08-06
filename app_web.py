@@ -1997,7 +1997,7 @@ elif opcao == "💳 Cartões & Faturas":
                 st.warning(f"Nenhum gasto encontrado para a fatura de {fatura_ref}.")
 
         else:
-            st.info("Nenhum cartão cadastrado. Use a aba ao lado para cadastrar seu primeiro cartão!")
+            st.info("Nenum cartão cadastrado. Use a aba ao lado para cadastrar seu primeiro cartão!")
 
     # --- ABA 2: CADASTRO DE NOVO CARTÃO ---
     with tab_novo_cartao:
