@@ -368,9 +368,17 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =========================================================
     # FLUXO DESPESAS
     # =========================================================
-    # Remove apenas o modificador de pagamento que fica ao final do texto (ex: "... crédito")
-    descricao_limpa = re.sub(r"[\s,.-]*\b(pix|debito|débito|credito|crédito)\b[\s,.-]*$", "", descricao_bruta, flags=re.IGNORECASE).strip()
+    # 1. Remove termos de forma de pagamento e termos de frequência/recorrência
+    descricao_limpa = re.sub(
+        r"\b(pix|debito|débito|credito|crédito|fixo|fixa|recorrente)\b",
+        "",
+        descricao_bruta,
+        flags=re.IGNORECASE
+    ).strip()
+
+    # 2. Remove pontuações e espaços residuais nas pontas e no meio
     descricao_limpa = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", descricao_limpa)
+    descricao_limpa = " ".join(descricao_limpa.split())
 
     if not descricao_limpa:
         descricao_limpa = "Despesa"
