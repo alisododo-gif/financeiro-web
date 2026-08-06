@@ -401,9 +401,9 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "pago": not e_recorrente # Se for recorrente, pago vira False
     }
 
-    # FLUXO DE PARCELAMENTO (CRÉDITO OU RECORRENTE/FIXO)
-    if e_credito or e_recorrente:
-        if not lista_cartoes and e_credito:
+    # FLUXO CRÉDITO
+    if e_credito:
+        if not lista_cartoes:
             await update.message.reply_text("⚠️ Nenhum cartão de crédito cadastrado no seu banco!")
             return
 
@@ -414,10 +414,8 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         ]
 
-        titulo_menu = "🔄 Lançamento Recorrente" if e_recorrente else "💳 Pagamento no Crédito"
-
         await update.message.reply_text(
-            f"{titulo_menu}\n\n"
+            f"💳 Pagamento no Crédito\n\n"
             f"📝 Descrição: {descricao_limpa}\n"
             f"🏷️ Categoria: {categoria_final}\n"
             f"💸 Valor: R$ {valor:.2f}\n\n"
@@ -425,7 +423,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(botoes)
         )
 
-    # FLUXO PIX / DÉBITO COMUM (NÃO RECORRENTE)
+    # FLUXO PIX / DÉBITO
     else:
         if not lista_contas:
             await update.message.reply_text("⚠️ Nenhuma conta bancária cadastrada no seu banco!")
