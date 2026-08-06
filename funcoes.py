@@ -271,9 +271,32 @@ def obter_transacoes(usuario_id):
 def buscar_vencimentos_proximos(usuario_id, dias=15):
     hoje = datetime.now().strftime("%Y-%m-%d")
     data_limite = (datetime.now() + timedelta(days=dias)).strftime("%Y-%m-%d")
-    url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&tipo=eq.Despesa&and=(data.gte.{hoje},data.lte.{data_limite})&order=data.asc"
+    
+    # 1. Traz todas as colunas + o NOME DO CARTÃO da tabela de cartões
+    # 2. Aplica o filtro estrito de usuario_id, tipo Despesa e o intervalo de datas
+    url = (
+        f"{BASE_URL}/movimentacoes"
+        f"?select=*,cartoes(nome_cartao)"
+        f"&usuario_id=eq.{usuario_id}"
+        f"&tipo=eq.Despesa"
+        f"&data=gte.{hoje}"
+        f"&data=lte.{data_limite}"
+        f"&order=data.asc"
+    )
+    
     res = requests.get(url, headers=HEADERS)
-    return res.json() if res.status_code == 200 else []
+    
+    if res.status_code == 200:
+        dados = res.json()
+        
+        # Achata a estrutura do nome do cartão para o Pandas ler diretamente como 'nome_cartao'
+        for item in dados:
+            if isinstance(item.get("cartoes"), dict):
+                item["nome_cartao"] = item["cartoes"].get("nome_cartao")
+        
+        return dados
+    
+    return []
 
 
 @st.cache_data(ttl=300, show_spinner=False)
