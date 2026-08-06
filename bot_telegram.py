@@ -311,10 +311,11 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Valor numérico inválido.")
         return
 
-    # 5. Identifica Forma de Pagamento e Categoria Padrão baseada na mensagem
+    # 5. Verifica se é RECORRENTE / FIXO
     texto_analise = descricao_bruta.lower()
-    
-    # Busca por palavras-chave isoladas ou no final da frase
+    e_recorrente = bool(re.search(r"\b(fixo|fixa|recorrente)\b", texto_analise))
+
+    # Identifica Forma de Pagamento e Categoria Padrão baseada na mensagem
     e_credito = bool(re.search(r"\b(credito|crédito)\b", texto_analise))
     e_debito = bool(re.search(r"\b(debito|débito)\b", texto_analise))
 
@@ -368,7 +369,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =========================================================
     # FLUXO DESPESAS
     # =========================================================
-    # 1. Remove termos de forma de pagamento e termos de frequência/recorrência
+    # Remove termos de pagamento e de recorrência para limpar a base da descrição
     descricao_limpa = re.sub(
         r"\b(pix|debito|débito|credito|crédito|fixo|fixa|recorrente)\b",
         "",
@@ -376,12 +377,17 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         flags=re.IGNORECASE
     ).strip()
 
-    # 2. Remove pontuações e espaços residuais nas pontas e no meio
     descricao_limpa = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", descricao_limpa)
     descricao_limpa = " ".join(descricao_limpa.split())
 
     if not descricao_limpa:
         descricao_limpa = "Despesa"
+
+    # Se for recorrente, adiciona " (Recorrente)" no final da descrição
+    if e_recorrente:
+        descricao_limpa = f"{descricao_limpa} (Recorrente)"
+
+    mes_fatura_calc = datetime.strptime(data_final, "%Y-%m-%d").strftime("%m/%Y")
 
     context.user_data["temp_lancamento"] = {
         "usuario_id": usuario_id,
@@ -390,7 +396,9 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "categoria": categoria_final,
         "forma_pagamento": forma_pagamento,
         "data": data_final,
+        "mes_fatura": mes_fatura_calc,
         "tags": tags_final,
+        "pago": not e_recorrente # Se for recorrente, pago vira False
     }
 
     # FLUXO CRÉDITO
@@ -421,8 +429,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Nenhuma conta bancária cadastrada no seu banco!")
             return
 
-        mes_fatura_atual = datetime.strptime(data_final, "%Y-%m-%d").strftime("%m/%Y")
-
         if len(lista_contas) > 1:
             botoes = []
             for c in lista_contas:
@@ -438,6 +444,10 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             conta_id = lista_contas[0]["id"]
+            
+            # Define o status 'pago' (False se recorrente, True se normal)
+            status_pago = False if e_recorrente else True
+
             payload = {
                 "usuario_id": usuario_id,
                 "conta_id": conta_id,
@@ -448,22 +458,26 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "categoria": categoria_final,
                 "forma_pagamento": forma_pagamento,
                 "data": data_final,
-                "mes_fatura": mes_fatura_atual,
-                "pago": True,
+                "mes_fatura": mes_fatura_calc,
+                "pago": status_pago,
                 "tags": tags_final,
             }
             try:
                 supabase.table("movimentacoes").insert(payload).execute()
                 tag_str = f"\n🏷️ Tags: {tags_final}" if tags_final else ""
                 icone = "⚡" if forma_pagamento == "Pix" else "💳"
+                status_txt = "Pendente (Recorrente)" if e_recorrente else "Pago"
+                
                 await update.message.reply_text(
                     f"✅ Lançamento Registrado!\n\n"
                     f"💸 Valor: R$ {valor:.2f}\n"
                     f"📝 Descrição: {descricao_limpa}\n"
                     f"🏷️ Categoria: {categoria_final}\n"
                     f"{icone} Forma: {forma_pagamento}\n"
-                    f"📅 Data: {data_final}{tag_str}"
+                    f"📅 Data: {data_final}\n"
+                    f"📌 Status: {status_txt}{tag_str}"
                 )
+                context.user_data.pop("temp_lancamento", None)
             except Exception as e:
                 await update.message.reply_text(f"⚠️ Erro ao salvar no Supabase: {e}")
 
