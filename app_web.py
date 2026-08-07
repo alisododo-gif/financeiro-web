@@ -67,14 +67,15 @@ from funcoes import (
 
 from views import render_sidebar_footer
 
+import streamlit as st
+
 # --- CONFIGURAÇÃO DA PÁGINA (DEVE APARECER APENAS UMA VEZ) ---
 st.set_page_config(
     page_title="FinanceiroPro Web",
-    page_icon="💰",
+    page_icon="assets/logo.png",  # <--- Altere aqui para o nome do seu arquivo de logo
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
-
 # --- NOVA PERSISTÊNCIA VIA URL (NATIVA E IMEDIATA) ---
 # Se o ID do usuário estiver na URL da página, loga ele automaticamente após o F5
 url_uid = st.query_params.get("uid")
@@ -375,6 +376,10 @@ def criar_usuario_rest(usuario, senha, status='pendente', valor_mensalidade=0.0,
 
 # Autenticação
 if st.session_state.get("usuario_id") is None:
+    col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
+    with col_logo2:
+        st.image("assets/logo.png", use_container_width=True)
+
     st.markdown("<h2 style='text-align: center;'>🔑 Acesso ao FinanceiroPro Web</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     
@@ -447,6 +452,7 @@ if st.session_state["is_admin"]:
 
 # Agora o Streamlit desenha a barra lateral na ordem correta
 with st.sidebar:
+    st.image("assets/logo.png", use_container_width=True)
     st.title("💰 FinanceiroPro")
     st.write(f"👤 Usuário ID: **{st.session_state['usuario_id']}** {'(👑 Admin)' if st.session_state['is_admin'] else ''}")
     opcao = st.selectbox("Menu de Navegação", opcoes_menu)
