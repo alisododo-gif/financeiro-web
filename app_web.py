@@ -13,6 +13,7 @@ import urllib.parse
 import pytz
 import re
 import os
+import base64
 
 
 # Novas importações para o PDF profissional e leve
@@ -442,9 +443,19 @@ def criar_usuario_rest(usuario, senha, status='pendente', valor_mensalidade=0.0,
 
 # Autenticação
 if st.session_state.get("usuario_id") is None:
-    col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
-    with col_logo2:
-        st.image("assets/logo.png", width=180)
+    caminho_logo = os.path.join("assets", "logo.png")
+    if os.path.exists(caminho_logo):
+        with open(caminho_logo, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode()
+
+        st.markdown(
+            f"""
+            <div style="display: flex; justify-content: center; margin-bottom: 20px;">
+                <img src="data:image/png;base64,{img_b64}" width="180">
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     st.markdown("<h2 style='text-align: center;'>🔑 Acesso ao FinanceiroPro Web</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
