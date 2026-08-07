@@ -17,7 +17,7 @@ import os
 
 # Novas importações para o PDF profissional e leve
 from reportlab.lib.pagesizes import letter, landscape
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import Image, SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
@@ -299,6 +299,14 @@ def gerar_pdf_profissional(dados_banco, mes, ano):
         textColor=colors.HexColor('#7F8C8D'), spaceAfter=20, alignment=1
     )
     
+    # Inserção da Logo (caso exista em assets/logo.png)
+    caminho_logo = os.path.join("assets", "logo.png")
+    if os.path.exists(caminho_logo):
+        logo = Image(caminho_logo, width=120, height=50)
+        logo.hAlign = 'CENTER'
+        story.append(logo)
+        story.append(Spacer(1, 10))
+
     story.append(Paragraph("FinanceiroPro Web - Extrato Detalhado", title_style))
     story.append(Paragraph(f"Período consultado: {mes}/{ano} — Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
     
