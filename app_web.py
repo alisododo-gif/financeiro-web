@@ -302,7 +302,7 @@ def gerar_pdf_profissional(dados_banco, mes, ano):
     # Inserção da Logo (caso exista em assets/logo.png)
     caminho_logo = os.path.join("assets", "logo.png")
     if os.path.exists(caminho_logo):
-        logo = ReportLabImage(caminho_logo, width=120, height=50)
+        logo = ReportLabImage(caminho_logo, width=200, height=95)
         logo.hAlign = "CENTER"
         story.append(logo)
         story.append(Spacer(1, 10))
