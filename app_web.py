@@ -528,47 +528,26 @@ opcoes_menu = [
 if st.session_state["is_admin"]:
     opcoes_menu.append("👑 Painel Admin SaaS") # <-- Trocado .insert(0) por .append()
 
-# 1. Sua lista de opções padrão com as novas telas incluídas
-opcoes_menu = [
-    "📊 Dashboard",
-    "🏦 Gerir Contas",
-    "💸 Lançar Movimentações",
-    "💳 Cartões & Faturas",
-    "💰 Contas a Receber",
-    "📅 Próximos Vencimentos",
-    "🎯 Metas de Economia",
-    "🎯 Orçamentos por Categoria",
-    "📋 Extrato Detalhado",
-    "⚙️ Configurações",
-]
+# Agora o Streamlit desenha a barra lateral na ordem correta
+with st.sidebar:
+    st.image("assets/logo.png", use_container_width=True)
+    st.title("💰 FinanceiroPro")
+    st.write(f"👤 Usuário ID: **{st.session_state['usuario_id']}** {'(👑 Admin)' if st.session_state['is_admin'] else ''}")
+    opcao = st.selectbox("Menu de Navegação", opcoes_menu)
+    
+    # 🔽 O BOTÃO ENTRA BEM AQUI:
+    st.markdown("---")  # Linha divisória para dar um espaçamento elegante
+    if st.button("🚪 Sair do Sistema", width="stretch"):
+        st.query_params.clear()  # Limpa o ?uid=1 da URL do navegador
+        if "usuario_id" in st.session_state:
+            del st.session_state["usuario_id"]
+        if "is_admin" in st.session_state:
+            del st.session_state["is_admin"]
+        st.rerun()  # Recarrega a página instantaneamente já deslogado
 
-# SE for admin, adiciona o Painel SaaS no FINAL da lista (depois de Configurações)
-if st.session_state.get("is_admin", False):
-    opcoes_menu.append("👑 Painel Admin SaaS")
-
-# 2. Cria a caixa de seleção na barra lateral
-opcao = st.sidebar.selectbox(
-    "Menu de Navegação", opcoes_menu, key="menu_principal"
-)
-
-# 3. Lógica para fechar a barra lateral ao trocar de opção
-if "menu_anterior" not in st.session_state:
-    st.session_state.menu_anterior = opcao
-
-if st.session_state.menu_anterior != opcao:
-    st.session_state.menu_anterior = opcao
-    components.html(
-        """
-        <script>
-            var collapseBtn = window.parent.document.querySelector('[data-testid="stSidebarCollapseButton"]');
-            if (collapseBtn) {
-                collapseBtn.click();
-            }
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
+# --- NOVO PAINEL ADMIN SAAS COMPLETO ---
+if opcao == "👑 Painel Admin SaaS" and st.session_state["is_admin"]:
+    st.title("👑 Painel de Controle Master SaaS")
     
     # 1. Carregar todos os usuários do banco
     usuarios_lista = listar_todos_usuarios_admin()
