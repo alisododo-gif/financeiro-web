@@ -529,7 +529,7 @@ if st.session_state["is_admin"]:
 
 # Agora o Streamlit desenha a barra lateral na ordem correta
 with st.sidebar:
-    st.image("assets/logo.png", use_container_width=True)
+    st.image("assets/logo.png", use_container_width=130)
     st.title("💰 FinanceiroPro")
     st.write(f"👤 Usuário ID: **{st.session_state['usuario_id']}** {'(👑 Admin)' if st.session_state['is_admin'] else ''}")
     opcao = st.selectbox("Menu de Navegação", opcoes_menu)
