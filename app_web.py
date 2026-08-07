@@ -6,11 +6,14 @@ import io
 import plotly.graph_objects as go
 import plotly.express as px
 import openpyxl
+from openpyxl.drawing.image import Image
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import urllib.parse
 import pytz
 import re
+import os
+
 
 
 # Novas importações para o PDF profissional e leve
@@ -119,14 +122,34 @@ def gerar_excel_profissional(dados_banco, mes, ano):
     ws = wb.active
     ws.title = "Extrato Financeiro"
     ws.views.sheetView[0].showGridLines = True
-    
-    # Título do Relatório
+
+    # 1. Configuração do Título e Cabeçalho
     ws.merge_cells("A1:I1")
-    ws["A1"] = f"Relatório de Extrato Detalhado - Período: {mes}/{ano}"
+    ws.row_dimensions[1].height = 50  # Altura ideal para conter a logo de 40px
+
+    # Preenche o fundo azul escuro em todas as células do bloco mesclado (A1 a I1)
+    fill_header = PatternFill(
+        start_color="1F4E78", end_color="1F4E78", fill_type="solid"
+    )
+    for col in range(1, 10):
+        ws.cell(row=1, column=col).fill = fill_header
+
+    # Configuração do Texto
+    ws["A1"] = f"Relatório de Extrato Detalhado - Período: {mes:02d}/{ano}"
     ws["A1"].font = Font(name="Arial", size=16, bold=True, color="FFFFFF")
-    ws["A1"].fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 40
+
+    # Inserção da Logo ancorada em A1
+    caminho_logo = os.path.join("assets", "logo.png")
+    if os.path.exists(caminho_logo):
+        img = Image(caminho_logo)
+
+        # Redimensiona mantendo a proporção (altura fixa de 40px)
+        proporcao = img.width / img.height
+        img.height = 40
+        img.width = int(40 * proporcao)
+
+        ws.add_image(img, "A1")
     
     headers = ["ID", "Data", "Conta", "Tipo", "Forma Pagto", "Descrição", "Valor", "Categoria", "Tags"]
     ws.append([]) 
