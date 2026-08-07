@@ -6,7 +6,7 @@ import io
 import plotly.graph_objects as go
 import plotly.express as px
 import openpyxl
-from openpyxl.drawing.image import Image
+from openpyxl.drawing.image import Image as OpenPyXLImage
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import urllib.parse
@@ -136,10 +136,9 @@ def gerar_excel_profissional(dados_banco, mes, ano):
     # Inserção da Logo
     caminho_logo = os.path.join("assets", "logo.png")
     if os.path.exists(caminho_logo):
-        img = Image(caminho_logo)
-        proporcao = img.width / img.height
-        img.height = 105  # Aumentado de 30 para 55px
-        img.width = int(181 * proporcao)
+        img = OpenPyXLImage(caminho_logo)
+        img.height = 105
+        img.width = 181
         ws.add_image(img, "A1")
 
     headers = [
@@ -303,8 +302,8 @@ def gerar_pdf_profissional(dados_banco, mes, ano):
     # Inserção da Logo (caso exista em assets/logo.png)
     caminho_logo = os.path.join("assets", "logo.png")
     if os.path.exists(caminho_logo):
-        logo = Image(caminho_logo, width=120, height=50)
-        logo.hAlign = 'CENTER'
+        logo = ReportLabImage(caminho_logo, width=120, height=50)
+        logo.hAlign = "CENTER"
         story.append(logo)
         story.append(Spacer(1, 10))
 
