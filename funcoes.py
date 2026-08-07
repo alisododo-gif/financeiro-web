@@ -13,15 +13,18 @@ import streamlit as st
 BASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
-# Sessão persistente para reutilizar conexões HTTPS (elimina latência SSL extra)
-session = requests.Session()
-session.headers.update({
-    "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json",
-    "Prefer": "return=representation",
-})
+@st.cache_resource
+def obter_sessao_http():
+    s = requests.Session()
+    s.headers.update({
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    })
+    return s
 
+session = obter_sessao_http()
 DEFAULT_TIMEOUT = 5  # Timeout global para evitar travamentos
 
 
@@ -55,7 +58,7 @@ def _construir_query_data(url_base, mes, ano):
 
     return url_base
 
-
+@st.cache_data(ttl=300, show_spinner=False)
 def obter_df_movimentacoes_bruto(usuario_id, mes, ano):
     """Função centralizada para buscar movimentações. Evita requisições duplicadas."""
     url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&select=id,data,tipo,forma_pagamento,descricao,valor,categoria,tags,pago,contas(nome)&order=data.desc"
@@ -70,7 +73,7 @@ def obter_df_movimentacoes_bruto(usuario_id, mes, ano):
     return []
 
 
-
+@st.cache_data(ttl=60, show_spinner=False)
 def buscar_todas_movimentacoes(usuario_id, mes, ano):
     raw = obter_df_movimentacoes_bruto(usuario_id, mes, ano)
     dados_filtrados = []
@@ -88,7 +91,7 @@ def buscar_todas_movimentacoes(usuario_id, mes, ano):
         ])
     return dados_filtrados
 
-
+@st.cache_data(ttl=60, show_spinner=False)
 def dados_dashboard(usuario_id, mes, ano):
     raw = obter_df_movimentacoes_bruto(usuario_id, mes, ano)
     dados = {"receitas": 0.0, "despesas": 0.0, "saldo": 0.0}
