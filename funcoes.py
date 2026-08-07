@@ -71,7 +71,7 @@ def obter_df_movimentacoes_bruto(usuario_id, mes, ano):
     return []
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def buscar_todas_movimentacoes(usuario_id, mes, ano):
     raw = obter_df_movimentacoes_bruto(usuario_id, mes, ano)
     dados_filtrados = []
@@ -90,7 +90,7 @@ def buscar_todas_movimentacoes(usuario_id, mes, ano):
     return dados_filtrados
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def dados_dashboard(usuario_id, mes, ano):
     raw = obter_df_movimentacoes_bruto(usuario_id, mes, ano)
     dados = {"receitas": 0.0, "despesas": 0.0, "saldo": 0.0}
