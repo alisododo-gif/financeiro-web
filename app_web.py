@@ -444,7 +444,7 @@ def criar_usuario_rest(usuario, senha, status='pendente', valor_mensalidade=0.0,
 if st.session_state.get("usuario_id") is None:
     col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
     with col_logo2:
-        st.image("logo.png", use_container_width=True)
+        st.image("assets/logo.png", use_container_width=True)
 
     st.markdown("<h2 style='text-align: center;'>🔑 Acesso ao FinanceiroPro Web</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
