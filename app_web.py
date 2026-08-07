@@ -130,15 +130,15 @@ def gerar_excel_profissional(dados_banco, mes, ano):
         start_color="1F4E78", end_color="1F4E78", fill_type="solid"
     )
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 40
+    ws.row_dimensions[1].height = 65  # Aumentado para dar margem à logo
 
     # Inserção da Logo
     caminho_logo = os.path.join("assets", "logo.png")
     if os.path.exists(caminho_logo):
         img = Image(caminho_logo)
         proporcao = img.width / img.height
-        img.height = 30
-        img.width = int(30 * proporcao)
+        img.height = 55  # Aumentado de 30 para 55px
+        img.width = int(55 * proporcao)
         ws.add_image(img, "A1")
 
     headers = [
