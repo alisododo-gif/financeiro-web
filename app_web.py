@@ -529,7 +529,7 @@ if st.session_state["is_admin"]:
 
 # Agora o Streamlit desenha a barra lateral na ordem correta
 with st.sidebar:
-    st.image("assets/logo.png", use_container_width=100)
+    st.image("assets/logo.png", width="stretch")
     st.title("💰 FinanceiroPro")
     st.write(f"👤 Usuário ID: **{st.session_state['usuario_id']}** {'(👑 Admin)' if st.session_state['is_admin'] else ''}")
     opcao = st.selectbox("Menu de Navegação", opcoes_menu)
@@ -857,7 +857,7 @@ elif opcao == "📊 Dashboard":
                 )
                 fig_tags.update_traces(textposition='inside', textinfo='percent+label')
                 fig_tags.update_layout(height=350, margin=dict(l=20, r=20, t=20, b=20))
-                st.plotly_chart(fig_tags, use_container_width=True)
+                st.plotly_chart(fig_tags, width="stretch")
                 
             with col_t2:
                 st.write("#### 📋 Detalhamento")
@@ -865,7 +865,7 @@ elif opcao == "📊 Dashboard":
                     "Tag": df_grouped["Tag_Norm"],
                     "Total Gasto": df_grouped["Valor"].apply(fmt_moeda)
                 })
-                st.dataframe(df_tags_detalhe, use_container_width=True, hide_index=True)
+                st.dataframe(df_tags_detalhe, width="stretch")
         else:
             st.info("💡 Nenhuma movimentação com tag registrada para o período selecionado.")
     except Exception:
@@ -1425,7 +1425,7 @@ elif opcao == "📋 Extrato Detalhado":
         # Formata a data para o padrão brasileiro na tela
         df["Data"] = pd.to_datetime(df["Data"]).dt.strftime('%d/%m/%Y')
 
-        st.dataframe(df, width="stretch", hide_index=True)
+        st.dataframe(df, width="stretch")
         
         st.markdown("---")
         st.write("#### 🛠️ Operações Avançadas")
@@ -2052,7 +2052,7 @@ elif opcao == "💳 Cartões & Faturas":
                             format="%.2f", # Garante 2 casas decimais com vírgula no padrão PT-BR
                         )
                     },
-                    use_container_width=True
+                    width="stretch"
                 )
 
                 # --- FERRAMENTA DE EXCLUSÃO DE ITEM DA FATURA ---
