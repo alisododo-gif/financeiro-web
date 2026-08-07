@@ -17,9 +17,10 @@ import os
 
 # Novas importações para o PDF profissional e leve
 from reportlab.lib.pagesizes import letter, landscape
-from reportlab.platypus import Image, SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+from reportlab.platypus import Image as ReportLabImage
 
 from funcoes import (
     buscar_todas_movimentacoes,
