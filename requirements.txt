@@ -1,5 +1,6 @@
 streamlit
 pandas
+pyarrow<25
 openpyxl
 psycopg2-binary
 reportlab
