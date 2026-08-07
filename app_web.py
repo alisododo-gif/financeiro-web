@@ -14,7 +14,6 @@ import pytz
 import re
 import os
 import base64
-import streamlit.components.v1 as components
 
 
 # Novas importações para o PDF profissional e leve
