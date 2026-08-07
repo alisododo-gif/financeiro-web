@@ -15,7 +15,6 @@ import re
 import os
 
 
-
 # Novas importações para o PDF profissional e leve
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -75,7 +74,7 @@ import streamlit as st
 # --- CONFIGURAÇÃO DA PÁGINA (DEVE APARECER APENAS UMA VEZ) ---
 st.set_page_config(
     page_title="FinanceiroPro Web",
-    page_icon="assets/logo.png",  # <--- Altere aqui para o nome do seu arquivo de logo
+    page_icon="logo.png",  # <--- Altere aqui para o nome do seu arquivo de logo
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -123,59 +122,64 @@ def gerar_excel_profissional(dados_banco, mes, ano):
     ws.title = "Extrato Financeiro"
     ws.views.sheetView[0].showGridLines = True
 
-    # 1. Configuração do Título e Cabeçalho
+    # Título do Relatório
     ws.merge_cells("A1:I1")
-    ws.row_dimensions[1].height = 50  # Altura ideal para conter a logo de 40px
-
-    # Preenche o fundo azul escuro em todas as células do bloco mesclado (A1 a I1)
-    fill_header = PatternFill(
+    ws["A1"] = f"Relatório de Extrato Detalhado - Período: {mes}/{ano}"
+    ws["A1"].font = Font(name="Arial", size=16, bold=True, color="FFFFFF")
+    ws["A1"].fill = PatternFill(
         start_color="1F4E78", end_color="1F4E78", fill_type="solid"
     )
-    for col in range(1, 10):
-        ws.cell(row=1, column=col).fill = fill_header
-
-    # Configuração do Texto
-    ws["A1"] = f"Relatório de Extrato Detalhado - Período: {mes:02d}/{ano}"
-    ws["A1"].font = Font(name="Arial", size=16, bold=True, color="FFFFFF")
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 40
 
-    # Inserção da Logo ancorada em A1
+    # Inserção da Logo
     caminho_logo = os.path.join("assets", "logo.png")
     if os.path.exists(caminho_logo):
         img = Image(caminho_logo)
-
-        # Redimensiona mantendo a proporção (altura fixa de 40px)
         proporcao = img.width / img.height
-        img.height = 40
-        img.width = int(40 * proporcao)
-
+        img.height = 30
+        img.width = int(30 * proporcao)
         ws.add_image(img, "A1")
-    
-    headers = ["ID", "Data", "Conta", "Tipo", "Forma Pagto", "Descrição", "Valor", "Categoria", "Tags"]
-    ws.append([]) 
+
+    headers = [
+        "ID",
+        "Data",
+        "Conta",
+        "Tipo",
+        "Forma Pagto",
+        "Descrição",
+        "Valor",
+        "Categoria",
+        "Tags",
+    ]
+    ws.append([])
     ws.append(headers)
     ws.row_dimensions[3].height = 26
-    
-    header_fill = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
+
+    header_fill = PatternFill(
+        start_color="2C3E50", end_color="2C3E50", fill_type="solid"
+    )
     header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
     header_align = Alignment(horizontal="center", vertical="center")
-    
+
     thin_border = Border(
-        left=Side(style='thin', color='D9D9D9'), right=Side(style='thin', color='D9D9D9'),
-        top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9')
+        left=Side(style="thin", color="D9D9D9"),
+        right=Side(style="thin", color="D9D9D9"),
+        top=Side(style="thin", color="D9D9D9"),
+        bottom=Side(style="thin", color="D9D9D9"),
     )
-    
+
     for col_num, header in enumerate(headers, 1):
         cell = ws.cell(row=3, column=col_num)
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = header_align
         cell.border = thin_border
-        
+
     row_num = 4
     total_receitas = 0.0
     total_despesas = 0.0
-    
+
     for item in dados_banco:
         v_id = item[0]
         v_data = item[1]
@@ -186,12 +190,12 @@ def gerar_excel_profissional(dados_banco, mes, ano):
         v_valor = item[6]
         v_cat = item[7]
         v_tags = item[8] if len(item) > 8 else ""
-        
+
         v_valor_float = float(v_valor)
-        
+
         # Formata a data para DD/MM/AAAA
         try:
-            v_data_fmt = pd.to_datetime(v_data).strftime('%d/%m/%Y')
+            v_data_fmt = pd.to_datetime(v_data).strftime("%d/%m/%Y")
         except Exception:
             v_data_fmt = str(v_data)
 
@@ -199,50 +203,81 @@ def gerar_excel_profissional(dados_banco, mes, ano):
             total_receitas += v_valor_float
         else:
             total_despesas += v_valor_float
-            
+
         # Usa v_data_fmt no lugar de v_data
-        ws.append([v_id, v_data_fmt, v_conta, v_tipo, v_forma, v_desc, v_valor_float, v_cat, v_tags])
+        ws.append([
+            v_id,
+            v_data_fmt,
+            v_conta,
+            v_tipo,
+            v_forma,
+            v_desc,
+            v_valor_float,
+            v_cat,
+            v_tags,
+        ])
         ws.row_dimensions[row_num].height = 20
-        
+
         bg_color = "F9FBFD" if row_num % 2 == 0 else "FFFFFF"
-        row_fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
-        
+        row_fill = PatternFill(
+            start_color=bg_color, end_color=bg_color, fill_type="solid"
+        )
+
         for col_num in range(1, 10):
             cell = ws.cell(row=row_num, column=col_num)
             cell.fill = row_fill
             cell.border = thin_border
             cell.font = Font(name="Arial", size=10)
-            
+
             if col_num in [1, 2, 4, 5]:
-                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.alignment = Alignment(
+                    horizontal="center", vertical="center"
+                )
             elif col_num == 7:
-                cell.alignment = Alignment(horizontal="right", vertical="center")
+                cell.alignment = Alignment(
+                    horizontal="right", vertical="center"
+                )
                 cell.number_format = '"R$"#,##0.00'
-                cell.font = Font(name="Arial", size=10, color="27AE60" if str(v_tipo).lower() == "receita" else "C0392B")
+                cell.font = Font(
+                    name="Arial",
+                    size=10,
+                    color=(
+                        "27AE60"
+                        if str(v_tipo).lower() == "receita"
+                        else "C0392B"
+                    ),
+                )
             else:
-                cell.alignment = Alignment(horizontal="left", vertical="center")
+                cell.alignment = Alignment(
+                    horizontal="left", vertical="center"
+                )
         row_num += 1
-        
+
     ws.append([])
     row_num += 1
-    ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=6)
-    ws.cell(row=row_num, column=1, value="SALDO FINAL DO PERÍODO:").font = Font(name="Arial", size=11, bold=True)
+    ws.merge_cells(
+        start_row=row_num, start_column=1, end_row=row_num, end_column=6
+    )
+    ws.cell(
+        row=row_num, column=1, value="SALDO FINAL DO PERÍODO:"
+    ).font = Font(name="Arial", size=11, bold=True)
     ws.cell(row=row_num, column=1).alignment = Alignment(horizontal="right")
-    
+
     saldo_final = total_receitas - total_despesas
     cell_saldo = ws.cell(row=row_num, column=7, value=saldo_final)
     cell_saldo.font = Font(name="Arial", size=11, bold=True)
     cell_saldo.number_format = '"R$"#,##0.00'
-    
+
     for col in ws.columns:
         max_len = 0
         col_letter = get_column_letter(col[0].column)
         for cell in col:
-            if cell.row == 1: continue
+            if cell.row == 1:
+                continue
             if cell.value:
                 max_len = max(max_len, len(str(cell.value)))
         ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
-        
+
     output = io.BytesIO()
     wb.save(output)
     return output.getvalue()
@@ -401,7 +436,7 @@ def criar_usuario_rest(usuario, senha, status='pendente', valor_mensalidade=0.0,
 if st.session_state.get("usuario_id") is None:
     col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
     with col_logo2:
-        st.image("assets/logo.png", use_container_width=True)
+        st.image("logo.png", use_container_width=True)
 
     st.markdown("<h2 style='text-align: center;'>🔑 Acesso ao FinanceiroPro Web</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -475,7 +510,7 @@ if st.session_state["is_admin"]:
 
 # Agora o Streamlit desenha a barra lateral na ordem correta
 with st.sidebar:
-    st.image("assets/logo.png", use_container_width=True)
+    st.image("logo.png", use_container_width=True)
     st.title("💰 FinanceiroPro")
     st.write(f"👤 Usuário ID: **{st.session_state['usuario_id']}** {'(👑 Admin)' if st.session_state['is_admin'] else ''}")
     opcao = st.selectbox("Menu de Navegação", opcoes_menu)
