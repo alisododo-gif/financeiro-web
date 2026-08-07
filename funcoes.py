@@ -56,7 +56,6 @@ def _construir_query_data(url_base, mes, ano):
     return url_base
 
 
-@st.cache_data(ttl=300, show_spinner=False)
 def obter_df_movimentacoes_bruto(usuario_id, mes, ano):
     """Função centralizada para buscar movimentações. Evita requisições duplicadas."""
     url = f"{BASE_URL}/movimentacoes?usuario_id=eq.{usuario_id}&select=id,data,tipo,forma_pagamento,descricao,valor,categoria,tags,pago,contas(nome)&order=data.desc"
@@ -71,7 +70,7 @@ def obter_df_movimentacoes_bruto(usuario_id, mes, ano):
     return []
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+
 def buscar_todas_movimentacoes(usuario_id, mes, ano):
     raw = obter_df_movimentacoes_bruto(usuario_id, mes, ano)
     dados_filtrados = []
@@ -90,7 +89,6 @@ def buscar_todas_movimentacoes(usuario_id, mes, ano):
     return dados_filtrados
 
 
-@st.cache_data(ttl=60, show_spinner=False)
 def dados_dashboard(usuario_id, mes, ano):
     raw = obter_df_movimentacoes_bruto(usuario_id, mes, ano)
     dados = {"receitas": 0.0, "despesas": 0.0, "saldo": 0.0}
@@ -433,12 +431,10 @@ def excluir_meta(usuario_id, meta_id):
 def _formatar_tags(tags):
     if not tags:
         return None
-    if isinstance(tags, list):
-        tags_limpas = [f"#{t.strip().lstrip('#')}" for t in tags if str(t).strip()]
-        return ", ".join(tags_limpas) if tags_limpas else None
-    elif isinstance(tags, str) and tags.strip():
-        tags_separadas = [t.strip() for t in tags.split(",") if t.strip()]
-        tags_limpas = [f"#{t.lstrip('#')}" for t in tags_separadas]
+    if isinstance(tags, str):
+        tags = tags.split(",")
+    if isinstance(tags, (list, tuple)):
+        tags_limpas = [f"#{str(t).strip().lstrip('#')}" for t in tags if str(t).strip()]
         return ", ".join(tags_limpas) if tags_limpas else None
     return None
 
