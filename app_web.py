@@ -463,7 +463,7 @@ def criar_usuario_rest(usuario, senha, status='pendente', valor_mensalidade=0.0,
     return False
 
 # ==============================================================================
-# AUTENTICAÇÃO (DESIGN EXATO DA IMAGEM + CARREGAMENTO ULTRA RÁPIDO)
+# AUTENTICAÇÃO (DESIGN EXATO SEM TÍTULO REPETIDO + CARREGAMENTO RÁPIDO)
 # ==============================================================================
 if st.session_state.get("usuario_id") is None:
     st.markdown(
@@ -531,13 +531,9 @@ if st.session_state.get("usuario_id") is None:
             with col_l2:
                 st.image(caminho_logo, use_container_width=True)
 
-        # Título e Subtítulo
+        # Subtítulo (Título removido para não duplicar o nome da logo)
         st.markdown(
-            "<h3 style='text-align: center; color: #f8fafc; font-weight: 700; margin-top: -8px; margin-bottom: 2px;'>FinanceiroPro Web</h3>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            "<p style='text-align: center; color: #94a3b8; font-size: 13px; margin-bottom: 20px;'>Acesse sua conta para gerenciar suas finanças</p>",
+            "<p style='text-align: center; color: #94a3b8; font-size: 13px; margin-top: 10px; margin-bottom: 20px;'>Acesse sua conta para gerenciar suas finanças</p>",
             unsafe_allow_html=True,
         )
 
