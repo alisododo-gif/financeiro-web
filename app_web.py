@@ -2133,7 +2133,7 @@ elif opcao == "💳 Cartões & Faturas":
     user_id = st.session_state.get("usuario_id")
     cartoes = listar_cartoes(user_id)
 
-    # --- ABA 1: VISUALIZAR FATURAS ---
+# --- ABA 1: VISUALIZAR FATURAS ---
     with tab_faturas:
         if cartoes:
             c1, c2, c3 = st.columns(3)
@@ -2158,6 +2158,22 @@ elif opcao == "💳 Cartões & Faturas":
             fatura_ref = f"{mes_fatura}/{ano_fatura}"
             st.markdown("---")
 
+            # --- CÁLCULO DO PERÍODO DA FATURA (OPÇÃO 2: DIA DO FECHAMENTO JÁ CAI NA PRÓXIMA) ---
+            dia_fechamento = int(cartao_info['dia_fechamento'])
+            mes_int = int(mes_fatura)
+            ano_int = int(ano_fatura)
+
+            # Data final: 1 dia antes do fechamento (Ex: se fecha dia 8, a fatura fecha no dia 7 às 23:59)
+            data_fim_fatura = datetime(ano_int, mes_int, dia_fechamento) - datetime.timedelta(days=1)
+
+            # Data inicial: dia do fechamento do mês anterior (Ex: dia 08 do mês anterior)
+            if mes_int == 1:
+                data_inicio_fatura = datetime(ano_int - 1, 12, dia_fechamento)
+            else:
+                data_inicio_fatura = datetime(ano_int, mes_int - 1, dia_fechamento)
+
+            periodo_str = f"{data_inicio_fatura.strftime('%d/%m/%Y')} a {data_fim_fatura.strftime('%d/%m/%Y')}"
+
             # 1. Gastos apenas da fatura selecionada
             compras = buscar_gastos_fatura(user_id, cartao_id_sel, fatura_ref)
             total_fatura = sum(float(item["valor"]) for item in compras) if compras else 0.0
@@ -2175,7 +2191,11 @@ elif opcao == "💳 Cartões & Faturas":
             limite_total = float(cartao_info["limite"])
             limite_disponivel = limite_total - total_devedor_geral
 
-            st.info(f"💡 **Informações:** Fechamento todo **dia {cartao_info['dia_fechamento']}** | Vencimento todo **dia {cartao_info['dia_vencimento']}**")
+            st.info(
+                f"💡 **Informações:** Fechamento todo **dia {cartao_info['dia_fechamento']}** | "
+                f"Vencimento todo **dia {cartao_info['dia_vencimento']}** | "
+                f"📅 **Período da Fatura:** `{periodo_str}`"
+            )
 
             # Métricas em destaque
             m1, m2, m3 = st.columns(3)
@@ -2183,14 +2203,21 @@ elif opcao == "💳 Cartões & Faturas":
             m2.metric("Limite Disponível", formatar_moeda_ptbr(limite_disponivel))
             m3.metric("Limite Total", formatar_moeda_ptbr(limite_total))
 
+            # Título dinâmico informando o mês
             st.write(f"### 🛒 Compras da Fatura ({fatura_ref})")
+            
+            # --- CARD DE DESTAQUE DO PERÍODO PARA O CLIENTE ---
+            st.warning(
+                f"📆 **Atenção:** Esta fatura contempla as compras realizadas no período de **{periodo_str}**.\n\n"
+                f"💡 *Compras a partir do dia **{data_fim_fatura.day + 1:02d}/{mes_fatura}/{ano_fatura}** entram automaticamente na fatura do mês seguinte.*"
+            )
             
             if compras:
                 # Verifica se todos os lançamentos da fatura já estão pagos
                 fatura_paga = all(item.get("pago", False) or item.get("paga", False) for item in compras)
 
                 if fatura_paga:
-                    st.success(f"🎉 **Fatura Paga!** A fatura de {fatura_ref} já foi baixada e está quitada.")
+                    st.success(f"🎉 **Fatura Paga!** A fatura de {fatura_ref} (período {periodo_str}) já foi baixada e está quitada.")
                 else:
                     if st.button("✅ Dar Baixa / Pagar Fatura Completa", type="primary"):
                         if dar_baixa_fatura_completa(user_id, cartao_id_sel, fatura_ref):
@@ -2199,14 +2226,14 @@ elif opcao == "💳 Cartões & Faturas":
                         else:
                             st.error("Erro ao dar baixa na fatura completa.")
 
-                # Exibição da tabela com formatação de moeda pt-BR (ex: 100,00)
+                # Exibição da tabela com formatação de moeda pt-BR
                 st.dataframe(
                     compras,
                     column_order=["data", "descricao", "categoria", "tags", "valor", "pago"],
                     column_config={
                         "valor": st.column_config.NumberColumn(
                             "Valor",
-                            format="%.2f", # Garante 2 casas decimais com vírgula no padrão PT-BR
+                            format="%.2f",
                         )
                     },
                     width="stretch"
@@ -2237,7 +2264,7 @@ elif opcao == "💳 Cartões & Faturas":
                 st.warning(f"Nenhum gasto encontrado para a fatura de {fatura_ref}.")
 
         else:
-            st.info("Nenum cartão cadastrado. Use a aba ao lado para cadastrar seu primeiro cartão!")
+            st.info("Nenhum cartão cadastrado. Use a aba ao lado para cadastrar seu primeiro cartão!")
 
     # --- ABA 2: CADASTRO DE NOVO CARTÃO ---
     with tab_novo_cartao:
