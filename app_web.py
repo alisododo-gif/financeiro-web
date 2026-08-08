@@ -1917,14 +1917,32 @@ elif opcao == "📅 Próximos Vencimentos":
             df_faturas_agrupadas = pd.DataFrame()
             if not df_credito.empty:
                 def extrair_nome_cartao(row):
-                    for col in ["nome_cartao", "cartao_nome", "cartao", "nome"]:
+                    # 1. Tenta pegar de colunas diretas (texto ou dicionário)
+                    for col in ["nome_cartao", "cartao_nome", "cartao", "nome", "nome_do_cartao"]:
                         if col in row and pd.notna(row[col]):
                             val = row[col]
-                            return val.get("nome_cartao", "Cartão de Crédito") if isinstance(val, dict) else str(val)
+                            if isinstance(val, dict):
+                                nome = val.get("nome_cartao") or val.get("nome")
+                                if nome:
+                                    return str(nome)
+                            elif str(val).strip() and not str(val).startswith("Cartão #"):
+                                return str(val).strip()
+
+                    # 2. Tenta pegar de dentro de um objeto/dicionário 'cartoes'
                     if "cartoes" in row and isinstance(row["cartoes"], dict):
-                        return row["cartoes"].get("nome_cartao", "Cartão de Crédito")
+                        nome = row["cartoes"].get("nome_cartao") or row["cartoes"].get("nome")
+                        if nome:
+                            return str(nome)
+
+                    # 3. Tenta extrair o nome da própria descrição do lançamento (Ex: "Compra no Nubank")
+                    desc = str(row.get("descricao", ""))
+                    if desc and "Fatura" not in desc:
+                        return desc.strip()
+
+                    # 4. Fallback pelo ID
                     if "cartao_id" in row and pd.notna(row["cartao_id"]):
                         return f"Cartão #{int(row['cartao_id'])}"
+
                     return "Cartão de Crédito"
 
                 def extrair_dia_vencimento(row):
