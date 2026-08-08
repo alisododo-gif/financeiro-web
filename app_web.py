@@ -1941,6 +1941,9 @@ elif opcao == "📅 Próximos Vencimentos":
 
                 df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
                 df_credito["dia_venc_cartao"] = df_credito.apply(extrair_dia_vencimento, axis=1)
+                
+                # --- CRUCIAL: CRIA A COLUNA ANTES DO AGRUPAMENTO PARA EVITAR O KEYERROR ---
+                df_credito["ids_compras"] = df_credito["id"]
 
                 if "mes_fatura" not in df_credito.columns:
                     df_credito["mes_fatura"] = pd.to_datetime(df_credito["data"]).dt.strftime("%m/%Y")
@@ -1956,7 +1959,7 @@ elif opcao == "📅 Próximos Vencimentos":
                     .agg({
                         "valor": "sum",
                         "id": "first",
-                        "ids_compras": lambda x: list(x),
+                        "ids_compras": lambda x: list(x),  # Agora a coluna existe no DataFrame
                         "data": "max",
                         "dia_venc_cartao": "first",
                         "categoria": lambda x: "Fatura de Cartão",
@@ -1964,31 +1967,6 @@ elif opcao == "📅 Próximos Vencimentos":
                     })
                 )
                 df_faturas_agrupadas["is_fatura"] = True
-
-                def calcular_data_vencimento_oficial(row):
-                    dia = row["dia_venc_cartao"]
-                    mes_fat = str(row["mes_fatura"])
-                    
-                    if pd.notna(dia) and "/" in mes_fat:
-                        try:
-                            mes, ano = map(int, mes_fat.split("/"))
-                            import calendar
-                            max_dias = calendar.monthrange(ano, mes)[1]
-                            dia_valido = min(int(dia), max_dias)
-                            return f"{ano:04d}-{mes:02d}-{dia_valido:02d}"
-                        except Exception:
-                            pass
-                    
-                    try:
-                        mes, ano = map(int, mes_fat.split("/"))
-                        return f"{ano:04d}-{mes:02d}-10"
-                    except Exception:
-                        return str(row["data"])[:10]
-
-                df_faturas_agrupadas["data"] = df_faturas_agrupadas.apply(calcular_data_vencimento_oficial, axis=1)
-                df_faturas_agrupadas["descricao"] = df_faturas_agrupadas.apply(
-                    lambda r: f"💳 Fatura {r['nome_exibicao_cartao']} ({r['mes_fatura']})", axis=1
-                )
                 
             # 3. UNIFICA
             df_venc = pd.concat([df_outras_contas, df_faturas_agrupadas], ignore_index=True)
