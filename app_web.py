@@ -589,8 +589,58 @@ if st.session_state.get("usuario_id") is None:
     st.stop()
 
 # ==============================================================================
-# NAVEGAÇÃO E BARRA LATERAL
+# NAVEGAÇÃO E BARRA LATERAL (OTIMIZADA E COMPACTA PARA MOBILE)
 # ==============================================================================
+
+# CSS de ultra-compactação exclusivo para a Sidebar (Garante visão completa no celular)
+st.markdown(
+    """
+    <style>
+    /* Reduz o espaçamento vertical interno do bloco da Sidebar */
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+        gap: 0.2rem !important;
+        padding-top: 0.2rem !important;
+        padding-bottom: 0.2rem !important;
+    }
+
+    /* Ajusta o tamanho e margem da Logo */
+    [data-testid="stSidebar"] img {
+        max-width: 85px !important;
+        margin: 0 auto 2px auto !important;
+        display: block;
+    }
+
+    /* Compacta o Título principal e textos de usuário */
+    [data-testid="stSidebar"] h1 {
+        font-size: 1rem !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        text-align: center;
+    }
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] div {
+        font-size: 0.72rem !important;
+        margin-bottom: 0px !important;
+    }
+
+    /* Reduz espessura e espaçamento das linhas divisórias */
+    [data-testid="stSidebar"] hr {
+        margin: 0.3rem 0 !important;
+    }
+
+    /* Estilização Ultra Compacta dos Botões de Navegação */
+    [data-testid="stSidebar"] .stButton button {
+        height: 30px !important;
+        min-height: 30px !important;
+        padding: 0px 8px !important;
+        font-size: 11.5px !important;
+        font-weight: 500 !important;
+        border-radius: 6px !important;
+        margin-bottom: 1px !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # Define a página inicial padrão no session_state
 if "pagina_atual" not in st.session_state:
@@ -613,14 +663,19 @@ opcoes_menu = [
 if st.session_state.get("is_admin", False):
     opcoes_menu.append("👑 Painel Admin SaaS")
 
-# Barra lateral com botões nativos estilizados
+# Barra lateral compactada
 with st.sidebar:
-    st.image("assets/logo", use_container_width=True)
+    caminho_logo = os.path.join("assets", "logo")
+    if os.path.exists(caminho_logo):
+        st.image(caminho_logo, use_container_width=True)
+    else:
+        st.image("assets/logo", use_container_width=True)
+        
     st.title("💰 FinanceiroPro")
-    st.write(f"👤 Usuário ID: **{st.session_state.get('usuario_id', '')}** {'(👑 Admin)' if st.session_state.get('is_admin') else ''}")
+    st.write(f"👤 Usuário: **{st.session_state.get('usuario_id', '')}** {'(👑 Admin)' if st.session_state.get('is_admin') else ''}")
     st.markdown("---")
     
-    # Renderiza cada opção do menu como um botão real
+    # Renderiza cada opção do menu como um botão ultra compacto
     for item in opcoes_menu:
         eh_ativo = (st.session_state["pagina_atual"] == item)
         tipo_botao = "primary" if eh_ativo else "secondary"
