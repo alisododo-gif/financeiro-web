@@ -2186,12 +2186,18 @@ elif opcao == "💳 Cartões & Faturas":
             st.write(f"### 🛒 Compras da Fatura ({fatura_ref})")
             
             if compras:
-                if st.button("✅ Dar Baixa / Pagar Fatura Completa", type="primary"):
-                    if dar_baixa_fatura_completa(user_id, cartao_id_sel, fatura_ref):
-                        st.success(f"Fatura {fatura_ref} marcada como paga com sucesso!")
-                        st.rerun()
-                    else:
-                        st.error("Erro ao dar baixa na fatura completa.")
+                # Verifica se todos os lançamentos da fatura já estão pagos
+                fatura_paga = all(item.get("pago", False) or item.get("paga", False) for item in compras)
+
+                if fatura_paga:
+                    st.success(f"🎉 **Fatura Paga!** A fatura de {fatura_ref} já foi baixada e está quitada.")
+                else:
+                    if st.button("✅ Dar Baixa / Pagar Fatura Completa", type="primary"):
+                        if dar_baixa_fatura_completa(user_id, cartao_id_sel, fatura_ref):
+                            st.success(f"Fatura {fatura_ref} marcada como paga com sucesso!")
+                            st.rerun()
+                        else:
+                            st.error("Erro ao dar baixa na fatura completa.")
 
                 # Exibição da tabela com formatação de moeda pt-BR (ex: 100,00)
                 st.dataframe(
