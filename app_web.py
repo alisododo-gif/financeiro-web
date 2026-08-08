@@ -530,23 +530,80 @@ if st.session_state.get("usuario_id") is None:
                     
     st.stop()
 
-# Sua lista de opções padrão com as novas telas incluídas
+import streamlit as st
+
+# 1. Definição da lista padrão de menus
 opcoes_menu = [
     "📊 Dashboard",
     "🏦 Gerir Contas",
     "💸 Lançar Movimentações",
     "💳 Cartões & Faturas",
     "💰 Contas a Receber",
-    "📅 Próximos Vencimentos",     # <--- Nova opção 
-    "🎯 Metas de Economia", 
-    "🎯 Orçamentos por Categoria",  # <--- Nova opção
-    "📋 Extrato Detalhado", 
-    "⚙️ Configurações"
+    "📅 Próximos Vencimentos",
+    "🎯 Metas de Economia",
+    "🎯 Orçamentos por Categoria",
+    "📋 Extrato Detalhado",
+    "⚙️ Configurações",
 ]
 
-# SE for admin, adiciona o Painel SaaS no FINAL da lista (depois de Configurações)
-if st.session_state["is_admin"]:
-    opcoes_menu.append("👑 Painel Admin SaaS") # <-- Trocado .insert(0) por .append()
+# 2. Adiciona o menu Admin no final usando .get() para evitar KeyError
+if st.session_state.get("is_admin", False):
+    opcoes_menu.append("👑 Painel Admin SaaS")
+
+# 3. Renderização do Menu Fixo na Sidebar
+with st.sidebar:
+    st.markdown("---")  # Linha divisória após a logo/perfil
+
+    menu_selecionado = st.radio(
+        label="Navegação",
+        options=opcoes_menu,
+        label_visibility="collapsed",  # Oculta o título do campo
+    )
+
+# 4. Roteamento das Páginas
+if menu_selecionado == "📊 Dashboard":
+    # chamar_tela_dashboard()
+    pass
+
+elif menu_selecionado == "🏦 Gerir Contas":
+    # chamar_tela_gerir_contas()
+    pass
+
+elif menu_selecionado == "💸 Lançar Movimentações":
+    # chamar_tela_lancamentos()
+    pass
+
+elif menu_selecionado == "💳 Cartões & Faturas":
+    # chamar_tela_cartoes()
+    pass
+
+elif menu_selecionado == "💰 Contas a Receber":
+    # chamar_tela_contas_receber()
+    pass
+
+elif menu_selecionado == "📅 Próximos Vencimentos":
+    # chamar_tela_vencimentos()
+    pass
+
+elif menu_selecionado == "🎯 Metas de Economia":
+    # chamar_tela_metas()
+    pass
+
+elif menu_selecionado == "🎯 Orçamentos por Categoria":
+    # chamar_tela_orcamentos()
+    pass
+
+elif menu_selecionado == "📋 Extrato Detalhado":
+    # chamar_tela_extrato()
+    pass
+
+elif menu_selecionado == "⚙️ Configurações":
+    # chamar_tela_configuracoes()
+    pass
+
+elif menu_selecionado == "👑 Painel Admin SaaS":
+    # chamar_tela_admin_saas()
+    pass
 
 # Agora o Streamlit desenha a barra lateral na ordem correta
 with st.sidebar:
