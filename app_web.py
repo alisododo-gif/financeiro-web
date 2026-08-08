@@ -463,27 +463,18 @@ def criar_usuario_rest(usuario, senha, status='pendente', valor_mensalidade=0.0,
     return False
 
 # ==============================================================================
-# AUTENTICAÇÃO (CENTRALIZAÇÃO VERTICAL & HORIZONTAL RESPONSIVA)
+# AUTENTICAÇÃO (DESIGN EXATO SEM TÍTULO REPETIDO + CARREGAMENTO RÁPIDO)
 # ==============================================================================
 if st.session_state.get("usuario_id") is None:
     st.markdown(
         """
         <style>
-        /* Oculta elementos nativos */
-        [data-testid="stSidebar"], [data-testid="stHeader"], footer { display: none !important; }
+        /* Oculta sidebar e header do Streamlit */
+        [data-testid="stSidebar"], [data-testid="stHeader"] { display: none; }
         
         /* Fundo da aplicação */
         .stApp {
             background-color: #0b0f19;
-        }
-
-        /* Força a centralização vertical e horizontal no container do Streamlit */
-        .main .block-container {
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: center !important;
-            min-height: 100vh !important;
-            padding: 12px !important;
         }
 
         /* Estilização do Card de Login */
@@ -491,82 +482,58 @@ if st.session_state.get("usuario_id") is None:
             background-color: #161b26;
             border: 1px solid #232d3f;
             border-radius: 16px;
-            padding: 16px 20px !important;
-            box-shadow: 0px 8px 24px rgba(0, 0, 0, 0.4);
-            margin: auto 0 !important;
+            padding: 28px;
+            box-shadow: 0px 12px 32px rgba(0, 0, 0, 0.5);
         }
 
         /* Seletor de Abas estilo iOS/SaaS */
         .stTabs [data-baseweb="tab-list"] {
-            gap: 4px;
+            gap: 6px;
             background-color: #0f141d;
-            padding: 3px;
-            border-radius: 8px;
+            padding: 4px;
+            border-radius: 10px;
             border: 1px solid #232d3f;
         }
         .stTabs [data-baseweb="tab"] {
-            height: 34px;
-            border-radius: 6px;
+            height: 38px;
+            border-radius: 8px;
             color: #94a3b8;
-            font-size: 13px;
             font-weight: 500;
             border: none !important;
             flex-grow: 1;
             justify-content: center;
-            padding: 0px !important;
         }
         .stTabs [aria-selected="true"] {
             background-color: #2563eb !important;
             color: #ffffff !important;
         }
 
-        /* Compactação de Inputs */
-        .stTextInput {
-            margin-bottom: -8px !important;
-        }
-        .stTextInput label {
-            font-size: 12px !important;
-            color: #cbd5e1 !important;
-            margin-bottom: 2px !important;
-        }
+        /* Estilização dos campos de input */
         .stTextInput input {
             background-color: #0f141d !important;
             color: #ffffff !important;
             border: 1px solid #232d3f !important;
             border-radius: 8px !important;
-            height: 40px !important;
-            font-size: 14px !important;
-        }
-
-        /* Ajuste para celular */
-        @media (max-width: 640px) {
-            div[data-testid="stVerticalBlock"] > div:has(div.stTabs) {
-                padding: 12px 14px !important;
-            }
-            .stImage img {
-                max-width: 120px !important;
-                margin: 0 auto;
-            }
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # Centraliza horizontalmente
-    _, col_center, _ = st.columns([0.1, 2.8, 0.1])
+    # Centraliza a coluna do card na tela
+    _, col_center, _ = st.columns([1, 1.3, 1])
 
     with col_center:
-        # Exibição leve da Logo centralizada
+        # Exibição leve e rápida da Logo centralizada (sem Base64/PIL)
         caminho_logo = os.path.join("assets", "logo")
         if os.path.exists(caminho_logo):
-            c_l1, c_l2, c_l3 = st.columns([1, 1.8, 1])
-            with c_l2:
+            col_l1, col_l2, col_l3 = st.columns([1, 1.2, 1])
+            with col_l2:
                 st.image(caminho_logo, use_container_width=True)
 
-        # Subtítulo compacto
+        # Subtítulo (Título removido para não duplicar o nome da logo)
         st.markdown(
-            "<p style='text-align: center; color: #94a3b8; font-size: 12px; margin-top: -5px; margin-bottom: 12px;'>Acesse sua conta para gerenciar suas finanças</p>",
+            "<p style='text-align: center; color: #94a3b8; font-size: 13px; margin-top: 10px; margin-bottom: 20px;'>Acesse sua conta para gerenciar suas finanças</p>",
             unsafe_allow_html=True,
         )
 
@@ -575,6 +542,7 @@ if st.session_state.get("usuario_id") is None:
 
         # TAB 1: LOGIN
         with tab_login:
+            st.write("")
             username_input = st.text_input("Seu Usuário", key="login_user", placeholder="Digite seu usuário")
             password_input = st.text_input("Senha", type="password", key="login_pass", placeholder="••••••••")
 
@@ -594,6 +562,7 @@ if st.session_state.get("usuario_id") is None:
 
         # TAB 2: CRIAR CONTA
         with tab_cadastro:
+            st.write("")
             username_input = st.text_input("Escolha um Usuário", key="cad_user", placeholder="Ex: joao.silva")
             telefone_input = st.text_input("Telefone (WhatsApp)", key="cad_tel", placeholder="65999998888")
             password_input = st.text_input("Crie uma Senha", type="password", key="cad_pass", placeholder="••••••••")
@@ -615,9 +584,10 @@ if st.session_state.get("usuario_id") is None:
                     else:
                         st.error("Erro ao realizar o cadastro. Tente novamente.")
                 else:
-                    st.error("Por favor, preencha todos os campos obrigatórios.")
+                    st.error("Por favor, preencha todos os campos obrigatórios (Seu Usuário, Telefone e Senha).")
 
     st.stop()
+
 # ==============================================================================
 # NAVEGAÇÃO E BARRA LATERAL
 # ==============================================================================
