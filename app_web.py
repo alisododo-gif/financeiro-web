@@ -130,7 +130,7 @@ def gerar_excel_profissional(dados_banco, mes, ano):
         start_color="1F4E78", end_color="1F4E78", fill_type="solid"
     )
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 40  # Altura ajustada sem a logo
+    ws.row_dimensions[1].height = 40
 
     headers = [
         "ID",
@@ -242,21 +242,64 @@ def gerar_excel_profissional(dados_banco, mes, ano):
                 )
         row_num += 1
 
+    # --- BLOCO DE TOTAIS NO EXCEL ---
     ws.append([])
     row_num += 1
+
+    # 1. Total Receitas
     ws.merge_cells(
         start_row=row_num, start_column=1, end_row=row_num, end_column=6
     )
-    ws.cell(
-        row=row_num, column=1, value="SALDO FINAL DO PERÍODO:"
-    ).font = Font(name="Arial", size=11, bold=True)
-    ws.cell(row=row_num, column=1).alignment = Alignment(horizontal="right")
+    cell_lbl_rec = ws.cell(row=row_num, column=1, value="Total Receitas:")
+    cell_lbl_rec.font = Font(name="Arial", size=10, bold=True)
+    cell_lbl_rec.alignment = Alignment(horizontal="right", vertical="center")
+
+    cell_val_rec = ws.cell(row=row_num, column=7, value=total_receitas)
+    cell_val_rec.font = Font(name="Arial", size=10, bold=True, color="27AE60")
+    cell_val_rec.number_format = '"R$"#,##0.00'
+    cell_val_rec.alignment = Alignment(horizontal="right", vertical="center")
+
+    row_num += 1
+
+    # 2. Total Despesas
+    ws.merge_cells(
+        start_row=row_num, start_column=1, end_row=row_num, end_column=6
+    )
+    cell_lbl_des = ws.cell(row=row_num, column=1, value="Total Despesas:")
+    cell_lbl_des.font = Font(name="Arial", size=10, bold=True)
+    cell_lbl_des.alignment = Alignment(horizontal="right", vertical="center")
+
+    cell_val_des = ws.cell(row=row_num, column=7, value=total_despesas)
+    cell_val_des.font = Font(name="Arial", size=10, bold=True, color="C0392B")
+    cell_val_des.number_format = '"R$"#,##0.00'
+    cell_val_des.alignment = Alignment(horizontal="right", vertical="center")
+
+    row_num += 1
+
+    # 3. Saldo Líquido
+    grey_fill = PatternFill(
+        start_color="EAEDED", end_color="EAEDED", fill_type="solid"
+    )
+
+    ws.merge_cells(
+        start_row=row_num, start_column=1, end_row=row_num, end_column=6
+    )
+    cell_lbl_saldo = ws.cell(row=row_num, column=1, value="SALDO LÍQUIDO:")
+    cell_lbl_saldo.font = Font(name="Arial", size=10, bold=True)
+    cell_lbl_saldo.alignment = Alignment(
+        horizontal="right", vertical="center"
+    )
+
+    for col_idx in range(1, 8):
+        ws.cell(row=row_num, column=col_idx).fill = grey_fill
 
     saldo_final = total_receitas - total_despesas
-    cell_saldo = ws.cell(row=row_num, column=7, value=saldo_final)
-    cell_saldo.font = Font(name="Arial", size=11, bold=True)
-    cell_saldo.number_format = '"R$"#,##0.00'
+    cell_val_saldo = ws.cell(row=row_num, column=7, value=saldo_final)
+    cell_val_saldo.font = Font(name="Arial", size=10, bold=True, color="000000")
+    cell_val_saldo.number_format = '"R$"#,##0.00'
+    cell_val_saldo.alignment = Alignment(horizontal="right", vertical="center")
 
+    # Ajuste automático de largura das colunas
     for col in ws.columns:
         max_len = 0
         col_letter = get_column_letter(col[0].column)
