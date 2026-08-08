@@ -74,7 +74,7 @@ import streamlit as st
 # --- CONFIGURAÇÃO DA PÁGINA (DEVE APARECER APENAS UMA VEZ) ---
 st.set_page_config(
     page_title="FinanceiroPro Web",
-    page_icon="logo.png",  # <--- Altere aqui para o nome do seu arquivo de logo
+    page_icon="logo",  # <--- Altere aqui para o nome do seu arquivo de logo
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -421,7 +421,7 @@ def criar_usuario_rest(usuario, senha, status='pendente', valor_mensalidade=0.0,
 
 # Autenticação
 if st.session_state.get("usuario_id") is None:
-    caminho_logo = os.path.join("assets", "logo.png")
+    caminho_logo = os.path.join("assets", "logo")
     if os.path.exists(caminho_logo):
         with open(caminho_logo, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode()
@@ -507,7 +507,7 @@ if st.session_state["is_admin"]:
 
 # Agora o Streamlit desenha a barra lateral na ordem correta
 with st.sidebar:
-    st.image("assets/logo.png", width="stretch")
+    st.image("assets/logo", width="stretch")
     st.title("💰 FinanceiroPro")
     st.write(f"👤 Usuário ID: **{st.session_state['usuario_id']}** {'(👑 Admin)' if st.session_state['is_admin'] else ''}")
     opcao = st.selectbox("Menu de Navegação", opcoes_menu)
