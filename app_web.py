@@ -2193,7 +2193,7 @@ elif opcao == "💳 Cartões & Faturas":
 
             st.info(
                 f"💡 **Informações:** Fechamento todo **dia {cartao_info['dia_fechamento']}** | "
-                f"Vencimento todo **dia {cartao_info['dia_vencimento']}** | "
+                f"Vencimento todo **dia {cartao_info['dia_vencimento']}**"
             )
 
             # Métricas em destaque
