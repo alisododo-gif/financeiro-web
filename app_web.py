@@ -463,20 +463,20 @@ def criar_usuario_rest(usuario, senha, status='pendente', valor_mensalidade=0.0,
     return False
 
 # ==============================================================================
-# AUTENTICAÇÃO (INTERFACE ULTRA LEVE, SEM BASE64 E SEM BARRA TOPO)
+# AUTENTICAÇÃO (VISUAL ULTRA MODERNO + INSTANTÂNEO)
 # ==============================================================================
 if st.session_state.get("usuario_id") is None:
-    # CSS ultra leve apenas para ocultar a sidebar e personalizar as abas
+    # CSS leve focado apenas no design do card e ocultação de menus nativos
     st.markdown(
         """
         <style>
-        /* Oculta menu lateral e cabeçalho nativo */
+        /* Oculta sidebar e cabeçalho do Streamlit */
         [data-testid="stSidebar"], [data-testid="stHeader"] { display: none; }
-        
-        /* Estilo limpo para as abas (Tabs) */
+
+        # /* Estilização rápida das abas */
         .stTabs [data-baseweb="tab-list"] {
             gap: 4px;
-            background-color: #111827;
+            background-color: #1a2332;
             padding: 4px;
             border-radius: 8px;
         }
@@ -491,35 +491,44 @@ if st.session_state.get("usuario_id") is None:
             background-color: #2563EB !important;
             color: #FFFFFF !important;
         }
+
+        /* Estilização dos inputs */
+        .stTextInput input {
+            background-color: #1a2332 !important;
+            color: white !important;
+            border: 1px solid #2d3748 !important;
+            border-radius: 8px !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # Centralização
-    _, col_center, _ = st.columns([1, 1.2, 1])
+    # Centralização ampla do card na tela
+    col_vazia1, col_center, col_vazia2 = st.columns([0.8, 1.8, 0.8])
 
     with col_center:
-        # Container nativo com borda (otimizado e sem elementos visuais extras)
         with st.container(border=True):
-            # Exibição da logo sem conversoes pesadas em runtime
+            # Logo perfeitamente centralizada
             caminho_logo = os.path.join("assets", "logo")
             if os.path.exists(caminho_logo):
-                st.image(caminho_logo, width=140)
+                c_l1, c_l2, c_l3 = st.columns([1, 1.5, 1])
+                with c_l2:
+                    st.image(caminho_logo, use_container_width=True)
 
             st.markdown(
-                "<h3 style='text-align: center; color: #F9FAFB; margin-top: -10px; margin-bottom: 2px;'>FinanceiroPro Web</h3>",
+                "<h2 style='text-align: center; color: #FFFFFF; font-weight: 700; margin-top: -5px; margin-bottom: 0px;'>FinanceiroPro Web</h2>",
                 unsafe_allow_html=True,
             )
             st.markdown(
-                "<p style='text-align: center; color: #9CA3AF; font-size: 13px; margin-bottom: 15px;'>Acesse sua conta para gerenciar suas finanças</p>",
+                "<p style='text-align: center; color: #9CA3AF; font-size: 13px; margin-bottom: 20px;'>Acesse sua conta para gerenciar suas finanças</p>",
                 unsafe_allow_html=True,
             )
 
-            # Abas de navegação
+            # Abas
             tab_login, tab_cadastro = st.tabs(["🔑 Fazer Login", "📝 Criar Nova Conta"])
 
-            # TAB 1: LOGIN
+            # TAB LOGIN
             with tab_login:
                 st.write("")
                 username_input = st.text_input("Seu Usuário", key="login_user", placeholder="Digite seu usuário")
@@ -539,7 +548,7 @@ if st.session_state.get("usuario_id") is None:
                         else:
                             st.error("Usuário incorreto, senha inválida ou restrição de acesso.")
 
-            # TAB 2: CRIAR CONTA
+            # TAB CADASTRO
             with tab_cadastro:
                 st.write("")
                 username_input = st.text_input("Escolha um Usuário", key="cad_user", placeholder="Ex: joao.silva")
@@ -563,7 +572,7 @@ if st.session_state.get("usuario_id") is None:
                         else:
                             st.error("Erro ao realizar o cadastro. Tente novamente.")
                     else:
-                        st.error("Por favor, preencha todos os campos obrigatórios (Seu Usuário, Telefone e Senha).")
+                        st.error("Por favor, preencha todos os campos obrigatórios.")
 
     st.stop()
 
