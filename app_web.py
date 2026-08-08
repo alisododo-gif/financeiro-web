@@ -589,7 +589,7 @@ if st.session_state.get("usuario_id") is None:
     st.stop()
 
 # ==============================================================================
-# NAVEGAÇÃO E BARRA LATERAL (LOGO CENTRALIZADA E MAIOR)
+# NAVEGAÇÃO E BARRA LATERAL (LOGO MAIOR E SEM TÍTULO)
 # ==============================================================================
 
 # CSS de compactação ajustado para a Sidebar
@@ -603,23 +603,25 @@ st.markdown(
         padding-bottom: 0.2rem !important;
     }
 
-    /* Ajusta tamanho e alinhamento da Logo na Sidebar */
+    /* Centraliza e aumenta a Logo */
+    [data-testid="stSidebar"] [data-testid="stImage"] {
+        display: flex !important;
+        justify-content: center !important;
+        width: 100% !important;
+    }
+
     [data-testid="stSidebar"] img {
-        max-width: 140px !important;
-        margin: 0 auto !important;
+        max-width: 180px !important;
+        width: 180px !important;
+        margin: 5px auto 10px auto !important;
         display: block !important;
     }
 
-    /* Compacta o Título principal e textos de usuário */
-    [data-testid="stSidebar"] h1 {
-        font-size: 1rem !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        text-align: center;
-    }
+    /* Compacta textos de usuário */
     [data-testid="stSidebar"] p, [data-testid="stSidebar"] div {
-        font-size: 0.72rem !important;
+        font-size: 0.75rem !important;
         margin-bottom: 0px !important;
+        text-align: center;
     }
 
     /* Reduz espessura e espaçamento das linhas divisórias */
@@ -663,17 +665,13 @@ opcoes_menu = [
 if st.session_state.get("is_admin", False):
     opcoes_menu.append("👑 Painel Admin SaaS")
 
-# Barra lateral compactada
+# Barra lateral
 with st.sidebar:
-    # Centralização garantida da Logo via colunas
-    col_l1, col_l2, col_l3 = st.columns([0.2, 2.6, 0.2])
-    with col_l2:
-        if os.path.exists(os.path.join("assets", "logo")):
-            st.image(os.path.join("assets", "logo"), use_container_width=True)
-        else:
-            st.image("assets/logo", use_container_width=True)
+    if os.path.exists(os.path.join("assets", "logo")):
+        st.image(os.path.join("assets", "logo"), use_container_width=True)
+    else:
+        st.image("assets/logo", use_container_width=True)
         
-    st.title("💰 FinanceiroPro")
     st.write(f"👤 Usuário: **{st.session_state.get('usuario_id', '')}** {'(👑 Admin)' if st.session_state.get('is_admin') else ''}")
     st.markdown("---")
     
