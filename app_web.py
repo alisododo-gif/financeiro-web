@@ -6,7 +6,6 @@ import io
 import plotly.graph_objects as go
 import plotly.express as px
 import openpyxl
-from openpyxl.drawing.image import Image as OpenPyXLImage
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import urllib.parse
@@ -21,7 +20,6 @@ from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
-from reportlab.platypus import Image as ReportLabImage
 
 from funcoes import (
     buscar_todas_movimentacoes,
