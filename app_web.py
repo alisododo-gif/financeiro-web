@@ -589,21 +589,21 @@ if st.session_state.get("usuario_id") is None:
     st.stop()
 
 # ==============================================================================
-# NAVEGAÇÃO E BARRA LATERAL (LOGO CENTRALIZADA + BOTÕES MAIORES)
+# NAVEGAÇÃO E BARRA LATERAL (LOGO CENTRALIZADA, COMPACTA & SEM SCROLL)
 # ==============================================================================
 
-# CSS de estilização e alinhamento da Sidebar
+# CSS de compactação otimizado para eliminar o scroll vertical
 st.markdown(
     """
     <style>
-    /* Ajuste de espaçamento vertical do bloco da Sidebar */
+    /* Reduz o espaçamento geral da Sidebar */
     [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-        gap: 0.3rem !important;
-        padding-top: 0.2rem !important;
-        padding-bottom: 0.2rem !important;
+        gap: 0.15rem !important;
+        padding-top: 0.1rem !important;
+        padding-bottom: 0.1rem !important;
     }
 
-    /* Centralização perfeita da Logo */
+    /* Centralização perfeita e redução da Logo */
     [data-testid="stSidebar"] [data-testid="stImage"] {
         display: flex !important;
         justify-content: center !important;
@@ -612,33 +612,33 @@ st.markdown(
     }
 
     [data-testid="stSidebar"] img {
-        max-width: 190px !important;
-        width: 190px !important;
-        margin: 5px auto 10px auto !important;
+        max-width: 110px !important;
+        width: 110px !important;
+        margin: 0px auto 2px auto !important;
         display: block !important;
     }
 
-    /* Estilização e alinhamento do texto do Usuário */
+    /* Compactação do texto de Usuário */
     [data-testid="stSidebar"] p, [data-testid="stSidebar"] div {
-        font-size: 0.8rem !important;
-        margin-bottom: 2px !important;
+        font-size: 0.72rem !important;
+        margin-bottom: 0px !important;
         text-align: center !important;
     }
 
-    /* Reduz espessura e espaçamento das linhas divisórias */
+    /* Reduz margem da linha divisória */
     [data-testid="stSidebar"] hr {
-        margin: 0.4rem 0 !important;
+        margin: 0.2rem 0 !important;
     }
 
-    /* Botões Maiores, Confortáveis e Visíveis */
+    /* Altura e espaçamento ajustados para caber tudo em uma tela */
     [data-testid="stSidebar"] .stButton button {
-        height: 38px !important;
-        min-height: 38px !important;
-        padding: 4px 12px !important;
-        font-size: 13.5px !important;
-        font-weight: 600 !important;
-        border-radius: 8px !important;
-        margin-bottom: 2px !important;
+        height: 32px !important;
+        min-height: 32px !important;
+        padding: 2px 8px !important;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        border-radius: 6px !important;
+        margin-bottom: 1px !important;
     }
     </style>
     """,
@@ -676,7 +676,7 @@ with st.sidebar:
     st.write(f"👤 Usuário: **{st.session_state.get('usuario_id', '')}** {'(👑 Admin)' if st.session_state.get('is_admin') else ''}")
     st.markdown("---")
     
-    # Renderiza cada opção do menu como um botão maior
+    # Renderiza cada opção do menu como um botão otimizado
     for item in opcoes_menu:
         eh_ativo = (st.session_state["pagina_atual"] == item)
         tipo_botao = "primary" if eh_ativo else "secondary"
