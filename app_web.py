@@ -463,13 +463,13 @@ def criar_usuario_rest(usuario, senha, status='pendente', valor_mensalidade=0.0,
     return False
 
 # ==============================================================================
-# AUTENTICAÇÃO (RESPONSIVO PARA CELULAR & DESKTOP)
+# AUTENTICAÇÃO (CENTRALIZAÇÃO VERTICAL & HORIZONTAL RESPONSIVA)
 # ==============================================================================
 if st.session_state.get("usuario_id") is None:
     st.markdown(
         """
         <style>
-        /* Oculta sidebar, header e footer do Streamlit */
+        /* Oculta elementos nativos */
         [data-testid="stSidebar"], [data-testid="stHeader"], footer { display: none !important; }
         
         /* Fundo da aplicação */
@@ -477,12 +477,13 @@ if st.session_state.get("usuario_id") is None:
             background-color: #0b0f19;
         }
 
-        /* Remove espaçamento excessivo do topo no Streamlit */
-        .block-container {
-            padding-top: 1rem !important;
-            padding-bottom: 1rem !important;
-            padding-left: 0.8rem !important;
-            padding-right: 0.8rem !important;
+        /* Força a centralização vertical e horizontal no container do Streamlit */
+        .main .block-container {
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: center !important;
+            min-height: 100vh !important;
+            padding: 12px !important;
         }
 
         /* Estilização do Card de Login */
@@ -492,6 +493,7 @@ if st.session_state.get("usuario_id") is None:
             border-radius: 16px;
             padding: 16px 20px !important;
             box-shadow: 0px 8px 24px rgba(0, 0, 0, 0.4);
+            margin: auto 0 !important;
         }
 
         /* Seletor de Abas estilo iOS/SaaS */
@@ -518,7 +520,7 @@ if st.session_state.get("usuario_id") is None:
             color: #ffffff !important;
         }
 
-        /* Compactação de Inputs e Rótulos */
+        /* Compactação de Inputs */
         .stTextInput {
             margin-bottom: -8px !important;
         }
@@ -536,13 +538,13 @@ if st.session_state.get("usuario_id") is None:
             font-size: 14px !important;
         }
 
-        /* Ajustes específicos para telas de celular */
+        /* Ajuste para celular */
         @media (max-width: 640px) {
             div[data-testid="stVerticalBlock"] > div:has(div.stTabs) {
                 padding: 12px 14px !important;
             }
             .stImage img {
-                max-width: 130px !important;
+                max-width: 120px !important;
                 margin: 0 auto;
             }
         }
@@ -551,7 +553,7 @@ if st.session_state.get("usuario_id") is None:
         unsafe_allow_html=True,
     )
 
-    # Centraliza o card: no PC usa 3 colunas, no Mobile ocupa 100%
+    # Centraliza horizontalmente
     _, col_center, _ = st.columns([0.1, 2.8, 0.1])
 
     with col_center:
