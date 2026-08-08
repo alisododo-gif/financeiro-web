@@ -2194,7 +2194,6 @@ elif opcao == "💳 Cartões & Faturas":
             st.info(
                 f"💡 **Informações:** Fechamento todo **dia {cartao_info['dia_fechamento']}** | "
                 f"Vencimento todo **dia {cartao_info['dia_vencimento']}** | "
-                f"📅 **Período da Fatura:** `{periodo_str}`"
             )
 
             # Métricas em destaque
