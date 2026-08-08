@@ -2164,7 +2164,7 @@ elif opcao == "💳 Cartões & Faturas":
             ano_int = int(ano_fatura)
 
             # Data final: 1 dia antes do fechamento (Ex: se fecha dia 8, a fatura fecha no dia 7 às 23:59)
-            data_fim_fatura = datetime(ano_int, mes_int, dia_fechamento) - datetime.timedelta(days=1)
+            data_fim_fatura = datetime(ano_int, mes_int, dia_fechamento) - timedelta(days=1)
 
             # Data inicial: dia do fechamento do mês anterior (Ex: dia 08 do mês anterior)
             if mes_int == 1:
