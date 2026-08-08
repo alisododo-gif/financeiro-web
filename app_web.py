@@ -117,7 +117,7 @@ def criar_link_cobranca(telefone, nome, valor):
 CATEGORIAS_DESPADREVAL = ["Alimentação", "Transporte", "Cartão de Crédito", "Cartão de Débito", "Pix", "Moradia", "Lazer", "Saúde", "Educação", "Assinaturas/Serviços", "Outros"]
 CATEGORIAS_RECEITAS = ["Salário", "Freelance", "Investimentos", "Presente/Prêmio"]
 
-# --- FUNÇÃO DE EXPORTAÇÃO EXCEL PROFISSIONAL ---
+# --- FUNÇÃO DE EXPORTAÇÃO EXCEL PROFISSIONAL (SEM LOGO) ---
 def gerar_excel_profissional(dados_banco, mes, ano):
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -132,15 +132,7 @@ def gerar_excel_profissional(dados_banco, mes, ano):
         start_color="1F4E78", end_color="1F4E78", fill_type="solid"
     )
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 88  # Aumentado para dar margem à logo
-
-    # Inserção da Logo
-    caminho_logo = os.path.join("assets", "logo.png")
-    if os.path.exists(caminho_logo):
-        img = OpenPyXLImage(caminho_logo)
-        img.height = 105
-        img.width = 181
-        ws.add_image(img, "A1")
+    ws.row_dimensions[1].height = 40  # Altura ajustada sem a logo
 
     headers = [
         "ID",
@@ -194,7 +186,6 @@ def gerar_excel_profissional(dados_banco, mes, ano):
 
         v_valor_float = float(v_valor)
 
-        # Formata a data para DD/MM/AAAA
         try:
             v_data_fmt = pd.to_datetime(v_data).strftime("%d/%m/%Y")
         except Exception:
@@ -205,7 +196,6 @@ def gerar_excel_profissional(dados_banco, mes, ano):
         else:
             total_despesas += v_valor_float
 
-        # Usa v_data_fmt no lugar de v_data
         ws.append([
             v_id,
             v_data_fmt,
@@ -284,7 +274,7 @@ def gerar_excel_profissional(dados_banco, mes, ano):
     return output.getvalue()
 
 
-# --- NOVA FUNÇÃO DE EXPORTAÇÃO PDF SUPER LEVE E ESTÁVEL ---
+# --- FUNÇÃO DE EXPORTAÇÃO PDF SUPER LEVE E ESTÁVEL (SEM LOGO) ---
 def gerar_pdf_profissional(dados_banco, mes, ano):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
@@ -299,14 +289,6 @@ def gerar_pdf_profissional(dados_banco, mes, ano):
         'SubTitleStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=10,
         textColor=colors.HexColor('#7F8C8D'), spaceAfter=20, alignment=1
     )
-    
-    # Inserção da Logo (caso exista em assets/logo.png)
-    caminho_logo = os.path.join("assets", "logo.png")
-    if os.path.exists(caminho_logo):
-        logo = ReportLabImage(caminho_logo, width=200, height=95)
-        logo.hAlign = "CENTER"
-        story.append(logo)
-        story.append(Spacer(1, 10))
 
     story.append(Paragraph("FinanceiroPro Web - Extrato Detalhado", title_style))
     story.append(Paragraph(f"Período consultado: {mes}/{ano} — Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
@@ -329,7 +311,6 @@ def gerar_pdf_profissional(dados_banco, mes, ano):
         
         v_valor_float = float(v_valor)
         
-        # Formata a data para DD/MM/AAAA
         try:
             v_data_fmt = pd.to_datetime(v_data).strftime('%d/%m/%Y')
         except Exception:
@@ -340,7 +321,6 @@ def gerar_pdf_profissional(dados_banco, mes, ano):
         else:
             total_des += v_valor_float
             
-        # Usa v_data_fmt no lugar de str(v_data)
         table_data.append([
             str(v_id), v_data_fmt, str(v_conta), str(v_tipo), 
             str(v_forma), str(v_desc), formatar_moeda_ptbr(v_valor_float), str(v_cat), str(v_tags)

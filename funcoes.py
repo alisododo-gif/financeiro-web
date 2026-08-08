@@ -13,7 +13,6 @@ import streamlit as st
 BASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
-@st.cache_resource
 def obter_sessao_http():
     s = requests.Session()
     s.headers.update({
@@ -477,8 +476,20 @@ def salvar_movimentacao(
 
     res = session.post(url, json=payload, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 201]:
-        st.cache_data.clear()
+        # ⚡ LIMPEZA CIRÚRGICA DE CACHE
+        # Invalida apenas o cache das funções impactadas por novas movimentações,
+        # sem apagar o cache global do Streamlit (contas, cartões, metas, etc.)
+        obter_df_movimentacoes_bruto.clear()
+        buscar_todas_movimentacoes.clear()
+        dados_dashboard.clear()
+        dados_grafico_mensal.clear()
+        dados_grafico_categorias.clear()
+        dados_grafico_tags.clear()
+        obter_transacoes.clear()
+        buscar_vencimentos_proximos.clear()
+        
         return True
+
     st.error(f"❌ Erro Supabase ({res.status_code}): {res.text}")
     return False
 
