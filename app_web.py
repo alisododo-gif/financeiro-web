@@ -589,10 +589,10 @@ if st.session_state.get("usuario_id") is None:
     st.stop()
 
 # ==============================================================================
-# NAVEGAÇÃO E BARRA LATERAL (OTIMIZADA E COMPACTA PARA MOBILE)
+# NAVEGAÇÃO E BARRA LATERAL (LOGO CENTRALIZADA E MAIOR)
 # ==============================================================================
 
-# CSS de ultra-compactação exclusivo para a Sidebar (Garante visão completa no celular)
+# CSS de compactação ajustado para a Sidebar
 st.markdown(
     """
     <style>
@@ -603,11 +603,11 @@ st.markdown(
         padding-bottom: 0.2rem !important;
     }
 
-    /* Ajusta o tamanho e margem da Logo */
+    /* Ajusta tamanho e alinhamento da Logo na Sidebar */
     [data-testid="stSidebar"] img {
-        max-width: 85px !important;
-        margin: 0 auto 2px auto !important;
-        display: block;
+        max-width: 140px !important;
+        margin: 0 auto !important;
+        display: block !important;
     }
 
     /* Compacta o Título principal e textos de usuário */
@@ -665,11 +665,13 @@ if st.session_state.get("is_admin", False):
 
 # Barra lateral compactada
 with st.sidebar:
-    caminho_logo = os.path.join("assets", "logo")
-    if os.path.exists(caminho_logo):
-        st.image(caminho_logo, use_container_width=True)
-    else:
-        st.image("assets/logo", use_container_width=True)
+    # Centralização garantida da Logo via colunas
+    col_l1, col_l2, col_l3 = st.columns([0.2, 2.6, 0.2])
+    with col_l2:
+        if os.path.exists(os.path.join("assets", "logo")):
+            st.image(os.path.join("assets", "logo"), use_container_width=True)
+        else:
+            st.image("assets/logo", use_container_width=True)
         
     st.title("💰 FinanceiroPro")
     st.write(f"👤 Usuário: **{st.session_state.get('usuario_id', '')}** {'(👑 Admin)' if st.session_state.get('is_admin') else ''}")
