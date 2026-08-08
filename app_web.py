@@ -704,7 +704,7 @@ with st.sidebar:
 # Atribui a opção atual selecionada para o restante do app
 opcao = st.session_state["pagina_atual"]
 
-# --- PAINEL ADMIN SAAS COMPLETO ---
+# --- PAINEL ADMIN SAAS COMPLETO (LAYOUT RESPONSIVO PARA MOBILE) ---
 if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
     st.title("👑 Painel de Controle Master SaaS")
     
@@ -717,46 +717,54 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
     if not df_users.empty and 'valor_mensalidade' in df_users.columns:
         faturamento_mrr = df_users[df_users['status'] == 'ativo']['valor_mensalidade'].astype(float).sum()
         
-    col_fat1, col_fat2, col_fat3 = st.columns(3)
-    col_fat1.metric("💰 Faturamento Mensal Estimado (Ativos)", fmt_moeda(faturamento_mrr))
+    # Exibição das métricas principais em container limpo
+    st.metric("💰 Faturamento Mensal Estimado (Ativos)", fmt_moeda(faturamento_mrr))
+    
     if not df_users.empty:
-        col_fat2.metric("👥 Total de Clientes", len(df_users))
-        col_fat3.metric("⏳ Cadastros Pendentes", len(df_users[df_users['status'] == 'pendente']))
+        col_fat1, col_fat2 = st.columns(2)
+        col_fat1.metric("👥 Total Clientes", len(df_users))
+        col_fat2.metric("⏳ Pendentes", len(df_users[df_users['status'] == 'pendente']))
 
     st.markdown("---")
     
-    adm_tab1, adm_tab2, adm_tab3 = st.tabs(["⏳ Liberar Cadastros", "➕ Criar Cliente Manual", "👥 Gerenciar Clientes (Ativar/Inativar)"])
+    adm_tab1, adm_tab2, adm_tab3 = st.tabs(["⏳ Liberar Cadastros", "➕ Criar Cliente Manual", "👥 Gerenciar Clientes"])
     
+    # TAB 1: LIBERAR CADASTROS
     with adm_tab1:
-        st.write("### 🔑 Clientes aguardando liberação de acesso")
+        st.write("### 🔑 Clientes aguardando liberação")
         if not df_users.empty and 'status' in df_users.columns:
             df_pendentes = df_users[df_users['status'] == 'pendente']
             if df_pendentes.empty:
                 st.success("Nenhum cliente aguardando liberação no momento.")
             else:
                 for idx, row in df_pendentes.iterrows():
-                    col_p1, col_p2, col_p3 = st.columns([2, 2, 1.5])
-                    col_p1.write(f"👤 Cliente: **{row['usuario']}**")
-                    with col_p2:
-                        v_mensal = st.number_input(f"Definir Mensalidade (R$)", min_value=0.0, value=49.90, key=f"v_pend_{row['id']}")
-                    with col_p3:
-                        if st.button("✅ Ativar Conta", key=f"btn_lib_{row['id']}", use_container_width=True):
+                    # Card individual responsivo para celular
+                    with st.container(border=True):
+                        st.markdown(f"👤 **Cliente:** {row['usuario']}")
+                        v_mensal = st.number_input(
+                            "Definir Mensalidade (R$):", 
+                            min_value=0.0, 
+                            value=49.90, 
+                            key=f"v_pend_{row['id']}"
+                        )
+                        if st.button("✅ Ativar Conta", key=f"btn_lib_{row['id']}", use_container_width=True, type="primary"):
                             if atualizar_status_e_mensalidade(row['id'], 'ativo', v_mensal):
                                 st.success(f"Acesso liberado para {row['usuario']}!")
                                 st.rerun()
         else:
             st.info("Nenhum registro encontrado.")
             
+    # TAB 2: CRIAR CLIENTE MANUALMENTE
     with adm_tab2:
-        st.write("### ➕ Cadastrar novo cliente diretamente")
+        st.write("### ➕ Cadastrar novo cliente")
         with st.form("form_cadastro_manual", clear_on_submit=True):
             novo_usr = st.text_input("Nome de Usuário:")
             nova_sen = st.text_input("Senha Inicial:", type="password")
-            novo_tel = st.text_input("Telefone (Apenas números com DDD):", placeholder="65999998888")
+            novo_tel = st.text_input("Telefone (com DDD):", placeholder="65999998888")
             mensalidade_manual = st.number_input("Valor da Mensalidade (R$):", min_value=0.0, value=49.90)
             status_manual = st.selectbox("Status Inicial:", ["ativo", "inativo", "pendente"])
             
-            if st.form_submit_button("Salvar e Criar Cliente"):
+            if st.form_submit_button("Salvar e Criar Cliente", use_container_width=True, type="primary"):
                 if novo_usr and nova_sen:
                     res_manual = criar_usuario_rest(
                         novo_usr, 
@@ -768,48 +776,52 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                     if res_manual == "Existe":
                         st.error("Este nome de usuário já existe.")
                     elif res_manual:
-                        st.success(f"🎉 Cliente '{novo_usr}' cadastrado com sucesso de forma manual!")
+                        st.success(f"🎉 Cliente '{novo_usr}' cadastrado com sucesso!")
                         st.rerun()
                 else:
                     st.error("Preencha o usuário e a senha.")
 
+    # TAB 3: GERENCIAR CLIENTES
     with adm_tab3:
-        st.write("### 👥 Gerenciamento e Modificação de Clientes Existentes")
+        st.write("### 👥 Gerenciamento de Clientes")
         if not df_users.empty:
             for idx, row in df_users.iterrows():
                 if row.get('role') == 'admin':
                     continue
-                    
-                col_g1, col_g2, col_g3, col_g4, col_g5 = st.columns([2, 1.5, 1.5, 1.5, 1.5])
-                
-                col_g1.write(f"👤 **{row['usuario']}**")
                 
                 status_atual = row.get('status', 'ativo')
-                if status_atual == 'ativo':
-                    col_g2.markdown("🟢 **Ativo**")
-                elif status_atual == 'inativo':
-                    col_g2.markdown("🔴 **Inativo (Bloqueado)**")
-                else:
-                    col_g2.markdown("⏳ **Pendente**")
-                    
-                col_g3.write(f"Mensalidade: {fmt_moeda(row.get('valor_mensalidade', 0.0))}")
                 
-                with col_g4:
+                # Card de Usuário com bordoes limpos para visualização Mobile
+                with st.container(border=True):
+                    # Cabeçalho do Card
+                    col_info1, col_info2 = st.columns([2, 1])
+                    col_info1.markdown(f"👤 **{row['usuario']}**")
+                    
                     if status_atual == 'ativo':
-                        if st.button("🚫 Suspender", key=f"btn_susp_{row['id']}", use_container_width=True):
-                            atualizar_status_e_mensalidade(row['id'], 'inativo', float(row.get('valor_mensalidade', 0.0)))
-                            st.rerun()
+                        col_info2.markdown("🟢 **Ativo**")
+                    elif status_atual == 'inativo':
+                        col_info2.markdown("🔴 **Inativo**")
                     else:
-                        if st.button("⚡ Reativar", key=f"btn_reat_{row['id']}", use_container_width=True):
-                            atualizar_status_e_mensalidade(row['id'], 'ativo', float(row.get('valor_mensalidade', 0.0)))
-                            st.rerun()
-                            
-                with col_g5:
-                    if status_atual in ['inativo', 'pendente']:
-                        tel_cadastro = row.get('telefone', '')
-                        col_btn_zap, col_btn_del = st.columns([1, 1])
-                        
-                        with col_btn_zap:
+                        col_info2.markdown("⏳ **Pendente**")
+                    
+                    st.caption(f"💵 Mensalidade: **{fmt_moeda(row.get('valor_mensalidade', 0.0))}**")
+                    
+                    # Botões de Ação do Card
+                    col_b1, col_b2 = st.columns(2)
+                    
+                    with col_b1:
+                        if status_atual == 'ativo':
+                            if st.button("🚫 Suspender", key=f"btn_susp_{row['id']}", use_container_width=True):
+                                atualizar_status_e_mensalidade(row['id'], 'inativo', float(row.get('valor_mensalidade', 0.0)))
+                                st.rerun()
+                        else:
+                            if st.button("⚡ Reativar", key=f"btn_reat_{row['id']}", use_container_width=True):
+                                atualizar_status_e_mensalidade(row['id'], 'ativo', float(row.get('valor_mensalidade', 0.0)))
+                                st.rerun()
+                                
+                    with col_b2:
+                        if status_atual in ['inativo', 'pendente']:
+                            tel_cadastro = row.get('telefone', '')
                             if tel_cadastro:
                                 url_whatsapp = criar_link_cobranca(
                                     telefone=tel_cadastro,
@@ -818,17 +830,19 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                                 )
                                 st.link_button("💬 Cobrar", url_whatsapp, use_container_width=True)
                             else:
-                                st.caption("⚠️ Sem Tel.")
-                                
-                        with col_btn_del:
+                                if st.button("❌ Excluir", key=f"btn_del_{row['id']}", use_container_width=True):
+                                    if excluir_usuario_admin(row['id']):
+                                        st.success("Usuário deletado!")
+                                        st.rerun()
+                                    else:
+                                        st.error("Erro ao deletar.")
+                        else:
                             if st.button("❌ Excluir", key=f"btn_del_{row['id']}", use_container_width=True):
                                 if excluir_usuario_admin(row['id']):
-                                    st.success(f"Usuário deletado!")
+                                    st.success("Usuário deletado!")
                                     st.rerun()
                                 else:
                                     st.error("Erro ao deletar.")
-                    else:
-                        st.write("")
 
 # --- ABA 1: DASHBOARD ---
 elif opcao == "📊 Dashboard":
