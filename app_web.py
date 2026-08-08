@@ -463,7 +463,7 @@ def criar_usuario_rest(usuario, senha, status='pendente', valor_mensalidade=0.0,
     return False
 
 # ==============================================================================
-# AUTENTICAÇÃO (ALTA PERFORMANCE + CARREGAMENTO ULTRA RÁPIDO)
+# AUTENTICAÇÃO (ALTA PERFORMANCE + LOGO CENTRALIZADA)
 # ==============================================================================
 if st.session_state.get("usuario_id") is None:
     st.markdown(
@@ -474,14 +474,6 @@ if st.session_state.get("usuario_id") is None:
         
         .stApp {
             background-color: #0b0f19;
-        }
-
-        /* Centralização da logo via CSS leve */
-        .login-logo {
-            display: block;
-            margin: 0 auto 10px auto;
-            max-width: 130px;
-            width: 130px;
         }
 
         /* Seletor de Abas estilo iOS/SaaS */
@@ -522,20 +514,23 @@ if st.session_state.get("usuario_id") is None:
     _, col_center, _ = st.columns([0.1, 0.8, 0.1]) if st.session_state.get('is_mobile', False) else st.columns([1, 1.2, 1])
 
     with col_center:
-        # Card principal via container (evita CSS pesado no DOM)
+        # Card principal via container
         with st.container(border=True):
+            # Centralização limpa e leve da Logo via colunas internas
             caminho_logo = os.path.join("assets", "logo")
             if os.path.exists(caminho_logo):
-                st.image(caminho_logo, width=130)
+                _, col_img, _ = st.columns([1, 2, 1])
+                with col_img:
+                    st.image(caminho_logo, use_container_width=True)
 
             st.markdown(
-                "<p style='text-align: center; color: #94a3b8; font-size: 12px; margin-bottom: 15px;'>Acesse sua conta para gerenciar suas finanças</p>",
+                "<p style='text-align: center; color: #94a3b8; font-size: 12px; margin-top: 5px; margin-bottom: 15px;'>Acesse sua conta para gerenciar suas finanças</p>",
                 unsafe_allow_html=True,
             )
 
             tab_login, tab_cadastro = st.tabs(["🔑 Fazer Login", "📝 Criar Nova Conta"])
 
-            # TAB 1: LOGIN (Encapsulado em Form para não travar a digitação)
+            # TAB 1: LOGIN
             with tab_login:
                 with st.form("form_login", clear_on_submit=False):
                     username_input = st.text_input("Seu Usuário", key="login_user", placeholder="Digite seu usuário")
@@ -555,7 +550,7 @@ if st.session_state.get("usuario_id") is None:
                         else:
                             st.error("Usuário incorreto, senha inválida ou restrição de acesso.")
 
-            # TAB 2: CRIAR CONTA (Encapsulado em Form)
+            # TAB 2: CRIAR CONTA
             with tab_cadastro:
                 with st.form("form_cadastro", clear_on_submit=False):
                     username_cad = st.text_input("Escolha um Usuário", key="cad_user", placeholder="Ex: joao.silva")
