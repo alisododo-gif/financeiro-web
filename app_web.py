@@ -484,10 +484,8 @@ if st.session_state.get("usuario_id") is None:
     with col2:
         modo = st.radio("Opção:", ["Fazer Login", "📝 Criar Nova Conta"], horizontal=True)
         
-        # Campo alterado para 'Seu Usuário'
         username_input = st.text_input("Seu Usuário")
         
-        # Campo de telefone exibido apenas no cadastro
         telefone_input = ""
         if modo == "📝 Criar Nova Conta":
             telefone_input = st.text_input("Telefone")
@@ -495,7 +493,7 @@ if st.session_state.get("usuario_id") is None:
         password_input = st.text_input("Senha", type="password")
         
         if modo == "Fazer Login":
-            if st.button("Entrar", width="stretch"):
+            if st.button("Entrar", use_container_width=True):
                 if not username_input.strip() or not password_input.strip():
                     st.error("Preencha o usuário e a senha para entrar.")
                 else:
@@ -508,10 +506,8 @@ if st.session_state.get("usuario_id") is None:
                     else:
                         st.error("Usuário incorreto, senha inválida ou restrição de acesso.")
         else:
-            if st.button("Cadastrar e Solicitar Acesso", width="stretch"):
-                # Validação garantindo que os 3 campos estão preenchidos
+            if st.button("Cadastrar e Solicitar Acesso", use_container_width=True):
                 if username_input.strip() and telefone_input.strip() and password_input.strip():
-                    # Passando explicitamente 'telefone=telefone_input' para evitar conflito de ordem
                     res = criar_usuario_rest(
                         usuario=username_input, 
                         senha=password_input, 
@@ -530,78 +526,58 @@ if st.session_state.get("usuario_id") is None:
                     
     st.stop()
 
-# Sua lista de opções padrão com as novas telas incluídas
+# Define a página inicial padrão no session_state
+if "pagina_atual" not in st.session_state:
+    st.session_state["pagina_atual"] = "📊 Dashboard"
+
+# Lista de opções de menu
 opcoes_menu = [
     "📊 Dashboard",
     "🏦 Gerir Contas",
     "💸 Lançar Movimentações",
     "💳 Cartões & Faturas",
     "💰 Contas a Receber",
-    "📅 Próximos Vencimentos",     # <--- Nova opção 
+    "📅 Próximos Vencimentos",
     "🎯 Metas de Economia", 
-    "🎯 Orçamentos por Categoria",  # <--- Nova opção
+    "🎯 Orçamentos por Categoria",
     "📋 Extrato Detalhado", 
     "⚙️ Configurações"
 ]
 
-# SE for admin, adiciona o Painel SaaS no FINAL da lista (depois de Configurações)
 if st.session_state.get("is_admin", False):
-    opcoes_menu.append("👑 Painel Admin SaaS") # <-- Trocado .insert(0) por .append()
+    opcoes_menu.append("👑 Painel Admin SaaS")
 
-# Agora o Streamlit desenha a barra lateral na ordem correta
+# Barra lateral com botões nativos estilizados
 with st.sidebar:
-    # ESTILO CSS PARA BOTÕES REAIS NO MENU LATERAL
-    st.markdown(
-        """
-        <style>
-        [data-testid="stSidebar"] [data-testid="stRadioButton"] > div { gap: 6px !important; }
-        [data-testid="stSidebar"] [data-testid="stRadioButton"] label {
-            background-color: #1E293B !important;
-            border: 1px solid #334155 !important;
-            border-radius: 8px !important;
-            padding: 10px 14px !important;
-            margin-bottom: 2px !important;
-            width: 100% !important;
-            cursor: pointer !important;
-            transition: all 0.2s ease-in-out !important;
-            color: #E2E8F0 !important;
-        }
-        [data-testid="stSidebar"] [data-testid="stRadioButton"] label:hover {
-            background-color: #334155 !important;
-            border-color: #475569 !important;
-            transform: translateX(4px);
-        }
-        [data-testid="stSidebar"] [data-testid="stRadioButton"] label > div:first-child { display: none !important; }
-        [data-testid="stSidebar"] [data-testid="stRadioButton"] label:has(input:checked) {
-            background: linear-gradient(90deg, #1F4E78 0%, #2980B9 100%) !important;
-            border-color: #3498DB !important;
-            color: #FFFFFF !important;
-            font-weight: bold !important;
-            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.25);
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-    
-    st.image("assets/logo", width="stretch")
+    st.image("assets/logo", use_container_width=True)
     st.title("💰 FinanceiroPro")
     st.write(f"👤 Usuário ID: **{st.session_state.get('usuario_id', '')}** {'(👑 Admin)' if st.session_state.get('is_admin') else ''}")
+    st.markdown("---")
     
-    # Substituído o selectbox por radio estilizado como botões
-    opcao = st.radio("Menu de Navegação", opcoes_menu, label_visibility="collapsed")
+    # Renderiza cada opção do menu como um botão real
+    for item in opcoes_menu:
+        eh_ativo = (st.session_state["pagina_atual"] == item)
+        tipo_botao = "primary" if eh_ativo else "secondary"
+        
+        if st.button(item, key=f"btn_nav_{item}", type=tipo_botao, use_container_width=True):
+            st.session_state["pagina_atual"] = item
+            st.rerun()
     
-    # 🔽 O BOTÃO ENTRA BEM AQUI:
-    st.markdown("---")  # Linha divisória para dar um espaçamento elegante
-    if st.button("🚪 Sair do Sistema", width="stretch"):
-        st.query_params.clear()  # Limpa o ?uid=1 da URL do navegador
+    st.markdown("---")
+    if st.button("🚪 Sair do Sistema", use_container_width=True):
+        st.query_params.clear()
         if "usuario_id" in st.session_state:
             del st.session_state["usuario_id"]
         if "is_admin" in st.session_state:
             del st.session_state["is_admin"]
-        st.rerun()  # Recarrega a página instantaneamente já deslogado
+        if "pagina_atual" in st.session_state:
+            del st.session_state["pagina_atual"]
+        st.rerun()
 
-# --- NOVO PAINEL ADMIN SAAS COMPLETO ---
+# Atribui a opção atual selecionada para o restante do app
+opcao = st.session_state["pagina_atual"]
+
+# --- PAINEL ADMIN SAAS COMPLETO ---
 if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
     st.title("👑 Painel de Controle Master SaaS")
     
@@ -612,7 +588,6 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
     # 2. Métrica de Faturamento Total Recorrente (MRR)
     faturamento_mrr = 0.0
     if not df_users.empty and 'valor_mensalidade' in df_users.columns:
-        # Soma apenas a mensalidade dos clientes que estão ativos
         faturamento_mrr = df_users[df_users['status'] == 'ativo']['valor_mensalidade'].astype(float).sum()
         
     col_fat1, col_fat2, col_fat3 = st.columns(3)
@@ -623,10 +598,8 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
 
     st.markdown("---")
     
-    # Criação das Sub-Abas do Admin
     adm_tab1, adm_tab2, adm_tab3 = st.tabs(["⏳ Liberar Cadastros", "➕ Criar Cliente Manual", "👥 Gerenciar Clientes (Ativar/Inativar)"])
     
-    # Sub-Aba 1: Fila de aprovação de novos cadastros
     with adm_tab1:
         st.write("### 🔑 Clientes aguardando liberação de acesso")
         if not df_users.empty and 'status' in df_users.columns:
@@ -640,14 +613,13 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                     with col_p2:
                         v_mensal = st.number_input(f"Definir Mensalidade (R$)", min_value=0.0, value=49.90, key=f"v_pend_{row['id']}")
                     with col_p3:
-                        if st.button("✅ Ativar Conta", key=f"btn_lib_{row['id']}", width="stretch"):
+                        if st.button("✅ Ativar Conta", key=f"btn_lib_{row['id']}", use_container_width=True):
                             if atualizar_status_e_mensalidade(row['id'], 'ativo', v_mensal):
                                 st.success(f"Acesso liberado para {row['usuario']}!")
                                 st.rerun()
         else:
             st.info("Nenhum registro encontrado.")
             
-    # Sub-Aba 2: Cadastro Manual de Clientes pelo Admin
     with adm_tab2:
         st.write("### ➕ Cadastrar novo cliente diretamente")
         with st.form("form_cadastro_manual", clear_on_submit=True):
@@ -674,21 +646,17 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                 else:
                     st.error("Preencha o usuário e a senha.")
 
-    # Sub-Aba 3: Ativar, Inativar e Visualizar a Lista Geral de Clientes
     with adm_tab3:
         st.write("### 👥 Gerenciamento e Modificação de Clientes Existentes")
         if not df_users.empty:
             for idx, row in df_users.iterrows():
-                # Ignorar o próprio admin para ele não se auto-bloquear
                 if row.get('role') == 'admin':
                     continue
                     
-                # Aumentamos o número de colunas para adicionar o espaço do WhatsApp (col_g5)
                 col_g1, col_g2, col_g3, col_g4, col_g5 = st.columns([2, 1.5, 1.5, 1.5, 1.5])
                 
                 col_g1.write(f"👤 **{row['usuario']}**")
                 
-                # Exibe o status atual com cor indicativa
                 status_atual = row.get('status', 'ativo')
                 if status_atual == 'ativo':
                     col_g2.markdown("🟢 **Ativo**")
@@ -700,22 +668,18 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                 col_g3.write(f"Mensalidade: {fmt_moeda(row.get('valor_mensalidade', 0.0))}")
                 
                 with col_g4:
-                    # Se está ativo, dá a opção de inativar. Se está inativo, dá a opção de ativar.
                     if status_atual == 'ativo':
-                        if st.button("🚫 Suspender", key=f"btn_susp_{row['id']}", width="stretch"):
+                        if st.button("🚫 Suspender", key=f"btn_susp_{row['id']}", use_container_width=True):
                             atualizar_status_e_mensalidade(row['id'], 'inativo', float(row.get('valor_mensalidade', 0.0)))
                             st.rerun()
                     else:
-                        if st.button("⚡ Reativar", key=f"btn_reat_{row['id']}", width="stretch"):
+                        if st.button("⚡ Reativar", key=f"btn_reat_{row['id']}", use_container_width=True):
                             atualizar_status_e_mensalidade(row['id'], 'ativo', float(row.get('valor_mensalidade', 0.0)))
                             st.rerun()
                             
                 with col_g5:
-                    # GERAÇÃO DINÂMICA DO WHATSAPP E BOTÃO DE EXCLUSÃO
                     if status_atual in ['inativo', 'pendente']:
                         tel_cadastro = row.get('telefone', '')
-                        
-                        # Criamos duas sub-colunas internas para os botões ficarem lado a lado de forma elegante
                         col_btn_zap, col_btn_del = st.columns([1, 1])
                         
                         with col_btn_zap:
@@ -725,20 +689,19 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                                     nome=row['usuario'],
                                     valor=float(row.get('valor_mensalidade', 0.0))
                                 )
-                                st.link_button("💬 Cobrar", url_whatsapp, width="stretch")
+                                st.link_button("💬 Cobrar", url_whatsapp, use_container_width=True)
                             else:
                                 st.caption("⚠️ Sem Tel.")
                                 
                         with col_btn_del:
-                            if st.button("❌ Excluir", key=f"btn_del_{row['id']}", width="stretch"):
+                            if st.button("❌ Excluir", key=f"btn_del_{row['id']}", use_container_width=True):
                                 if excluir_usuario_admin(row['id']):
                                     st.success(f"Usuário deletado!")
                                     st.rerun()
                                 else:
                                     st.error("Erro ao deletar.")
                     else:
-                        st.write("") # Mantém a coluna alinhada vazia para clientes ativos         
-            
+                        st.write("")
 
 # --- ABA 1: DASHBOARD ---
 elif opcao == "📊 Dashboard":
