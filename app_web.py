@@ -530,87 +530,66 @@ if st.session_state.get("usuario_id") is None:
                     
     st.stop()
 
-import streamlit as st
-
-# 1. Definição da lista padrão de menus
+# Sua lista de opções padrão com as novas telas incluídas
 opcoes_menu = [
     "📊 Dashboard",
     "🏦 Gerir Contas",
     "💸 Lançar Movimentações",
     "💳 Cartões & Faturas",
     "💰 Contas a Receber",
-    "📅 Próximos Vencimentos",
-    "🎯 Metas de Economia",
-    "🎯 Orçamentos por Categoria",
-    "📋 Extrato Detalhado",
-    "⚙️ Configurações",
+    "📅 Próximos Vencimentos",     # <--- Nova opção 
+    "🎯 Metas de Economia", 
+    "🎯 Orçamentos por Categoria",  # <--- Nova opção
+    "📋 Extrato Detalhado", 
+    "⚙️ Configurações"
 ]
 
-# 2. Adiciona o menu Admin no final usando .get() para evitar KeyError
+# SE for admin, adiciona o Painel SaaS no FINAL da lista (depois de Configurações)
 if st.session_state.get("is_admin", False):
-    opcoes_menu.append("👑 Painel Admin SaaS")
-
-# 3. Renderização do Menu Fixo na Sidebar
-with st.sidebar:
-    st.markdown("---")  # Linha divisória após a logo/perfil
-
-    menu_selecionado = st.radio(
-        label="Navegação",
-        options=opcoes_menu,
-        label_visibility="collapsed",  # Oculta o título do campo
-    )
-
-# 4. Roteamento das Páginas
-if menu_selecionado == "📊 Dashboard":
-    # chamar_tela_dashboard()
-    pass
-
-elif menu_selecionado == "🏦 Gerir Contas":
-    # chamar_tela_gerir_contas()
-    pass
-
-elif menu_selecionado == "💸 Lançar Movimentações":
-    # chamar_tela_lancamentos()
-    pass
-
-elif menu_selecionado == "💳 Cartões & Faturas":
-    # chamar_tela_cartoes()
-    pass
-
-elif menu_selecionado == "💰 Contas a Receber":
-    # chamar_tela_contas_receber()
-    pass
-
-elif menu_selecionado == "📅 Próximos Vencimentos":
-    # chamar_tela_vencimentos()
-    pass
-
-elif menu_selecionado == "🎯 Metas de Economia":
-    # chamar_tela_metas()
-    pass
-
-elif menu_selecionado == "🎯 Orçamentos por Categoria":
-    # chamar_tela_orcamentos()
-    pass
-
-elif menu_selecionado == "📋 Extrato Detalhado":
-    # chamar_tela_extrato()
-    pass
-
-elif menu_selecionado == "⚙️ Configurações":
-    # chamar_tela_configuracoes()
-    pass
-
-elif menu_selecionado == "👑 Painel Admin SaaS":
-    # chamar_tela_admin_saas()
-    pass
+    opcoes_menu.append("👑 Painel Admin SaaS") # <-- Trocado .insert(0) por .append()
 
 # Agora o Streamlit desenha a barra lateral na ordem correta
 with st.sidebar:
+    # ESTILO CSS PARA BOTÕES REAIS NO MENU LATERAL
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSidebar"] [data-testid="stRadioButton"] > div { gap: 6px !important; }
+        [data-testid="stSidebar"] [data-testid="stRadioButton"] label {
+            background-color: #1E293B !important;
+            border: 1px solid #334155 !important;
+            border-radius: 8px !important;
+            padding: 10px 14px !important;
+            margin-bottom: 2px !important;
+            width: 100% !important;
+            cursor: pointer !important;
+            transition: all 0.2s ease-in-out !important;
+            color: #E2E8F0 !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stRadioButton"] label:hover {
+            background-color: #334155 !important;
+            border-color: #475569 !important;
+            transform: translateX(4px);
+        }
+        [data-testid="stSidebar"] [data-testid="stRadioButton"] label > div:first-child { display: none !important; }
+        [data-testid="stSidebar"] [data-testid="stRadioButton"] label:has(input:checked) {
+            background: linear-gradient(90deg, #1F4E78 0%, #2980B9 100%) !important;
+            border-color: #3498DB !important;
+            color: #FFFFFF !important;
+            font-weight: bold !important;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.25);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    
     st.image("assets/logo", width="stretch")
     st.title("💰 FinanceiroPro")
-    st.write(f"👤 Usuário ID: **{st.session_state['usuario_id']}** {'(👑 Admin)' if st.session_state['is_admin'] else ''}")
-    opcao = st.selectbox("Menu de Navegação", opcoes_menu)
+    st.write(f"👤 Usuário ID: **{st.session_state.get('usuario_id', '')}** {'(👑 Admin)' if st.session_state.get('is_admin') else ''}")
+    
+    # Substituído o selectbox por radio estilizado como botões
+    opcao = st.radio("Menu de Navegação", opcoes_menu, label_visibility="collapsed")
     
     # 🔽 O BOTÃO ENTRA BEM AQUI:
     st.markdown("---")  # Linha divisória para dar um espaçamento elegante
@@ -623,7 +602,7 @@ with st.sidebar:
         st.rerun()  # Recarrega a página instantaneamente já deslogado
 
 # --- NOVO PAINEL ADMIN SAAS COMPLETO ---
-if opcao == "👑 Painel Admin SaaS" and st.session_state["is_admin"]:
+if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
     st.title("👑 Painel de Controle Master SaaS")
     
     # 1. Carregar todos os usuários do banco
@@ -681,11 +660,11 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state["is_admin"]:
             if st.form_submit_button("Salvar e Criar Cliente"):
                 if novo_usr and nova_sen:
                     res_manual = criar_usuario_rest(
-                    novo_usr, 
-                    nova_sen, 
-                    status=status_manual, 
-                    valor_mensalidade=mensalidade_manual, 
-                    telefone=novo_tel        
+                        novo_usr, 
+                        nova_sen, 
+                        status=status_manual, 
+                        valor_mensalidade=mensalidade_manual, 
+                        telefone=novo_tel        
                     )
                     if res_manual == "Existe":
                         st.error("Este nome de usuário já existe.")
@@ -758,7 +737,7 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state["is_admin"]:
                                 else:
                                     st.error("Erro ao deletar.")
                     else:
-                        st.write("") # Mantém a coluna alinhada vazia para clientes ativos          
+                        st.write("") # Mantém a coluna alinhada vazia para clientes ativos         
             
 
 # --- ABA 1: DASHBOARD ---
