@@ -589,10 +589,10 @@ if st.session_state.get("usuario_id") is None:
     st.stop()
 
 # ==============================================================================
-# NAVEGAÇÃO E BARRA LATERAL (LOGO CENTRALIZADA 145PX + SEM SCROLL)
+# NAVEGAÇÃO E BARRA LATERAL (LOGO CENTRALIZADA VIA COLUNAS + SEM SCROLL)
 # ==============================================================================
 
-# CSS com ajuste fino de altura e margens zero para encaixar perfeitamente sem scroll
+# CSS de compactação ajustado
 st.markdown(
     """
     <style>
@@ -607,19 +607,11 @@ st.markdown(
         padding: 0 !important;
     }
 
-    /* Centralização estrita da Logo */
-    [data-testid="stSidebar"] [data-testid="stImage"] {
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        width: 100% !important;
-        margin: 0 auto !important;
-    }
-
+    /* Regra CSS para forçar alinhamento e largura da Logo */
     [data-testid="stSidebar"] img {
         max-width: 145px !important;
-        width: 145px !important;
-        margin: 0 auto 4px auto !important;
+        width: 100% !important;
+        margin: 0 auto !important;
         display: block !important;
     }
 
@@ -673,10 +665,13 @@ if st.session_state.get("is_admin", False):
 
 # Barra lateral
 with st.sidebar:
-    if os.path.exists(os.path.join("assets", "logo")):
-        st.image(os.path.join("assets", "logo"), use_container_width=True)
-    else:
-        st.image("assets/logo", use_container_width=True)
+    # Centralização Matemática Perfeita da Logo via Colunas Nativas do Streamlit
+    col_vazia_esq, col_logo, col_vazia_dir = st.columns([1, 4, 1])
+    with col_logo:
+        if os.path.exists(os.path.join("assets", "logo")):
+            st.image(os.path.join("assets", "logo"), use_container_width=True)
+        else:
+            st.image("assets/logo", use_container_width=True)
         
     st.write(f"👤 Usuário: **{st.session_state.get('usuario_id', '')}** {'(👑 Admin)' if st.session_state.get('is_admin') else ''}")
     st.markdown("---")
