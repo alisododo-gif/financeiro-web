@@ -463,137 +463,107 @@ def criar_usuario_rest(usuario, senha, status='pendente', valor_mensalidade=0.0,
     return False
 
 # ==============================================================================
-# AUTENTICAÇÃO (INTERFACE MODERNA SAAS)
+# AUTENTICAÇÃO (INTERFACE ULTRA LEVE, SEM BASE64 E SEM BARRA TOPO)
 # ==============================================================================
 if st.session_state.get("usuario_id") is None:
-    # CSS Customizado para estilizar o Card de Login e ocultar a barra lateral na autenticação
+    # CSS ultra leve apenas para ocultar a sidebar e personalizar as abas
     st.markdown(
         """
         <style>
-        /* Oculta a barra lateral e o cabeçalho nativo do Streamlit na tela de login */
-        [data-testid="stSidebar"] { display: none; }
-        [data-testid="stHeader"] { visibility: hidden; }
+        /* Oculta menu lateral e cabeçalho nativo */
+        [data-testid="stSidebar"], [data-testid="stHeader"] { display: none; }
         
-        /* Container principal com fundo suave em tom escuro */
-        .stApp {
-            background-color: #0b0f19;
-        }
-
-        /* Card de Login */
-        div[data-testid="stVerticalBlock"] > div:has(div.login-card) {
-            background-color: #161b26;
-            border: 1px solid #232d3f;
-            border-radius: 16px;
-            padding: 28px;
-            box-shadow: 0px 12px 32px rgba(0, 0, 0, 0.5);
-        }
-
-        /* Estilização das Abas (Tabs) estilo seletor iOS/SaaS */
+        /* Estilo limpo para as abas (Tabs) */
         .stTabs [data-baseweb="tab-list"] {
-            gap: 6px;
-            background-color: #0f141d;
+            gap: 4px;
+            background-color: #111827;
             padding: 4px;
-            border-radius: 10px;
-            border: 1px solid #232d3f;
+            border-radius: 8px;
         }
         .stTabs [data-baseweb="tab"] {
-            height: 38px;
-            border-radius: 8px;
-            color: #94a3b8;
-            font-weight: 500;
+            border-radius: 6px;
+            color: #9CA3AF;
             border: none !important;
             flex-grow: 1;
             justify-content: center;
         }
         .stTabs [aria-selected="true"] {
-            background-color: #2563eb !important;
-            color: #ffffff !important;
+            background-color: #2563EB !important;
+            color: #FFFFFF !important;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # Centraliza o container na tela
-    _, col_center, _ = st.columns([1, 1.3, 1])
+    # Centralização
+    _, col_center, _ = st.columns([1, 1.2, 1])
 
     with col_center:
-        # Marcador de classe para o CSS aplicar o estilo do Card
-        st.markdown('<div class="login-card"></div>', unsafe_allow_html=True)
-
-        # Exibição da Logo Centralizada
-        caminho_logo = os.path.join("assets", "logo")
-        if os.path.exists(caminho_logo):
-            with open(caminho_logo, "rb") as f:
-                img_b64 = base64.b64encode(f.read()).decode()
+        # Container nativo com borda (otimizado e sem elementos visuais extras)
+        with st.container(border=True):
+            # Exibição da logo sem conversoes pesadas em runtime
+            caminho_logo = os.path.join("assets", "logo")
+            if os.path.exists(caminho_logo):
+                st.image(caminho_logo, width=140)
 
             st.markdown(
-                f"""
-                <div style="display: flex; justify-content: center; margin-bottom: 12px;">
-                    <img src="data:image/png;base64,{img_b64}" width="150" style="object-fit: contain;">
-                </div>
-                """,
+                "<h3 style='text-align: center; color: #F9FAFB; margin-top: -10px; margin-bottom: 2px;'>FinanceiroPro Web</h3>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                "<p style='text-align: center; color: #9CA3AF; font-size: 13px; margin-bottom: 15px;'>Acesse sua conta para gerenciar suas finanças</p>",
                 unsafe_allow_html=True,
             )
 
-        # Título e Subtítulo
-        st.markdown(
-            "<h3 style='text-align: center; color: #f8fafc; font-weight: 700; margin-bottom: 2px;'>FinanceiroPro Web</h3>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            "<p style='text-align: center; color: #94a3b8; font-size: 13px; margin-bottom: 20px;'>Acesse sua conta para gerenciar suas finanças</p>",
-            unsafe_allow_html=True,
-        )
+            # Abas de navegação
+            tab_login, tab_cadastro = st.tabs(["🔑 Fazer Login", "📝 Criar Nova Conta"])
 
-        # Alternância entre Login e Cadastro usando Abas
-        tab_login, tab_cadastro = st.tabs(["🔑 Fazer Login", "📝 Criar Nova Conta"])
+            # TAB 1: LOGIN
+            with tab_login:
+                st.write("")
+                username_input = st.text_input("Seu Usuário", key="login_user", placeholder="Digite seu usuário")
+                password_input = st.text_input("Senha", type="password", key="login_pass", placeholder="••••••••")
 
-        # TAB 1: LOGIN
-        with tab_login:
-            st.write("")
-            username_input = st.text_input("Seu Usuário", key="login_user", placeholder="Digite seu usuário")
-            password_input = st.text_input("Senha", type="password", key="login_pass", placeholder="••••••••")
-
-            st.write("")
-            if st.button("Entrar no Sistema", type="primary", use_container_width=True, key="btn_login"):
-                if not username_input.strip() or not password_input.strip():
-                    st.error("Preencha o usuário e a senha para entrar.")
-                else:
-                    uid = fazer_login_rest(username_input, password_input)
-                    if uid:
-                        st.session_state["usuario_id"] = uid
-                        st.query_params["uid"] = str(uid)
-                        st.success("Logado com sucesso!")
-                        st.rerun()
+                st.write("")
+                if st.button("Entrar no Sistema", type="primary", use_container_width=True, key="btn_login"):
+                    if not username_input.strip() or not password_input.strip():
+                        st.error("Preencha o usuário e a senha para entrar.")
                     else:
-                        st.error("Usuário incorreto, senha inválida ou restrição de acesso.")
+                        uid = fazer_login_rest(username_input, password_input)
+                        if uid:
+                            st.session_state["usuario_id"] = uid
+                            st.query_params["uid"] = str(uid)
+                            st.success("Logado com sucesso!")
+                            st.rerun()
+                        else:
+                            st.error("Usuário incorreto, senha inválida ou restrição de acesso.")
 
-        # TAB 2: CRIAR CONTA
-        with tab_cadastro:
-            st.write("")
-            username_input = st.text_input("Escolha um Usuário", key="cad_user", placeholder="Ex: joao.silva")
-            telefone_input = st.text_input("Telefone (WhatsApp)", key="cad_tel", placeholder="65999998888")
-            password_input = st.text_input("Crie uma Senha", type="password", key="cad_pass", placeholder="••••••••")
+            # TAB 2: CRIAR CONTA
+            with tab_cadastro:
+                st.write("")
+                username_input = st.text_input("Escolha um Usuário", key="cad_user", placeholder="Ex: joao.silva")
+                telefone_input = st.text_input("Telefone (WhatsApp)", key="cad_tel", placeholder="65999998888")
+                password_input = st.text_input("Crie uma Senha", type="password", key="cad_pass", placeholder="••••••••")
 
-            st.write("")
-            if st.button("Cadastrar e Solicitar Acesso", type="primary", use_container_width=True, key="btn_cad"):
-                if username_input.strip() and telefone_input.strip() and password_input.strip():
-                    res = criar_usuario_rest(
-                        usuario=username_input,
-                        senha=password_input,
-                        telefone=telefone_input,
-                        status="pendente",
-                    )
+                st.write("")
+                if st.button("Cadastrar e Solicitar Acesso", type="primary", use_container_width=True, key="btn_cad"):
+                    if username_input.strip() and telefone_input.strip() and password_input.strip():
+                        res = criar_usuario_rest(
+                            usuario=username_input,
+                            senha=password_input,
+                            telefone=telefone_input,
+                            status="pendente",
+                        )
 
-                    if res == "Existe":
-                        st.error("Este nome de usuário já está em uso.")
-                    elif res:
-                        st.success("🎉 Cadastro realizado! Aguarde a liberação do administrador.")
+                        if res == "Existe":
+                            st.error("Este nome de usuário já está em uso.")
+                        elif res:
+                            st.success("🎉 Cadastro realizado! Aguarde a liberação do administrador.")
+                        else:
+                            st.error("Erro ao realizar o cadastro. Tente novamente.")
                     else:
-                        st.error("Erro ao realizar o cadastro. Tente novamente.")
-                else:
-                    st.error("Por favor, preencha todos os campos obrigatórios (Seu Usuário, Telefone e Senha).")
+                        st.error("Por favor, preencha todos os campos obrigatórios (Seu Usuário, Telefone e Senha).")
 
     st.stop()
 
