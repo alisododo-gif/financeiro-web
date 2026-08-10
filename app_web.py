@@ -1899,7 +1899,7 @@ elif opcao == "📅 Próximos Vencimentos":
 
     usuario_atual_id = st.session_state.get("usuario_id")
     
-    # 3. EXPANDIDO PARA 365 DIAS (Para garantir busca de todas as faturas e parcelamento)
+    # 3. BUSCA DE DADOS COM RAIO DE 365 DIAS
     vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=365)
 
     if not vencimentos:
@@ -1955,20 +1955,19 @@ elif opcao == "📅 Próximos Vencimentos":
                                 return int(val)
                     return 10
 
-                df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
-                df_credito["dia_venc_cartao"] = df_credito.apply(extrair_dia_vencimento, axis=1)
-                df_credito["ids_compras"] = df_credito["id"]
-
                 def extrair_dia_fechamento(row):
                     for col in ["dia_fechamento_cartao", "dia_fechamento", "fechamento", "dia_corte"]:
                         if col in row and pd.notna(row[col]):
                             val = str(row[col]).strip()
                             if val.isdigit():
                                 return int(val)
-                    venc = row.get("dia_venc_cartao", 10)
+                    venc = extrair_dia_vencimento(row)
                     return max(1, int(venc) - 7)
 
+                df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
+                df_credito["dia_venc_cartao"] = df_credito.apply(extrair_dia_vencimento, axis=1)
                 df_credito["dia_fech_cartao"] = df_credito.apply(extrair_dia_fechamento, axis=1)
+                df_credito["ids_compras"] = df_credito["id"]
 
                 def resolver_mes_e_vencimento_fatura(row):
                     import calendar
@@ -1993,7 +1992,6 @@ elif opcao == "📅 Próximos Vencimentos":
                     mes = dt_compra.month
                     dia = dt_compra.day
 
-                    # Se a compra foi no dia de fechamento ou depois, vai para o mês seguinte
                     if dia >= dia_fech:
                         if mes == 12:
                             mes = 1
@@ -2015,17 +2013,17 @@ elif opcao == "📅 Próximos Vencimentos":
                 df_credito["data"] = df_credito["data_venc_calculada"]
                 df_credito["mes_fatura"] = df_credito["mes_fatura_calculado"]
 
-                # 3. AGRUPA POR CARTÃO E MÊS DA FATURA
+                # AGRUPAMENTO SEGURO
                 faturas_list = []
                 for (nome_cartao, mes_fat), grupo in df_credito.groupby(["nome_exibicao_cartao", "mes_fatura"]):
-                    tudo_pago = grupo["pago"].all()
+                    tudo_pago = bool(grupo["pago"].all())
                     
                     faturas_list.append({
+                        "id": grupo["id"].iloc[0],
                         "nome_exibicao_cartao": nome_cartao,
                         "mes_fatura": mes_fat,
                         "pago": tudo_pago,
-                        "valor": grupo["valor"].sum(),
-                        "id": grupo["id"].iloc[0],
+                        "valor": float(grupo["valor"].sum()),
                         "ids_compras": grupo["ids_compras"].tolist(),
                         "data": grupo["data"].iloc[0],
                         "categoria": "Fatura de Cartão",
@@ -2033,10 +2031,16 @@ elif opcao == "📅 Próximos Vencimentos":
                         "descricao": f"💳 Fatura {nome_cartao} ({mes_fat})"
                     })
 
-                df_faturas_agrupadas = pd.DataFrame(faturas_list)
+                if faturas_list:
+                    df_faturas_agrupadas = pd.DataFrame(faturas_list)
 
             # Unifica tudo
-            df_venc = pd.concat([df_outras_contas, df_faturas_agrupadas], ignore_index=True)
+            dfs_para_concatenar = [df for df in [df_outras_contas, df_faturas_agrupadas] if not df.empty]
+            
+            if dfs_para_concatenar:
+                df_venc = pd.concat(dfs_para_concatenar, ignore_index=True)
+            else:
+                df_venc = pd.DataFrame()
 
             if not df_venc.empty:
                 df_venc["data_dt"] = pd.to_datetime(df_venc["data"])
@@ -2049,7 +2053,7 @@ elif opcao == "📅 Próximos Vencimentos":
                     ].copy()
 
             if df_venc.empty:
-                st.warning(f"Nenhum registro encontrado para a seleção de período.")
+                st.warning("Nenhum registro encontrado para a seleção de período.")
             else:
                 df_venc = df_venc.sort_values(by="data").reset_index(drop=True)
 
