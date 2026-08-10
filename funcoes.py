@@ -279,8 +279,12 @@ def obter_transacoes(usuario_id):
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def buscar_vencimentos_proximos(usuario_id, dias=15):
-    hoje = datetime.now().strftime("%Y-%m-%d")
+def buscar_vencimentos_proximos(usuario_id, dias=60, dias_atras=90):
+    # Permite buscar compras de até 'dias_atras' (90 dias atrás)
+    # para capturar faturas de cartão com compras feitas no mês passado.
+    data_inicio = (datetime.now() - timedelta(days=dias_atras)).strftime(
+        "%Y-%m-%d"
+    )
     data_limite = (datetime.now() + timedelta(days=dias)).strftime("%Y-%m-%d")
 
     url = (
@@ -288,7 +292,7 @@ def buscar_vencimentos_proximos(usuario_id, dias=15):
         f"?select=*,cartoes(nome_cartao,dia_vencimento)"
         f"&usuario_id=eq.{usuario_id}"
         f"&tipo=eq.Despesa"
-        f"&data=gte.{hoje}"
+        f"&data=gte.{data_inicio}"
         f"&data=lte.{data_limite}"
         f"&order=data.asc"
     )
@@ -301,10 +305,14 @@ def buscar_vencimentos_proximos(usuario_id, dias=15):
                 cartao_obj = item.get("cartoes")
                 if isinstance(cartao_obj, dict):
                     item["nome_cartao"] = cartao_obj.get("nome_cartao")
-                    item["dia_vencimento_cartao"] = cartao_obj.get("dia_vencimento")
+                    item["dia_vencimento_cartao"] = cartao_obj.get(
+                        "dia_vencimento"
+                    )
                 elif isinstance(cartao_obj, list) and len(cartao_obj) > 0:
                     item["nome_cartao"] = cartao_obj[0].get("nome_cartao")
-                    item["dia_vencimento_cartao"] = cartao_obj[0].get("dia_vencimento")
+                    item["dia_vencimento_cartao"] = cartao_obj[0].get(
+                        "dia_vencimento"
+                    )
             return dados
     except Exception:
         pass

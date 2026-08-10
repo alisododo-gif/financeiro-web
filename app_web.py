@@ -1981,30 +1981,47 @@ elif opcao == "📅 Próximos Vencimentos":
                                 "vencimento": int(
                                     c.get("dia_vencimento")
                                     or c.get("vencimento")
-                                    or 15
+                                    or 13
                                 ),
                                 "fechamento": int(
                                     c.get("dia_fechamento")
                                     or c.get("fechamento")
-                                    or 8
+                                    or 6
                                 ),
                             }
             except Exception:
                 pass
 
+            # Regra expandida para pegar compras de cartão pela descrição
             def eh_cartao(row):
                 cid = normalizar_id(row.get("cartao_id"))
                 fp = str(row.get("forma_pagamento") or "").lower()
                 mf = str(row.get("mes_fatura") or "").strip()
                 nc = str(row.get("nome_cartao") or "").strip()
+                desc = str(row.get("descricao") or "").lower()
+                cat = str(row.get("categoria") or "").lower()
 
                 if cid != "":
                     return True
                 if nc != "" and nc.lower() not in ["none", "nan"]:
                     return True
                 if any(
-                    x in fp for x in ["cart", "credito", "crédito", "fatura"]
+                    x in fp
+                    for x in [
+                        "cart",
+                        "credito",
+                        "crédito",
+                        "fatura",
+                        "riachuelo",
+                    ]
                 ):
+                    return True
+                if any(
+                    x in desc
+                    for x in ["cartão", "cartao", "credito", "crédito", "fatura"]
+                ):
+                    return True
+                if any(x in cat for x in ["cartão", "cartao", "crédito"]):
                     return True
                 if (
                     mf != ""
@@ -2036,12 +2053,12 @@ elif opcao == "📅 Próximos Vencimentos":
                         return mapa_cartoes_info[cid]["nome"]
                     if "nome_cartao" in row and pd.notna(row["nome_cartao"]):
                         return str(row["nome_cartao"])
-                    return "Cartão de Crédito"
+                    return "Riachuelo"  # Cartão identificado no print
 
                 def resolver_datas_fatura(row):
                     cid = normalizar_id(row.get("cartao_id"))
                     info = mapa_cartoes_info.get(
-                        cid, {"vencimento": 15, "fechamento": 8}
+                        cid, {"vencimento": 13, "fechamento": 6}
                     )
                     dia_venc, dia_fech = info["vencimento"], info["fechamento"]
 
@@ -2061,6 +2078,7 @@ elif opcao == "📅 Próximos Vencimentos":
                             dt_compra.day,
                         )
 
+                        # Ex: Compras de 27/07 com fechamento dia 06/08 pertencem à fatura de 08/2026
                         if dia_compra >= dia_fech:
                             mes_ciclo = mes + 1 if mes < 12 else 1
                             ano_ciclo = ano if mes < 12 else ano + 1
@@ -2112,16 +2130,8 @@ elif opcao == "📅 Próximos Vencimentos":
                         "ids_compras": lambda x: list(x),
                         "descricao": lambda x: list(x),
                         "data": "first",
-                        "categoria": lambda x: (
-                            x.iloc[0]
-                            if "categoria" in df_credito.columns
-                            else "Fatura de Cartão"
-                        ),
-                        "forma_pagamento": lambda x: (
-                            x.iloc[0]
-                            if "forma_pagamento" in df_credito.columns
-                            else "Cartão de Crédito"
-                        ),
+                        "categoria": lambda x: "Fatura de Cartão",
+                        "forma_pagamento": lambda x: "Cartão de Crédito",
                     })
                 )
 
@@ -2138,26 +2148,6 @@ elif opcao == "📅 Próximos Vencimentos":
                     )
                 )
 
-            # Painel de Diagnóstico Rápido
-            with st.expander("🔍 Painel de Diagnóstico de Cartões"):
-                st.write(
-                    f"**Total de lançamentos de cartão identificados:**"
-                    f" {len(df_credito)}"
-                )
-                if not df_faturas_agrupadas.empty:
-                    st.write("**Faturas Geradas por Mês:**")
-                    st.dataframe(
-                        df_faturas_agrupadas[
-                            [
-                                "descricao",
-                                "mes_fatura",
-                                "valor",
-                                "data",
-                                "pago",
-                            ]
-                        ]
-                    )
-
             dfs_concatenar = [
                 df
                 for df in [df_outras_contas, df_faturas_agrupadas]
@@ -2169,7 +2159,7 @@ elif opcao == "📅 Próximos Vencimentos":
                 else pd.DataFrame()
             )
 
-            # Filtro de exibição por mês
+            # Filtro por Período
             if not df_venc.empty and target_mes and target_ano:
 
                 def pertence_ao_periodo(row):
@@ -2190,10 +2180,9 @@ elif opcao == "📅 Próximos Vencimentos":
 
             if df_venc.empty:
                 st.info(
-                    f"Nenhum lançamento para {target_mes:02d}/{target_ano}."
-                    " Experimente mudar o seletor no topo para **⏩ Próximo Mês**"
-                    " ou **🔮 Ver Todos os Registros** para ver os cartões do"
-                    " novo ciclo!"
+                    f"Nenhum lançamento para o período"
+                    f" ({opcao_periodo}). Alterne no topo para '🔮 Ver Todos"
+                    " os Registros Encontrados'!"
                 )
             else:
                 df_venc = df_venc.sort_values(by="data").reset_index(drop=True)
