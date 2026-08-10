@@ -2109,14 +2109,6 @@ elif opcao == "📅 Próximos Vencimentos":
                                         desfazer_pagamento_lancamento(sub_id)
                                     st.cache_data.clear()
                                     st.rerun()
-
-# --- ABA: CORREÇÃO DO FINAL DO ARQUIVO (CONTAS A RECEBER) ---
-# Caso você mantenha a aba Contas a Receber no final, complete o botão truncado:
-                with col_acoes:
-                    txt_btn = "↩️ Mudar p/ Pendente" if recebido else "✅ Marcar Recebido"
-                    if st.button(txt_btn, key=f"status_rec_{item.get('id')}"):
-                        alternar_status_contas_a_receber(item.get('id'), not recebido)
-                        st.rerun()
                                     
 # --- ABA: CARTÕES & FATURAS ---
 elif opcao == "💳 Cartões & Faturas":
