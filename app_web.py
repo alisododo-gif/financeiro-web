@@ -1941,52 +1941,58 @@ elif opcao == "📅 Próximos Vencimentos":
                             return val.get("nome_cartao", "Cartão de Crédito") if isinstance(val, dict) else str(val)
                     return "Cartão de Crédito"
 
-                def extrair_dia_vencimento(row):
-                    for col in ["dia_vencimento_cartao", "dia_vencimento", "vencimento", "dia_venc"]:
+                def extrair_dia_fechamento(row):
+                    # Tenta buscar o dia de fechamento do cartão (data de corte)
+                    for col in ["dia_fechamento_cartao", "dia_fechamento", "fechamento", "dia_corte"]:
                         if col in row and pd.notna(row[col]):
                             val = str(row[col]).strip()
                             if val.isdigit():
                                 return int(val)
-                    return 10
+                    # Caso não exista cadastrado, define por padrão como 7 dias antes do vencimento
+                    return max(1, int(row["dia_venc_cartao"]) - 7)
 
-                df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
-                df_credito["dia_venc_cartao"] = df_credito.apply(extrair_dia_vencimento, axis=1)
-                df_credito["ids_compras"] = df_credito["id"]
+                df_credito["dia_fech_cartao"] = df_credito.apply(extrair_dia_fechamento, axis=1)
 
                 def resolver_mes_e_vencimento_fatura(row):
-                    dt_compra = pd.to_datetime(row["data"])
-                    dia_venc = int(row["dia_venc_cartao"])
-                    ano, mes = dt_compra.year, dt_compra.month
-
                     import calendar
-                    max_dias = calendar.monthrange(ano, mes)[1]
-                    dia_valido = min(dia_venc, max_dias)
+                    from datetime import datetime
+                    
+                    dia_venc = int(row["dia_venc_cartao"])
+                    dia_fech = int(row["dia_fech_cartao"])
 
-                    data_venc_str = f"{ano:04d}-{mes:02d}-{dia_valido:02d}"
+                    # 1. SE JÁ EXISTE 'mes_fatura' EXPLÍCITO NO BANCO (Ex: "08/2026"), RESPEITA ELE
+                    mes_fat_banco = row.get("mes_fatura") or row.get("fatura_mes")
+                    if pd.notna(mes_fat_banco) and "/" in str(mes_fat_banco):
+                        try:
+                            m, a = map(int, str(mes_fat_banco).split("/"))
+                            max_d = calendar.monthrange(a, m)[1]
+                            data_venc = f"{a:04d}-{m:02d}-{min(dia_venc, max_d):02d}"
+                            return pd.Series([data_venc, f"{m:02d}/{a:04d}"])
+                        except Exception:
+                            pass
+
+                    # 2. CALCULA O MÊS DA FATURA COM BASE NO DIA DE FECHAMENTO
+                    dt_compra = pd.to_datetime(row.get("data") or row.get("data_compra"))
+                    ano = dt_compra.year
+                    mes = dt_compra.month
+                    dia = dt_compra.day
+
+                    # Regra de Fechamento: Se comprou no dia do fechamento ou depois, vai pro mês seguinte
+                    if dia >= dia_fech:
+                        if mes == 12:
+                            mes = 1
+                            ano += 1
+                        else:
+                            mes += 1
+
+                    # Calcula a data de vencimento correspondente à fatura
+                    max_dias = calendar.monthrange(ano, mes)[1]
+                    dia_venc_valido = min(dia_venc, max_dias)
+
+                    data_venc_str = f"{ano:04d}-{mes:02d}-{dia_venc_valido:02d}"
                     mes_fat_str = f"{mes:02d}/{ano:04d}"
                     return pd.Series([data_venc_str, mes_fat_str])
-
-                df_credito[["data_venc_calculada", "mes_fatura_calculado"]] = df_credito.apply(
-                    resolver_mes_e_vencimento_fatura, axis=1
-                )
-
-                df_credito["data"] = df_credito["data_venc_calculada"]
-                df_credito["mes_fatura"] = df_credito["mes_fatura_calculado"]
-
-                df_faturas_agrupadas = (
-                    df_credito.groupby(["nome_exibicao_cartao", "mes_fatura", "pago"], as_index=False)
-                    .agg({
-                        "valor": "sum",
-                        "id": "first",
-                        "ids_compras": lambda x: list(x),
-                        "data": "first",
-                        "categoria": lambda x: "Fatura de Cartão",
-                        "forma_pagamento": lambda x: "Cartão de Crédito"
-                    })
-                )
-                df_faturas_agrupadas["descricao"] = df_faturas_agrupadas.apply(
-                    lambda r: f"💳 Fatura {r['nome_exibicao_cartao']} ({r['mes_fatura']})", axis=1
-                )
+                
 
             # Unifica tudo
             df_venc = pd.concat([df_outras_contas, df_faturas_agrupadas], ignore_index=True)
