@@ -1920,7 +1920,7 @@ elif opcao == "📅 Próximos Vencimentos":
             else:
                 df_raw["pago"] = df_raw["pago"].fillna(False).astype(bool)
 
-            # Filtro de cartão amplo
+            # Filtro de compras no cartão
             cond_cartao = (
                 df_raw["forma_pagamento"].astype(str).str.contains(r"cart[ãa]o|cr[eé]dito|riachuelo|pernambucanas|nubank|inter|c&a|mercado pago", case=False, na=False) |
                 (df_raw["nome_cartao"].notna() if "nome_cartao" in df_raw.columns else False)
@@ -1948,8 +1948,9 @@ elif opcao == "📅 Próximos Vencimentos":
                                         v = c.get("dia_vencimento") or c.get("vencimento") or c.get("dia_venc")
                                         f = c.get("dia_fechamento") or c.get("fechamento") or c.get("dia_fech")
                                         if n:
-                                            v_int = int(v) if v and str(v).isdigit() else 10
-                                            f_int = int(f) if f and str(f).isdigit() else max(1, v_int - 7)
+                                            v_int = int(v) if v and str(v).isdigit() else 15
+                                            # Caso não haja fechamento explícito, define 7 dias antes do vencimento
+                                            f_int = int(f) if f and str(f).isdigit() else ((v_int - 7) if v_int > 7 else (v_int + 23))
                                             mapa_cartoes[n] = {"vencimento": v_int, "fechamento": f_int}
                                 break
                         except Exception:
@@ -1967,6 +1968,7 @@ elif opcao == "📅 Próximos Vencimentos":
                 def extrair_datas_cartao(row, nome_cartao_exibido):
                     dia_venc, dia_fech = None, None
 
+                    # 1. Verifica objeto do cartão na própria linha
                     for col in ["nome_cartao", "cartao"]:
                         if col in row and isinstance(row[col], dict):
                             val = row[col]
@@ -1975,6 +1977,7 @@ elif opcao == "📅 Próximos Vencimentos":
                             if v and str(v).isdigit(): dia_venc = int(v)
                             if f and str(f).isdigit(): dia_fech = int(f)
 
+                    # 2. Verifica no mapa trazido da base de cartões
                     nome_key = nome_cartao_exibido.strip().lower()
                     if not dia_venc and nome_key in mapa_cartoes:
                         dia_venc = mapa_cartoes[nome_key]["vencimento"]
@@ -1987,8 +1990,8 @@ elif opcao == "📅 Próximos Vencimentos":
                                 dia_fech = info["fechamento"]
                                 break
 
-                    dia_venc = dia_venc if dia_venc else 10
-                    dia_fech = dia_fech if dia_fech else max(1, dia_venc - 7)
+                    dia_venc = dia_venc if dia_venc else 15
+                    dia_fech = dia_fech if dia_fech else ((dia_venc - 7) if dia_venc > 7 else (dia_venc + 23))
 
                     return pd.Series([dia_venc, dia_fech])
 
@@ -2005,8 +2008,18 @@ elif opcao == "📅 Próximos Vencimentos":
 
                     ano, mes, dia_compra = dt_compra.year, dt_compra.month, dt_compra.day
 
-                    # Se a compra foi feita após ou no dia do fechamento, vai para o mês seguinte
-                    if dia_fech > dia_venc and dia_compra >= dia_fech:
+                    # Regra de virada de fatura baseada no fechamento
+                    virou_fatura = False
+                    if dia_fech < dia_venc:
+                        # Fechamento no mesmo mês do vencimento (ex: fecha dia 8, vence dia 15)
+                        if dia_compra >= dia_fech:
+                            virou_fatura = True
+                    else:
+                        # Fechamento no mês anterior ao vencimento (ex: fecha dia 28, vence dia 5)
+                        if dia_compra >= dia_fech:
+                            virou_fatura = True
+
+                    if virou_fatura:
                         if mes == 12:
                             mes_fatura, ano_fatura = 1, ano + 1
                         else:
@@ -2050,7 +2063,7 @@ elif opcao == "📅 Próximos Vencimentos":
             if not df_venc.empty:
                 df_venc["data_dt"] = pd.to_datetime(df_venc["data"])
 
-                # Aplica filtro dinâmico
+                # Aplica filtro do mês selecionado
                 if target_mes and target_ano:
                     df_venc = df_venc[
                         (df_venc["data_dt"].dt.month == target_mes) & 
