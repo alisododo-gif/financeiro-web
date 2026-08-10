@@ -1887,7 +1887,7 @@ elif opcao == "📅 Próximos Vencimentos":
             ]
         )
 
-    # Define o mês e ano alvo com base na escolha
+    # Define o mês e ano alvo
     if "Mês Atual" in opcao_periodo:
         target_mes, target_ano = mes_atual, ano_atual
     elif "Mês Anterior" in opcao_periodo:
@@ -1935,7 +1935,7 @@ elif opcao == "📅 Próximos Vencimentos":
             df_faturas_agrupadas = pd.DataFrame()
 
             if not df_credito.empty:
-                # Busca cadastro de cartões para vincular o dia de vencimento real de cada bandeira
+                # Mapeia vencimento e fechamento dos cartões cadastrados
                 mapa_cartoes = {}
                 for fn_name in ["buscar_cartoes", "listar_cartoes", "buscar_cartoes_usuario", "carregar_cartoes"]:
                     if fn_name in globals() and callable(globals()[fn_name]):
@@ -1946,8 +1946,11 @@ elif opcao == "📅 Próximos Vencimentos":
                                     if isinstance(c, dict):
                                         n = str(c.get("nome") or c.get("nome_cartao") or "").strip().lower()
                                         v = c.get("dia_vencimento") or c.get("vencimento") or c.get("dia_venc")
-                                        if n and v:
-                                            mapa_cartoes[n] = int(v)
+                                        f = c.get("dia_fechamento") or c.get("fechamento") or c.get("dia_fech")
+                                        if n:
+                                            v_int = int(v) if v and str(v).isdigit() else 10
+                                            f_int = int(f) if f and str(f).isdigit() else max(1, v_int - 7)
+                                            mapa_cartoes[n] = {"vencimento": v_int, "fechamento": f_int}
                                 break
                         except Exception:
                             pass
@@ -1961,45 +1964,68 @@ elif opcao == "📅 Próximos Vencimentos":
                             return str(val)
                     return "Cartão de Crédito"
 
-                def extrair_dia_vencimento(row, nome_cartao_exibid):
-                    # 1. Tenta extrair da própria linha da transação se for dicionário/coluna válida
-                    for col in ["dia_vencimento_cartao", "dia_vencimento", "vencimento", "dia_venc", "nome_cartao", "cartao"]:
-                        if col in row and pd.notna(row[col]):
+                def extrair_datas_cartao(row, nome_cartao_exibido):
+                    dia_venc = None
+                    dia_fech = None
+
+                    # 1. Verifica no objeto da linha
+                    for col in ["nome_cartao", "cartao"]:
+                        if col in row and isinstance(row[col], dict):
                             val = row[col]
-                            if isinstance(val, dict):
-                                for k in ["dia_vencimento", "vencimento", "dia_venc"]:
-                                    if k in val and pd.notna(val[k]) and str(val[k]).isdigit():
-                                        return int(val[k])
-                            elif str(val).isdigit():
-                                return int(val)
+                            v = val.get("dia_vencimento") or val.get("vencimento")
+                            f = val.get("dia_fechamento") or val.get("fechamento")
+                            if v and str(v).isdigit(): dia_venc = int(v)
+                            if f and str(f).isdigit(): dia_fech = int(f)
 
-                    # 2. Procura o vencimento no cadastro do cartão correspondente
-                    nome_key = nome_cartao_exibid.strip().lower()
-                    if nome_key in mapa_cartoes:
-                        return mapa_cartoes[nome_key]
+                    # 2. Verifica no mapa de cartões do banco
+                    nome_key = nome_cartao_exibido.strip().lower()
+                    if not dia_venc and nome_key in mapa_cartoes:
+                        dia_venc = mapa_cartoes[nome_key]["vencimento"]
+                        dia_fech = mapa_cartoes[nome_key]["fechamento"]
 
-                    for k, v in mapa_cartoes.items():
-                        if k in nome_key or nome_key in k:
-                            return v
+                    if not dia_venc:
+                        for k, info in mapa_cartoes.items():
+                            if k in nome_key or nome_key in k:
+                                dia_venc = info["vencimento"]
+                                dia_fech = info["fechamento"]
+                                break
 
-                    return 10  # Valor padrão caso o cartão não esteja cadastrado no BD
+                    # Valores padrão caso não encontre
+                    dia_venc = dia_venc if dia_venc else 10
+                    dia_fech = dia_fech if dia_fech else max(1, dia_venc - 7)
+
+                    return pd.Series([dia_venc, dia_fech])
 
                 df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
-                df_credito["dia_venc_cartao"] = df_credito.apply(
-                    lambda r: extrair_dia_vencimento(r, r["nome_exibicao_cartao"]), axis=1
+                df_credito[["dia_venc_cartao", "dia_fech_cartao"]] = df_credito.apply(
+                    lambda r: extrair_datas_cartao(r, r["nome_exibicao_cartao"]), axis=1
                 )
                 df_credito["ids_compras"] = df_credito["id"]
 
                 def resolver_mes_e_vencimento_fatura(row):
                     dt_compra = pd.to_datetime(row["data"])
                     dia_venc = int(row["dia_venc_cartao"])
-                    ano, mes = dt_compra.year, dt_compra.month
+                    dia_fech = int(row["dia_fech_cartao"])
 
-                    max_dias = calendar.monthrange(ano, mes)[1]
+                    ano, mes, dia_compra = dt_compra.year, dt_compra.month, dt_compra.day
+
+                    # Se a compra foi feita no dia do fechamento ou depois, ela entra na fatura do MÊS SEGUINTE
+                    if dia_compra >= dia_fech:
+                        if mes == 12:
+                            mes_fatura = 1
+                            ano_fatura = ano + 1
+                        else:
+                            mes_fatura = mes + 1
+                            ano_fatura = ano
+                    else:
+                        mes_fatura = mes
+                        ano_fatura = ano
+
+                    max_dias = calendar.monthrange(ano_fatura, mes_fatura)[1]
                     dia_valido = min(dia_venc, max_dias)
 
-                    data_venc_str = f"{ano:04d}-{mes:02d}-{dia_valido:02d}"
-                    mes_fat_str = f"{mes:02d}/{ano:04d}"
+                    data_venc_str = f"{ano_fatura:04d}-{mes_fatura:02d}-{dia_valido:02d}"
+                    mes_fat_str = f"{mes_fatura:02d}/{ano_fatura:04d}"
                     return pd.Series([data_venc_str, mes_fat_str])
 
                 df_credito[["data_venc_calculada", "mes_fatura_calculado"]] = df_credito.apply(
