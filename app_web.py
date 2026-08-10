@@ -1938,8 +1938,9 @@ elif opcao == "📅 Próximos Vencimentos":
                     for col in ["nome_cartao", "cartao_nome", "cartao", "nome"]:
                         if col in row and pd.notna(row[col]):
                             val = row[col]
-                            return val.get("nome_cartao", "Cartão de Crédito") if isinstance(val, dict) else str(val)
-                    # Busca por palavras-chave na descrição/forma de pagamento se nome_cartao estiver vazio
+                            nome = val.get("nome_cartao", "Cartão de Crédito") if isinstance(val, dict) else str(val)
+                            if nome.strip():
+                                return nome.strip()
                     txt = f"{row.get('descricao', '')} {row.get('forma_pagamento', '')}".lower()
                     if "riachuelo" in txt:
                         return "Riachuelo"
@@ -1960,12 +1961,23 @@ elif opcao == "📅 Próximos Vencimentos":
                 df_credito["ids_compras"] = df_credito["id"]
 
                 def resolver_mes_e_vencimento_fatura(row):
-                    # Prioriza a data de vencimento informada/parcela; se não existir, usa a data da compra
-                    dt_ref = pd.to_datetime(row.get("data_vencimento") or row.get("vencimento") or row["data"])
-                    dia_venc = int(row["dia_venc_cartao"])
-                    ano, mes = dt_ref.year, dt_ref.month
-
                     import calendar
+                    dia_venc = int(row["dia_venc_cartao"])
+
+                    # 1. TENTA PRIMEIRO USAR O 'mes_fatura' SALVO NO BANCO (Ex: "08/2026")
+                    mes_fat_banco = row.get("mes_fatura") or row.get("fatura_mes")
+                    if pd.notna(mes_fat_banco) and "/" in str(mes_fat_banco):
+                        try:
+                            m, a = map(int, str(mes_fat_banco).split("/"))
+                            max_d = calendar.monthrange(a, m)[1]
+                            data_venc = f"{a:04d}-{m:02d}-{min(dia_venc, max_d):02d}"
+                            return pd.Series([data_venc, f"{m:02d}/{a:04d}"])
+                        except Exception:
+                            pass
+
+                    # 2. SE NÃO EXISTIR, CALCULA PELA DATA DO REGISTRO
+                    dt_ref = pd.to_datetime(row.get("data_vencimento") or row.get("vencimento") or row["data"])
+                    ano, mes = dt_ref.year, dt_ref.month
                     max_dias = calendar.monthrange(ano, mes)[1]
                     dia_valido = min(dia_venc, max_dias)
 
@@ -1980,20 +1992,27 @@ elif opcao == "📅 Próximos Vencimentos":
                 df_credito["data"] = df_credito["data_venc_calculada"]
                 df_credito["mes_fatura"] = df_credito["mes_fatura_calculado"]
 
-                df_faturas_agrupadas = (
-                    df_credito.groupby(["nome_exibicao_cartao", "mes_fatura", "pago"], as_index=False)
-                    .agg({
-                        "valor": "sum",
-                        "id": "first",
-                        "ids_compras": lambda x: list(x),
-                        "data": "first",
-                        "categoria": lambda x: "Fatura de Cartão",
-                        "forma_pagamento": lambda x: "Cartão de Crédito"
+                # AGRUPAMENTO SEM 'pago' NA CHAVE:
+                # Junta todas as compras do mesmo cartão e mês em uma única fatura.
+                faturas_list = []
+                for (nome_cartao, mes_fat), grupo in df_credito.groupby(["nome_exibicao_cartao", "mes_fatura"]):
+                    # Se pelo menos UMA compra não estiver paga, a fatura inteira permanece PENDENTE
+                    tudo_pago = grupo["pago"].all()
+                    
+                    faturas_list.append({
+                        "nome_exibicao_cartao": nome_cartao,
+                        "mes_fatura": mes_fat,
+                        "pago": tudo_pago,
+                        "valor": grupo["valor"].sum(),
+                        "id": grupo["id"].iloc[0],
+                        "ids_compras": grupo["ids_compras"].tolist(),
+                        "data": grupo["data"].iloc[0],
+                        "categoria": "Fatura de Cartão",
+                        "forma_pagamento": "Cartão de Crédito",
+                        "descricao": f"💳 Fatura {nome_cartao} ({mes_fat})"
                     })
-                )
-                df_faturas_agrupadas["descricao"] = df_faturas_agrupadas.apply(
-                    lambda r: f"💳 Fatura {r['nome_exibicao_cartao']} ({r['mes_fatura']})", axis=1
-                )
+
+                df_faturas_agrupadas = pd.DataFrame(faturas_list)
 
             # Unifica tudo
             df_venc = pd.concat([df_outras_contas, df_faturas_agrupadas], ignore_index=True)
