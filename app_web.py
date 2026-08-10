@@ -1917,7 +1917,6 @@ elif opcao == "📅 Próximos Vencimentos":
             return s.split(".")[0]
 
     def normalizar_mes_fatura(val):
-        """Converte '8/2026', '08/2026', '2026-08' sempre para (8, 2026)"""
         if pd.isna(val) or not val:
             return None, None
         s = str(val).strip()
@@ -1925,7 +1924,7 @@ elif opcao == "📅 Próximos Vencimentos":
             partes = s.split("/")
             try:
                 return int(partes[0]), int(partes[1])
-            except:
+            except Exception:
                 return None, None
         elif "-" in s:
             partes = s.split("-")
@@ -1934,7 +1933,7 @@ elif opcao == "📅 Próximos Vencimentos":
                     return int(partes[1]), int(partes[0])
                 else:
                     return int(partes[0]), int(partes[1])
-            except:
+            except Exception:
                 return None, None
         return None, None
 
@@ -1945,7 +1944,7 @@ elif opcao == "📅 Próximos Vencimentos":
     else:
         df_raw = pd.DataFrame(vencimentos)
 
-        # 1. Filtro seguro por usuário
+        # Filtro de usuário seguro
         if "usuario_id" in df_raw.columns and usuario_atual_id is not None:
             usr_target = normalizar_id(usuario_atual_id)
             df_raw["_usr_norm"] = df_raw["usuario_id"].apply(normalizar_id)
@@ -1965,7 +1964,7 @@ elif opcao == "📅 Próximos Vencimentos":
             if "forma_pagamento" not in df_raw.columns:
                 df_raw["forma_pagamento"] = "N/A"
 
-            # 2. Mapeamento de Cartões do usuário
+            # Map de Cartões
             mapa_cartoes_info = {}
             try:
                 res_cartoes = listar_cartoes(usuario_atual_id)
@@ -1993,7 +1992,6 @@ elif opcao == "📅 Próximos Vencimentos":
             except Exception:
                 pass
 
-            # 3. Identificação de compras no cartão
             def eh_cartao(row):
                 cid = normalizar_id(row.get("cartao_id"))
                 fp = str(row.get("forma_pagamento") or "").lower()
@@ -2018,7 +2016,6 @@ elif opcao == "📅 Próximos Vencimentos":
 
             cond_cartao = df_raw.apply(eh_cartao, axis=1)
 
-            # --- OUTRAS CONTAS ---
             df_outras_contas = df_raw[~cond_cartao].copy()
             if not df_outras_contas.empty:
                 df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(
@@ -2028,7 +2025,6 @@ elif opcao == "📅 Próximos Vencimentos":
                     "descricao"
                 ]
 
-            # --- CARTÕES DE CRÉDITO ---
             df_credito = df_raw[cond_cartao].copy()
             df_faturas_agrupadas = pd.DataFrame()
 
@@ -2142,6 +2138,26 @@ elif opcao == "📅 Próximos Vencimentos":
                     )
                 )
 
+            # Painel de Diagnóstico Rápido
+            with st.expander("🔍 Painel de Diagnóstico de Cartões"):
+                st.write(
+                    f"**Total de lançamentos de cartão identificados:**"
+                    f" {len(df_credito)}"
+                )
+                if not df_faturas_agrupadas.empty:
+                    st.write("**Faturas Geradas por Mês:**")
+                    st.dataframe(
+                        df_faturas_agrupadas[
+                            [
+                                "descricao",
+                                "mes_fatura",
+                                "valor",
+                                "data",
+                                "pago",
+                            ]
+                        ]
+                    )
+
             dfs_concatenar = [
                 df
                 for df in [df_outras_contas, df_faturas_agrupadas]
@@ -2153,7 +2169,7 @@ elif opcao == "📅 Próximos Vencimentos":
                 else pd.DataFrame()
             )
 
-            # 4. Filtro por Período
+            # Filtro de exibição por mês
             if not df_venc.empty and target_mes and target_ano:
 
                 def pertence_ao_periodo(row):
@@ -2174,9 +2190,10 @@ elif opcao == "📅 Próximos Vencimentos":
 
             if df_venc.empty:
                 st.info(
-                    f"Nenhum lançamento para o período"
-                    f" ({opcao_periodo}). Alterne no topo para '🔮 Ver Todos"
-                    " os Registros Encontrados'!"
+                    f"Nenhum lançamento para {target_mes:02d}/{target_ano}."
+                    " Experimente mudar o seletor no topo para **⏩ Próximo Mês**"
+                    " ou **🔮 Ver Todos os Registros** para ver os cartões do"
+                    " novo ciclo!"
                 )
             else:
                 df_venc = df_venc.sort_values(by="data").reset_index(drop=True)
