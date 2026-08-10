@@ -1922,6 +1922,37 @@ elif opcao == "📅 Próximos Vencimentos":
     else:
         df_raw = pd.DataFrame(vencimentos)
 
+        df_raw = pd.DataFrame(vencimentos)
+
+        # --- DEBUG TEMPORÁRIO (AQUI) ---
+        st.subheader("🔍 Diagnóstico dos Dados")
+        st.write("1. Total de registros retornados:", len(df_raw))
+        st.write("2. Colunas existentes:", df_raw.columns.tolist())
+
+        # Seleciona apenas as colunas que existem no df_raw para evitar erro de KeyError
+        cols_amostra = [
+            c
+            for c in [
+                "descricao",
+                "data",
+                "cartao_id",
+                "forma_pagamento",
+                "mes_fatura",
+                "usuario_id",
+            ]
+            if c in df_raw.columns
+        ]
+        st.write(
+            "3. Amostra dos dados:",
+            df_raw[cols_amostra].head(5) if not df_raw.empty else "Vazio",
+        )
+        st.write("4. ID do usuário logado na sessão:", usuario_atual_id)
+        st.write(
+            "5. Cartões mapeados no banco:",
+            listar_cartoes(usuario_atual_id) if usuario_atual_id else "Sem ID",
+        )
+        st.markdown("---")
+
         # Filtro de usuário seguro caso o SQL não tenha filtrado
         if "usuario_id" in df_raw.columns and usuario_atual_id is not None:
             df_raw["_user_id_norm"] = df_raw["usuario_id"].apply(normalizar_id)
