@@ -1888,7 +1888,7 @@ elif opcao == "📅 Próximos Vencimentos":
                 f"⏩ Próximo Mês"
                 f" ({(mes_atual+1 if mes_atual < 12 else 1):02d}/{(ano_atual if mes_atual < 12 else ano_atual+1)})"
             ),
-            "🔮 Ver Todos os Próximos Dias",
+            "🔮 Ver Todos os Registros Encontrados",
         ],
     )
 
@@ -1905,70 +1905,37 @@ elif opcao == "📅 Próximos Vencimentos":
 
     usuario_atual_id = st.session_state.get("usuario_id")
 
-    # Função auxiliar para tratar IDs nulos, inteiros ou floats do Pandas/Supabase
+    # Função ultra-resiliente para tratar IDs (converte 1.0, "1", 1 -> "1")
     def normalizar_id(val):
         if pd.isna(val) or val is None:
             return ""
         s = str(val).strip()
         if s.lower() in ["none", "nan", "null", ""]:
             return ""
-        return s.split(".")[0]
+        try:
+            # Se for float como "1.0", converte para int primeiro ("1")
+            return str(int(float(s)))
+        except ValueError:
+            return s.split(".")[0]
 
-    # 1. Busca lançamentos no banco (busca ampla)
     vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=730)
 
     if not vencimentos:
-        st.info("Nenhum lançamento retornado pelo banco de dados.")
+        st.info("Nenhum lançamento encontrado no banco de dados.")
     else:
         df_raw = pd.DataFrame(vencimentos)
 
-        df_raw = pd.DataFrame(vencimentos)
-
-        # --- DEBUG TEMPORÁRIO (AQUI) ---
-        st.subheader("🔍 Diagnóstico dos Dados")
-        st.write("1. Total de registros retornados:", len(df_raw))
-        st.write("2. Colunas existentes:", df_raw.columns.tolist())
-
-        # Seleciona apenas as colunas que existem no df_raw para evitar erro de KeyError
-        cols_amostra = [
-            c
-            for c in [
-                "descricao",
-                "data",
-                "cartao_id",
-                "forma_pagamento",
-                "mes_fatura",
-                "usuario_id",
-            ]
-            if c in df_raw.columns
-        ]
-        st.write(
-            "3. Amostra dos dados:",
-            df_raw[cols_amostra].head(5) if not df_raw.empty else "Vazio",
-        )
-        st.write("4. ID do usuário logado na sessão:", usuario_atual_id)
-        st.write(
-            "5. Cartões mapeados no banco:",
-            listar_cartoes(usuario_atual_id) if usuario_atual_id else "Sem ID",
-        )
-        st.markdown("---")
-
-        # Filtro de usuário seguro caso o SQL não tenha filtrado
+        # 1. Filtro seguro por ID de usuário
         if "usuario_id" in df_raw.columns and usuario_atual_id is not None:
-            df_raw["_user_id_norm"] = df_raw["usuario_id"].apply(normalizar_id)
-            user_target_str = normalizar_id(usuario_atual_id)
-            if user_target_str:
-                df_raw = df_raw[
-                    df_raw["_user_id_norm"] == user_target_str
-                ].copy()
+            usr_target = normalizar_id(usuario_atual_id)
+            df_raw["_usr_norm"] = df_raw["usuario_id"].apply(normalizar_id)
+            if usr_target:
+                df_raw = df_raw[df_raw["_usr_norm"] == usr_target].copy()
 
         if df_raw.empty:
-            st.warning(
-                f"Nenhum registro encontrado para o usuario_id="
-                f"{usuario_atual_id}."
-            )
+            st.warning("Nenhum lançamento pertence ao usuário logado.")
         else:
-            # Tratamento de colunas essenciais
+            # Tratamento de colunas padrão
             df_raw["pago"] = (
                 df_raw["pago"].fillna(False).astype(bool)
                 if "pago" in df_raw.columns
@@ -1979,12 +1946,42 @@ elif opcao == "📅 Próximos Vencimentos":
             if "forma_pagamento" not in df_raw.columns:
                 df_raw["forma_pagamento"] = "N/A"
 
-            # 2. Identificação de compras no cartão
+            # 2. Mapeamento de Cartões
+            mapa_cartoes_info = {}
+            try:
+                res_cartoes = listar_cartoes(usuario_atual_id)
+                if res_cartoes:
+                    for c in res_cartoes:
+                        if isinstance(c, dict):
+                            c_id = normalizar_id(c.get("id"))
+                            mapa_cartoes_info[c_id] = {
+                                "nome": str(
+                                    c.get("nome_cartao")
+                                    or c.get("nome")
+                                    or "Cartão"
+                                ),
+                                "vencimento": int(
+                                    c.get("dia_vencimento")
+                                    or c.get("vencimento")
+                                    or 15
+                                ),
+                                "fechamento": int(
+                                    c.get("dia_fechamento")
+                                    or c.get("fechamento")
+                                    or 8
+                                ),
+                            }
+            except Exception:
+                pass
+
+            # 3. Identificação de compras de cartão
             def eh_cartao(row):
                 cid = normalizar_id(row.get("cartao_id"))
                 fp = str(row.get("forma_pagamento") or "").lower()
                 mf = str(row.get("mes_fatura") or "").strip()
 
+                if cid != "" and cid in mapa_cartoes_info:
+                    return True
                 if cid != "":
                     return True
                 if any(
@@ -2001,7 +1998,7 @@ elif opcao == "📅 Próximos Vencimentos":
 
             cond_cartao = df_raw.apply(eh_cartao, axis=1)
 
-            # --- SEPARAÇÃO: OUTRAS CONTAS vs CARTÃO DE CRÉDITO ---
+            # --- OUTRAS CONTAS (BOLETOS, PIX, FIXAS) ---
             df_outras_contas = df_raw[~cond_cartao].copy()
             if not df_outras_contas.empty:
                 df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(
@@ -2011,36 +2008,11 @@ elif opcao == "📅 Próximos Vencimentos":
                     "descricao"
                 ]
 
+            # --- CARTÕES DE CRÉDITO ---
             df_credito = df_raw[cond_cartao].copy()
             df_faturas_agrupadas = pd.DataFrame()
 
             if not df_credito.empty:
-                mapa_cartoes_info = {}
-                try:
-                    res_cartoes = listar_cartoes(usuario_atual_id)
-                    if res_cartoes:
-                        for c in res_cartoes:
-                            if isinstance(c, dict):
-                                c_id = normalizar_id(c.get("id"))
-                                mapa_cartoes_info[c_id] = {
-                                    "nome": str(
-                                        c.get("nome_cartao")
-                                        or c.get("nome")
-                                        or "Cartão"
-                                    ),
-                                    "vencimento": int(
-                                        c.get("dia_vencimento")
-                                        or c.get("vencimento")
-                                        or 15
-                                    ),
-                                    "fechamento": int(
-                                        c.get("dia_fechamento")
-                                        or c.get("fechamento")
-                                        or 8
-                                    ),
-                                }
-                except Exception:
-                    pass
 
                 def obter_nome_cartao(row):
                     cid = normalizar_id(row.get("cartao_id"))
@@ -2119,10 +2091,12 @@ elif opcao == "📅 Próximos Vencimentos":
                         "Compra no Cartão"
                     )
 
+                # Agrupamento mantendo linhas nulas com dropna=False
                 df_faturas_agrupadas = (
                     df_credito.groupby(
                         ["nome_exibicao_cartao", "mes_fatura", "pago"],
                         as_index=False,
+                        dropna=False,
                     )
                     .agg({
                         "valor": "sum",
@@ -2167,7 +2141,7 @@ elif opcao == "📅 Próximos Vencimentos":
                 else pd.DataFrame()
             )
 
-            # Filtro por período
+            # 4. Filtro por Período
             if not df_venc.empty and target_mes and target_ano:
                 target_str = f"{target_mes:02d}/{target_ano:04d}"
 
@@ -2192,9 +2166,11 @@ elif opcao == "📅 Próximos Vencimentos":
                 ].copy()
 
             if df_venc.empty:
-                st.warning(
-                    f"Nenhum lançamento encontrado para o mês"
-                    f" {target_mes:02d}/{target_ano}."
+                st.info(
+                    f"Nenhum lançamento para o período"
+                    f" ({opcao_periodo}). Alterne a opção para 'Ver Todos os"
+                    " Registros' no topo da tela para visualizar os demais"
+                    " meses!"
                 )
             else:
                 df_venc = df_venc.sort_values(by="data").reset_index(drop=True)
