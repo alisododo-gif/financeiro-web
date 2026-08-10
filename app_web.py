@@ -2017,16 +2017,16 @@ elif opcao == "📅 Próximos Vencimentos":
                         dt_compra.day,
                     )
 
-                    # Se já houver mes_fatura preenchido no banco (ex: "08/2026")
+                    # Prioriza o campo mes_fatura se ele existir no Supabase (ex: "08/2026")
                     if "mes_fatura" in row and pd.notna(row["mes_fatura"]):
-                        mes_fat_str = str(row["mes_fatura"])
+                        mes_fat_str = str(row["mes_fatura"]).strip()
                         try:
                             m_str, a_str = mes_fat_str.split("/")
                             mes_fatura, ano_fatura = int(m_str), int(a_str)
                         except Exception:
                             mes_fatura, ano_fatura = mes, ano
                     else:
-                        # Cálculo Dinâmico baseando-se no dia do fechamento
+                        # Cálculo Dinâmico baseado no fechamento do ciclo
                         if dia_compra > dia_fech:
                             mes_ciclo = mes + 1 if mes < 12 else 1
                             ano_ciclo = ano if mes < 12 else ano + 1
@@ -2117,12 +2117,32 @@ elif opcao == "📅 Próximos Vencimentos":
             )
 
             if not df_venc.empty:
-                df_venc["data_dt"] = pd.to_datetime(df_venc["data"])
-
+                # --- FILTRAGEM DE PERÍODO ATUALIZADA (SUPORTE A MES_FATURA) ---
                 if target_mes and target_ano:
+                    target_str = f"{target_mes:02d}/{target_ano:04d}"
+
+                    def pertence_ao_periodo(row):
+                        # Se for fatura de cartão, valida pelo mes_fatura (ex: "08/2026")
+                        if (
+                            "mes_fatura" in row
+                            and pd.notna(row["mes_fatura"])
+                            and str(row["mes_fatura"]).strip() != ""
+                        ):
+                            return (
+                                str(row["mes_fatura"]).strip() == target_str
+                            )
+
+                        # Para outras contas, valida pela data de vencimento
+                        if "data" in row and pd.notna(row["data"]):
+                            dt = pd.to_datetime(row["data"])
+                            return (
+                                dt.month == target_mes and dt.year == target_ano
+                            )
+
+                        return False
+
                     df_venc = df_venc[
-                        (df_venc["data_dt"].dt.month == target_mes)
-                        & (df_venc["data_dt"].dt.year == target_ano)
+                        df_venc.apply(pertence_ao_periodo, axis=1)
                     ].copy()
 
             if df_venc.empty:
