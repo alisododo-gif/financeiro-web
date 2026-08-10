@@ -1867,7 +1867,7 @@ elif opcao == "📅 Próximos Vencimentos":
     st.title("📅 Próximos Vencimentos e Faturas")
     st.caption("Acompanhe contas pendentes e quitadas por período.")
 
-    # 1. DATA DINÂMICA
+    # 1. DATA DINÂMICA (Muda automaticamente a cada mês)
     hoje = pd.to_datetime("today")
     mes_atual = hoje.month
     ano_atual = hoje.year
@@ -1899,8 +1899,8 @@ elif opcao == "📅 Próximos Vencimentos":
 
     usuario_atual_id = st.session_state.get("usuario_id")
     
-    # Aumentado para 365 dias para não "cortar" compras e parcelas das faturas
-    vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=365)
+    # Busca lançamentos estendidos (90 dias para cobrir passados/futuros)
+    vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=90)
 
     if not vencimentos:
         st.info("Nenhum lançamento encontrado para o período.")
@@ -1918,10 +1918,7 @@ elif opcao == "📅 Próximos Vencimentos":
             else:
                 df_raw["pago"] = df_raw["pago"].fillna(False).astype(bool)
 
-            if "forma_pagamento" not in df_raw.columns:
-                df_raw["forma_pagamento"] = "Outros"
-
-            cond_cartao = df_raw["forma_pagamento"].str.contains(r"cart[ãa]o|cr[eé]dito", case=False, na=False)
+            cond_cartao = df_raw["forma_pagamento"].str.contains(r"cartão de crédito|credito", case=False, na=False)
             
             # Contas comuns
             df_outras_contas = df_raw[~cond_cartao].copy()
@@ -1948,45 +1945,14 @@ elif opcao == "📅 Próximos Vencimentos":
                                 return int(val)
                     return 10
 
-                def extrair_melhor_dia(row):
-                    for col in ["melhor_dia", "dia_fechamento", "fechamento"]:
-                        if col in row and pd.notna(row[col]):
-                            val = str(row[col]).strip()
-                            if val.isdigit():
-                                return int(val)
-                    return None
-
-                df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1).fillna("Cartão de Crédito")
+                df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
                 df_credito["dia_venc_cartao"] = df_credito.apply(extrair_dia_vencimento, axis=1)
-                df_credito["melhor_dia_cartao"] = df_credito.apply(extrair_melhor_dia, axis=1)
                 df_credito["ids_compras"] = df_credito["id"]
 
                 def resolver_mes_e_vencimento_fatura(row):
-                    # 1. Se já existe mes_fatura explícito no banco de dados, utiliza ele
-                    mes_fat_existente = row.get("mes_fatura") or row.get("fatura_mes")
-                    dia_venc = int(row["dia_venc_cartao"])
-
-                    if pd.notna(mes_fat_existente) and "/" in str(mes_fat_existente):
-                        try:
-                            m, a = map(int, str(mes_fat_existente).split("/"))
-                            import calendar
-                            max_d = calendar.monthrange(a, m)[1]
-                            data_venc = f"{a:04d}-{m:02d}-{min(dia_venc, max_d):02d}"
-                            return pd.Series([data_venc, f"{m:02d}/{a:04d}"])
-                        except Exception:
-                            pass
-
-                    # 2. Se não existir, calcula considerando o Fechamento/Melhor dia de compra
                     dt_compra = pd.to_datetime(row["data"])
-                    ano, mes, dia = dt_compra.year, dt_compra.month, dt_compra.day
-                    melhor_dia = row["melhor_dia_cartao"]
-
-                    # Se a compra foi feita após ou no melhor dia/fechamento, pula para o mês seguinte
-                    if melhor_dia and dia >= melhor_dia:
-                        mes += 1
-                        if mes > 12:
-                            mes = 1
-                            ano += 1
+                    dia_venc = int(row["dia_venc_cartao"])
+                    ano, mes = dt_compra.year, dt_compra.month
 
                     import calendar
                     max_dias = calendar.monthrange(ano, mes)[1]
@@ -2003,9 +1969,8 @@ elif opcao == "📅 Próximos Vencimentos":
                 df_credito["data"] = df_credito["data_venc_calculada"]
                 df_credito["mes_fatura"] = df_credito["mes_fatura_calculado"]
 
-                # Agrupamento com dropna=False garante que nenhum item nulo seja descartado da soma
                 df_faturas_agrupadas = (
-                    df_credito.groupby(["nome_exibicao_cartao", "mes_fatura", "pago"], as_index=False, dropna=False)
+                    df_credito.groupby(["nome_exibicao_cartao", "mes_fatura", "pago"], as_index=False)
                     .agg({
                         "valor": "sum",
                         "id": "first",
@@ -2023,18 +1988,17 @@ elif opcao == "📅 Próximos Vencimentos":
             df_venc = pd.concat([df_outras_contas, df_faturas_agrupadas], ignore_index=True)
 
             if not df_venc.empty:
+                df_venc["data_dt"] = pd.to_datetime(df_venc["data"])
+
+                # Aplica o filtro do Mês Selecionado
                 if target_mes and target_ano:
-                    target_str = f"{target_mes:02d}/{target_ano:04d}"
-                    
-                    df_venc["mes_ano_ref"] = df_venc.apply(
-                        lambda r: r["mes_fatura"] if pd.notna(r.get("mes_fatura")) else pd.to_datetime(r["data"]).strftime("%m/%Y"),
-                        axis=1
-                    )
-                    
-                    df_venc = df_venc[df_venc["mes_ano_ref"] == target_str].copy()
+                    df_venc = df_venc[
+                        (df_venc["data_dt"].dt.month == target_mes) & 
+                        (df_venc["data_dt"].dt.year == target_ano)
+                    ].copy()
 
             if df_venc.empty:
-                st.warning("Nenhum registro encontrado para a seleção de período.")
+                st.warning(f"Nenhum registro encontrado para a seleção de período.")
             else:
                 df_venc = df_venc.sort_values(by="data").reset_index(drop=True)
 
