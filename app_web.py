@@ -1918,7 +1918,11 @@ elif opcao == "📅 Próximos Vencimentos":
             else:
                 df_raw["pago"] = df_raw["pago"].fillna(False).astype(bool)
 
-            cond_cartao = df_raw["forma_pagamento"].str.contains(r"cartão de crédito|credito", case=False, na=False)
+            # Captura "cartão", "crédito", "riachuelo", "pernambucanas", etc., ou verifica se a coluna nome_cartao está preenchida
+            cond_cartao = (
+                df_raw["forma_pagamento"].str.contains(r"cart[ãa]o|cr[eé]dito|riachuelo|pernambucanas", case=False, na=False) |
+                df_raw["nome_cartao"].notna() if "nome_cartao" in df_raw.columns else False
+            )
             
             # Contas comuns
             df_outras_contas = df_raw[~cond_cartao].copy()
