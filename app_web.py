@@ -510,15 +510,30 @@ if st.session_state.get("usuario_id") is None:
         unsafe_allow_html=True,
     )
 
+    # --- VERIFICAÇÃO DE AUTENTICAÇÃO ---
+usuario_atual_id = st.session_state.get("usuario_id") or st.query_params.get("uid")
+
+if not usuario_atual_id:
     # Layout de 1 coluna principal rápida no mobile
     _, col_center, _ = st.columns([0.1, 0.8, 0.1]) if st.session_state.get('is_mobile', False) else st.columns([1, 1.2, 1])
 
     with col_center:
         # Card principal via container
         with st.container(border=True):
-            # Centralização limpa e leve da Logo via colunas internas
-            caminho_logo = os.path.join("assets", "logo")
-            if os.path.exists(caminho_logo):
+            
+            # --- CORREÇÃO DA LOGO: Adicionada validação de extensões válidas ---
+            pasta_assets = "assets"
+            extensoes_logo = ["logo.png", "logo.jpg", "logo.jpeg", "logo.svg", "logo.webp"]
+            caminho_logo = None
+
+            for ext in extensoes_logo:
+                p = os.path.join(pasta_assets, ext)
+                if os.path.exists(p):
+                    caminho_logo = p
+                    break
+
+            # Renderiza apenas se encontrar a IMAGEM (arquivo válido)
+            if caminho_logo:
                 _, col_img, _ = st.columns([1, 2, 1])
                 with col_img:
                     st.image(caminho_logo, use_container_width=True)
@@ -576,6 +591,7 @@ if st.session_state.get("usuario_id") is None:
                     else:
                         st.error("Por favor, preencha todos os campos obrigatórios.")
 
+    # 🛑 Trava a execução para impedir lentidão do restante do app
     st.stop()
 
 # ==============================================================================
