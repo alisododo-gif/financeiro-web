@@ -1899,8 +1899,8 @@ elif opcao == "📅 Próximos Vencimentos":
 
     usuario_atual_id = st.session_state.get("usuario_id")
     
-    # Busca lançamentos estendidos (90 dias para cobrir passados/futuros)
-    vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=90)
+    # Busca lançamentos estendidos
+    vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=365)
 
     if not vencimentos:
         st.info("Nenhum lançamento encontrado para o período.")
@@ -1918,10 +1918,10 @@ elif opcao == "📅 Próximos Vencimentos":
             else:
                 df_raw["pago"] = df_raw["pago"].fillna(False).astype(bool)
 
-            # Captura "cartão", "crédito", "riachuelo", "pernambucanas", etc., ou verifica se a coluna nome_cartao está preenchida
+            # Identifica se é lançamento de cartão de crédito
             cond_cartao = (
-                df_raw["forma_pagamento"].str.contains(r"cart[ãa]o|cr[eé]dito|riachuelo|pernambucanas", case=False, na=False) |
-                df_raw["nome_cartao"].notna() if "nome_cartao" in df_raw.columns else False
+                df_raw["forma_pagamento"].astype(str).str.contains(r"cart[ãa]o|cr[eé]dito", case=False, na=False) |
+                (df_raw["nome_cartao"].notna() if "nome_cartao" in df_raw.columns else False)
             )
             
             # Contas comuns
@@ -1939,6 +1939,12 @@ elif opcao == "📅 Próximos Vencimentos":
                         if col in row and pd.notna(row[col]):
                             val = row[col]
                             return val.get("nome_cartao", "Cartão de Crédito") if isinstance(val, dict) else str(val)
+                    # Busca por palavras-chave na descrição/forma de pagamento se nome_cartao estiver vazio
+                    txt = f"{row.get('descricao', '')} {row.get('forma_pagamento', '')}".lower()
+                    if "riachuelo" in txt:
+                        return "Riachuelo"
+                    elif "pernambucanas" in txt:
+                        return "Pernambucanas"
                     return "Cartão de Crédito"
 
                 def extrair_dia_vencimento(row):
@@ -1954,9 +1960,10 @@ elif opcao == "📅 Próximos Vencimentos":
                 df_credito["ids_compras"] = df_credito["id"]
 
                 def resolver_mes_e_vencimento_fatura(row):
-                    dt_compra = pd.to_datetime(row["data"])
+                    # Prioriza a data de vencimento informada/parcela; se não existir, usa a data da compra
+                    dt_ref = pd.to_datetime(row.get("data_vencimento") or row.get("vencimento") or row["data"])
                     dia_venc = int(row["dia_venc_cartao"])
-                    ano, mes = dt_compra.year, dt_compra.month
+                    ano, mes = dt_ref.year, dt_ref.month
 
                     import calendar
                     max_dias = calendar.monthrange(ano, mes)[1]
