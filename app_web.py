@@ -1905,7 +1905,6 @@ elif opcao == "📅 Próximos Vencimentos":
 
     usuario_atual_id = st.session_state.get("usuario_id")
 
-    # Função ultra-resiliente para tratar IDs (converte 1.0, "1", 1 -> "1")
     def normalizar_id(val):
         if pd.isna(val) or val is None:
             return ""
@@ -1913,10 +1912,31 @@ elif opcao == "📅 Próximos Vencimentos":
         if s.lower() in ["none", "nan", "null", ""]:
             return ""
         try:
-            # Se for float como "1.0", converte para int primeiro ("1")
             return str(int(float(s)))
         except ValueError:
             return s.split(".")[0]
+
+    def normalizar_mes_fatura(val):
+        """Converte '8/2026', '08/2026', '2026-08' sempre para (8, 2026)"""
+        if pd.isna(val) or not val:
+            return None, None
+        s = str(val).strip()
+        if "/" in s:
+            partes = s.split("/")
+            try:
+                return int(partes[0]), int(partes[1])
+            except:
+                return None, None
+        elif "-" in s:
+            partes = s.split("-")
+            try:
+                if len(partes[0]) == 4:
+                    return int(partes[1]), int(partes[0])
+                else:
+                    return int(partes[0]), int(partes[1])
+            except:
+                return None, None
+        return None, None
 
     vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=730)
 
@@ -1925,7 +1945,7 @@ elif opcao == "📅 Próximos Vencimentos":
     else:
         df_raw = pd.DataFrame(vencimentos)
 
-        # 1. Filtro seguro por ID de usuário
+        # 1. Filtro seguro por usuário
         if "usuario_id" in df_raw.columns and usuario_atual_id is not None:
             usr_target = normalizar_id(usuario_atual_id)
             df_raw["_usr_norm"] = df_raw["usuario_id"].apply(normalizar_id)
@@ -1935,7 +1955,6 @@ elif opcao == "📅 Próximos Vencimentos":
         if df_raw.empty:
             st.warning("Nenhum lançamento pertence ao usuário logado.")
         else:
-            # Tratamento de colunas padrão
             df_raw["pago"] = (
                 df_raw["pago"].fillna(False).astype(bool)
                 if "pago" in df_raw.columns
@@ -1946,7 +1965,7 @@ elif opcao == "📅 Próximos Vencimentos":
             if "forma_pagamento" not in df_raw.columns:
                 df_raw["forma_pagamento"] = "N/A"
 
-            # 2. Mapeamento de Cartões
+            # 2. Mapeamento de Cartões do usuário
             mapa_cartoes_info = {}
             try:
                 res_cartoes = listar_cartoes(usuario_atual_id)
@@ -1974,15 +1993,16 @@ elif opcao == "📅 Próximos Vencimentos":
             except Exception:
                 pass
 
-            # 3. Identificação de compras de cartão
+            # 3. Identificação de compras no cartão
             def eh_cartao(row):
                 cid = normalizar_id(row.get("cartao_id"))
                 fp = str(row.get("forma_pagamento") or "").lower()
                 mf = str(row.get("mes_fatura") or "").strip()
+                nc = str(row.get("nome_cartao") or "").strip()
 
-                if cid != "" and cid in mapa_cartoes_info:
-                    return True
                 if cid != "":
+                    return True
+                if nc != "" and nc.lower() not in ["none", "nan"]:
                     return True
                 if any(
                     x in fp for x in ["cart", "credito", "crédito", "fatura"]
@@ -1991,14 +2011,14 @@ elif opcao == "📅 Próximos Vencimentos":
                 if (
                     mf != ""
                     and mf.lower() not in ["none", "nan"]
-                    and "/" in mf
+                    and ("/" in mf or "-" in mf)
                 ):
                     return True
                 return False
 
             cond_cartao = df_raw.apply(eh_cartao, axis=1)
 
-            # --- OUTRAS CONTAS (BOLETOS, PIX, FIXAS) ---
+            # --- OUTRAS CONTAS ---
             df_outras_contas = df_raw[~cond_cartao].copy()
             if not df_outras_contas.empty:
                 df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(
@@ -2029,28 +2049,22 @@ elif opcao == "📅 Próximos Vencimentos":
                     )
                     dia_venc, dia_fech = info["vencimento"], info["fechamento"]
 
-                    dt_compra = pd.to_datetime(
-                        row.get("data") or pd.to_datetime("today")
-                    )
-                    ano, mes, dia_compra = (
-                        dt_compra.year,
-                        dt_compra.month,
-                        dt_compra.day,
+                    m_fat, a_fat = normalizar_mes_fatura(
+                        row.get("mes_fatura")
                     )
 
-                    mf_val = str(row.get("mes_fatura") or "").strip()
-                    if (
-                        mf_val != ""
-                        and mf_val.lower() not in ["none", "nan"]
-                        and "/" in mf_val
-                    ):
-                        mes_fat_str = mf_val
-                        try:
-                            m_str, a_str = mes_fat_str.split("/")
-                            mes_fatura, ano_fatura = int(m_str), int(a_str)
-                        except Exception:
-                            mes_fatura, ano_fatura = mes, ano
+                    if m_fat and a_fat:
+                        mes_fatura, ano_fatura = m_fat, a_fat
                     else:
+                        dt_compra = pd.to_datetime(
+                            row.get("data") or pd.to_datetime("today")
+                        )
+                        ano, mes, dia_compra = (
+                            dt_compra.year,
+                            dt_compra.month,
+                            dt_compra.day,
+                        )
+
                         if dia_compra >= dia_fech:
                             mes_ciclo = mes + 1 if mes < 12 else 1
                             ano_ciclo = ano if mes < 12 else ano + 1
@@ -2065,8 +2079,7 @@ elif opcao == "📅 Próximos Vencimentos":
                         else:
                             mes_fatura, ano_fatura = mes_ciclo, ano_ciclo
 
-                        mes_fat_str = f"{mes_fatura:02d}/{ano_fatura:04d}"
-
+                    mes_fat_str = f"{mes_fatura:02d}/{ano_fatura:04d}"
                     max_dias = calendar.monthrange(ano_fatura, mes_fatura)[1]
                     dia_valido = min(dia_venc, max_dias)
                     data_venc_str = f"{ano_fatura:04d}-{mes_fatura:02d}-{dia_valido:02d}"
@@ -2091,7 +2104,6 @@ elif opcao == "📅 Próximos Vencimentos":
                         "Compra no Cartão"
                     )
 
-                # Agrupamento mantendo linhas nulas com dropna=False
                 df_faturas_agrupadas = (
                     df_credito.groupby(
                         ["nome_exibicao_cartao", "mes_fatura", "pago"],
@@ -2143,16 +2155,11 @@ elif opcao == "📅 Próximos Vencimentos":
 
             # 4. Filtro por Período
             if not df_venc.empty and target_mes and target_ano:
-                target_str = f"{target_mes:02d}/{target_ano:04d}"
 
                 def pertence_ao_periodo(row):
-                    mf = str(row.get("mes_fatura") or "").strip()
-                    if (
-                        mf != ""
-                        and mf.lower() not in ["none", "nan"]
-                        and "/" in mf
-                    ):
-                        return mf == target_str
+                    m_fat, a_fat = normalizar_mes_fatura(row.get("mes_fatura"))
+                    if m_fat and a_fat:
+                        return m_fat == target_mes and a_fat == target_ano
 
                     if "data" in row and pd.notna(row["data"]):
                         dt = pd.to_datetime(row["data"])
@@ -2168,9 +2175,8 @@ elif opcao == "📅 Próximos Vencimentos":
             if df_venc.empty:
                 st.info(
                     f"Nenhum lançamento para o período"
-                    f" ({opcao_periodo}). Alterne a opção para 'Ver Todos os"
-                    " Registros' no topo da tela para visualizar os demais"
-                    " meses!"
+                    f" ({opcao_periodo}). Alterne no topo para '🔮 Ver Todos"
+                    " os Registros Encontrados'!"
                 )
             else:
                 df_venc = df_venc.sort_values(by="data").reset_index(drop=True)
