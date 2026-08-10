@@ -1867,7 +1867,7 @@ elif opcao == "📅 Próximos Vencimentos":
     st.title("📅 Próximos Vencimentos e Faturas")
     st.caption("Acompanhe contas pendentes e quitadas por período.")
 
-    # 1. DATA DINÂMICA (Atualiza automaticamente mês a mês)
+    # 1. DATA DINÂMICA
     hoje = pd.to_datetime("today")
     mes_atual = hoje.month
     ano_atual = hoje.year
@@ -1885,7 +1885,6 @@ elif opcao == "📅 Próximos Vencimentos":
             ]
         )
 
-    # Define o mês e ano alvo com base no seletor
     if "Mês Atual" in opcao_periodo:
         target_mes, target_ano = mes_atual, ano_atual
     elif "Mês Anterior" in opcao_periodo:
@@ -1899,7 +1898,7 @@ elif opcao == "📅 Próximos Vencimentos":
 
     usuario_atual_id = st.session_state.get("usuario_id")
     
-    # Busca lançamentos
+    # Busca lançamentos estendidos
     vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=180)
 
     if not vencimentos:
@@ -1913,14 +1912,21 @@ elif opcao == "📅 Próximos Vencimentos":
         if df_raw.empty:
             st.info("Nenhum lançamento encontrado para este usuário.")
         else:
+            # Garantia de valores padrão para evitar perda de dados
             if "pago" not in df_raw.columns:
                 df_raw["pago"] = False
             else:
                 df_raw["pago"] = df_raw["pago"].fillna(False).astype(bool)
 
-            cond_cartao = df_raw["forma_pagamento"].str.contains(r"cartão de crédito|credito", case=False, na=False)
+            if "forma_pagamento" not in df_raw.columns:
+                df_raw["forma_pagamento"] = "Outros"
+            else:
+                df_raw["forma_pagamento"] = df_raw["forma_pagamento"].fillna("Outros")
+
+            # REGEX CORRIGIDA: Aceita 'crédito', 'credito', 'cartão' e 'cartao'
+            cond_cartao = df_raw["forma_pagamento"].str.contains(r"cart[ãa]o|cr[eé]dito", case=False, na=False)
             
-            # 1. OUTRAS CONTAS (Boletos, Dinheiro, Pix, etc.)
+            # 1. OUTRAS CONTAS
             df_outras_contas = df_raw[~cond_cartao].copy()
             if not df_outras_contas.empty:
                 df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(lambda x: [x])
@@ -1945,12 +1951,11 @@ elif opcao == "📅 Próximos Vencimentos":
                                 return int(val)
                     return 10
 
-                df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
+                df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1).fillna("Cartão de Crédito")
                 df_credito["dia_venc_cartao"] = df_credito.apply(extrair_dia_vencimento, axis=1)
                 df_credito["ids_compras"] = df_credito["id"]
 
                 def resolver_mes_e_vencimento_fatura(row):
-                    # Checa se o registro já veio com mes_fatura do backend (ex: '08/2026')
                     mes_fat_existente = row.get("mes_fatura") or row.get("fatura_mes")
                     dia_venc = int(row.get("dia_venc_cartao", 10))
 
@@ -1964,7 +1969,6 @@ elif opcao == "📅 Próximos Vencimentos":
                         except Exception:
                             pass
 
-                    # Caso não tenha mes_fatura, usa a data do lançamento
                     dt_compra = pd.to_datetime(row["data"])
                     ano, mes = dt_compra.year, dt_compra.month
 
@@ -1981,24 +1985,23 @@ elif opcao == "📅 Próximos Vencimentos":
                 )
 
                 df_credito["data"] = df_credito["data_venc_calculada"]
-                df_credito["mes_fatura"] = df_credito["mes_fatura_calculado"]
+                df_credito["mes_fatura"] = df_credito["mes_fatura_calculado"].fillna(f"{mes_atual:02d}/{ano_atual}")
 
-                # REGRA DE STATUS DE PAGAMENTO DA FATURA: Fatura só é paga se TODAS as compras forem pagas
-                def status_fatura_paga(series_pago):
-                    return series_pago.all()
-
+                # AGRUPAMENTO PROTEGIDO (dropna=False garante que nada suma)
                 df_faturas_agrupadas = (
-                    df_credito.groupby(["nome_exibicao_cartao", "mes_fatura"], as_index=False)
+                    df_credito.groupby(["nome_exibicao_cartao", "mes_fatura"], as_index=False, dropna=False)
                     .agg({
-                        "valor": "sum",  # Soma TODAS as compras da fatura sem separar por status
+                        "valor": "sum",
                         "id": "first",
                         "ids_compras": lambda x: list(x),
                         "data": "first",
-                        "pago": status_fatura_paga,
+                        "pago": lambda x: bool(x.all()),
                         "categoria": lambda x: "Fatura de Cartão",
                         "forma_pagamento": lambda x: "Cartão de Crédito"
                     })
                 )
+
+                df_faturas_agrupadas["pago"] = df_faturas_agrupadas["pago"].fillna(False).astype(bool)
                 df_faturas_agrupadas["descricao"] = df_faturas_agrupadas.apply(
                     lambda r: f"💳 Fatura {r['nome_exibicao_cartao']} ({r['mes_fatura']})", axis=1
                 )
@@ -2009,7 +2012,6 @@ elif opcao == "📅 Próximos Vencimentos":
             if not df_venc.empty:
                 df_venc["data_dt"] = pd.to_datetime(df_venc["data"])
 
-                # Aplica o filtro do Mês Selecionado
                 if target_mes and target_ano:
                     df_venc = df_venc[
                         (df_venc["data_dt"].dt.month == target_mes) & 
@@ -2017,7 +2019,7 @@ elif opcao == "📅 Próximos Vencimentos":
                     ].copy()
 
             if df_venc.empty:
-                st.warning(f"Nenhum registro encontrado para a seleção de período.")
+                st.warning("Nenhum registro encontrado para a seleção de período.")
             else:
                 df_venc = df_venc.sort_values(by="data").reset_index(drop=True)
 
@@ -2078,6 +2080,7 @@ elif opcao == "📅 Próximos Vencimentos":
                                         desfazer_pagamento_lancamento(sub_id)
                                     st.cache_data.clear()
                                     st.rerun()
+                                    
 # --- ABA: CARTÕES & FATURAS ---
 elif opcao == "💳 Cartões & Faturas":
     st.title("💳 Gestão de Cartões de Crédito & Faturas")
