@@ -523,7 +523,7 @@ if not usuario_atual_id:
             
             # --- CORREÇÃO DA LOGO: Adicionada validação de extensões válidas ---
             pasta_assets = "assets"
-            extensoes_logo = ["logo.png", "logo.jpg", "logo.jpeg", "logo.svg", "logo.webp"]
+            extensoes_logo = ["logo"]
             caminho_logo = None
 
             for ext in extensoes_logo:
