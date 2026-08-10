@@ -1867,7 +1867,9 @@ elif opcao == "📅 Próximos Vencimentos":
     st.title("📅 Próximos Vencimentos e Faturas")
     st.caption("Acompanhe contas pendentes e quitadas por período.")
 
-    # 1. DATA DINÂMICA (Muda automaticamente a cada mês)
+    import calendar
+
+    # 1. DATA DINÂMICA
     hoje = pd.to_datetime("today")
     mes_atual = hoje.month
     ano_atual = hoje.year
@@ -1885,7 +1887,7 @@ elif opcao == "📅 Próximos Vencimentos":
             ]
         )
 
-    # Define o mês e ano alvo com base na escolha
+    # Define o mês e ano alvo
     if "Mês Atual" in opcao_periodo:
         target_mes, target_ano = mes_atual, ano_atual
     elif "Mês Anterior" in opcao_periodo:
@@ -1899,8 +1901,7 @@ elif opcao == "📅 Próximos Vencimentos":
 
     usuario_atual_id = st.session_state.get("usuario_id")
     
-    # Busca lançamentos estendidos (90 dias para cobrir passados/futuros)
-    vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=90)
+    vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=365)
 
     if not vencimentos:
         st.info("Nenhum lançamento encontrado para o período.")
@@ -1918,18 +1919,15 @@ elif opcao == "📅 Próximos Vencimentos":
             else:
                 df_raw["pago"] = df_raw["pago"].fillna(False).astype(bool)
 
-            # Captura "cartão", "crédito", "riachuelo", "pernambucanas", etc., ou verifica se a coluna nome_cartao está preenchida
             cond_cartao = (
-                df_raw["forma_pagamento"].str.contains(r"cart[ãa]o|cr[eé]dito|riachuelo|pernambucanas", case=False, na=False) |
-                df_raw["nome_cartao"].notna() if "nome_cartao" in df_raw.columns else False
+                df_raw["forma_pagamento"].astype(str).str.contains(r"cart[ãa]o|cr[eé]dito|riachuelo|pernambucanas", case=False, na=False) |
+                (df_raw["nome_cartao"].notna() if "nome_cartao" in df_raw.columns else False)
             )
             
-            # Contas comuns
             df_outras_contas = df_raw[~cond_cartao].copy()
             if not df_outras_contas.empty:
                 df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(lambda x: [x])
 
-            # Faturas de Cartão
             df_credito = df_raw[cond_cartao].copy()
             df_faturas_agrupadas = pd.DataFrame()
 
@@ -1949,16 +1947,37 @@ elif opcao == "📅 Próximos Vencimentos":
                                 return int(val)
                     return 10
 
+                def extrair_dia_fechamento(row):
+                    for col in ["dia_fechamento_cartao", "dia_fechamento", "fechamento", "dia_corte"]:
+                        if col in row and pd.notna(row[col]):
+                            val = str(row[col]).strip()
+                            if val.isdigit():
+                                return int(val)
+                    venc = extrair_dia_vencimento(row)
+                    return max(1, venc - 7)
+
                 df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
                 df_credito["dia_venc_cartao"] = df_credito.apply(extrair_dia_vencimento, axis=1)
+                df_credito["dia_fech_cartao"] = df_credito.apply(extrair_dia_fechamento, axis=1)
                 df_credito["ids_compras"] = df_credito["id"]
 
                 def resolver_mes_e_vencimento_fatura(row):
                     dt_compra = pd.to_datetime(row["data"])
                     dia_venc = int(row["dia_venc_cartao"])
-                    ano, mes = dt_compra.year, dt_compra.month
+                    dia_fech = int(row["dia_fech_cartao"])
 
-                    import calendar
+                    ano, mes, dia = dt_compra.year, dt_compra.month, dt_compra.day
+
+                    # REGRA SOLICITADA:
+                    # Compras até 1 dia antes do fechamento (dia < dia_fech) ficam no MÊS ATUAL da compra.
+                    # Compras no dia do fechamento ou depois (dia >= dia_fech) entram na fatura do PRÓXIMO MÊS.
+                    if dia >= dia_fech:
+                        if mes == 12:
+                            mes = 1
+                            ano += 1
+                        else:
+                            mes += 1
+
                     max_dias = calendar.monthrange(ano, mes)[1]
                     dia_valido = min(dia_venc, max_dias)
 
@@ -1989,7 +2008,8 @@ elif opcao == "📅 Próximos Vencimentos":
                 )
 
             # Unifica tudo
-            df_venc = pd.concat([df_outras_contas, df_faturas_agrupadas], ignore_index=True)
+            dfs_para_concatenar = [df for df in [df_outras_contas, df_faturas_agrupadas] if not df.empty]
+            df_venc = pd.concat(dfs_para_concatenar, ignore_index=True) if dfs_para_concatenar else pd.DataFrame()
 
             if not df_venc.empty:
                 df_venc["data_dt"] = pd.to_datetime(df_venc["data"])
