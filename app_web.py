@@ -1905,8 +1905,8 @@ elif opcao == "📅 Próximos Vencimentos":
 
     usuario_atual_id = st.session_state.get("usuario_id")
 
-    # 1. Busca lançamentos
-    vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=365)
+    # 1. Busca lançamentos (aumentado janela para capturar compras de meses anteriores)
+    vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=730)
 
     if not vencimentos:
         st.info("Nenhum lançamento encontrado para o período.")
@@ -1921,7 +1921,6 @@ elif opcao == "📅 Próximos Vencimentos":
         if df_raw.empty:
             st.info("Nenhum lançamento encontrado para este usuário.")
         else:
-            # Tratamento inicial de colunas essenciais
             if "pago" not in df_raw.columns:
                 df_raw["pago"] = False
             else:
@@ -1933,17 +1932,22 @@ elif opcao == "📅 Próximos Vencimentos":
             if "forma_pagamento" not in df_raw.columns:
                 df_raw["forma_pagamento"] = "N/A"
 
-            # 2. Identificação de compras no cartão de crédito
+            # Função auxiliar para tratar IDs do cartão
+            def normalizar_id(val):
+                if pd.isna(val) or val is None:
+                    return ""
+                s = str(val).strip()
+                if s.lower() in ["none", "nan", "null"]:
+                    return ""
+                return s.split(".")[0]
+
+            # 2. Identificação de compras no cartão
             def eh_cartao(row):
-                cid = row.get("cartao_id")
+                cid = normalizar_id(row.get("cartao_id"))
                 fp = str(row.get("forma_pagamento") or "").lower()
                 mf = str(row.get("mes_fatura") or "").strip()
 
-                if (
-                    pd.notna(cid)
-                    and str(cid).strip() != ""
-                    and str(cid).strip().lower() != "none"
-                ):
+                if cid != "":
                     return True
                 if any(
                     x in fp for x in ["cart", "credito", "crédito", "fatura"]
@@ -1951,8 +1955,7 @@ elif opcao == "📅 Próximos Vencimentos":
                     return True
                 if (
                     mf != ""
-                    and mf.lower() != "none"
-                    and mf.lower() != "nan"
+                    and mf.lower() not in ["none", "nan"]
                     and "/" in mf
                 ):
                     return True
@@ -1981,10 +1984,10 @@ elif opcao == "📅 Próximos Vencimentos":
                     if res_cartoes:
                         for c in res_cartoes:
                             if isinstance(c, dict):
-                                c_id = str(c.get("id"))
+                                c_id = normalizar_id(c.get("id"))
                                 c_nome = str(
-                                    c.get("nome")
-                                    or c.get("nome_cartao")
+                                    c.get("nome_cartao")
+                                    or c.get("nome")
                                     or "Cartão"
                                 )
                                 c_venc = int(
@@ -1995,11 +1998,7 @@ elif opcao == "📅 Próximos Vencimentos":
                                 c_fech = int(
                                     c.get("dia_fechamento")
                                     or c.get("fechamento")
-                                    or (
-                                        (c_venc - 7)
-                                        if c_venc > 7
-                                        else (c_venc + 23)
-                                    )
+                                    or 8
                                 )
                                 mapa_cartoes_info[c_id] = {
                                     "nome": c_nome,
@@ -2010,7 +2009,7 @@ elif opcao == "📅 Próximos Vencimentos":
                     pass
 
                 def obter_nome_cartao(row):
-                    cid = str(row.get("cartao_id") or "").split(".")[0]
+                    cid = normalizar_id(row.get("cartao_id"))
                     if cid in mapa_cartoes_info:
                         return mapa_cartoes_info[cid]["nome"]
                     if "nome_cartao" in row and pd.notna(row["nome_cartao"]):
@@ -2018,7 +2017,7 @@ elif opcao == "📅 Próximos Vencimentos":
                     return "Cartão de Crédito"
 
                 def resolver_datas_fatura(row):
-                    cid = str(row.get("cartao_id") or "").split(".")[0]
+                    cid = normalizar_id(row.get("cartao_id"))
                     info = mapa_cartoes_info.get(
                         cid, {"vencimento": 15, "fechamento": 8}
                     )
@@ -2032,15 +2031,21 @@ elif opcao == "📅 Próximos Vencimentos":
                         dt_compra.day,
                     )
 
-                    if "mes_fatura" in row and pd.notna(row["mes_fatura"]):
-                        mes_fat_str = str(row["mes_fatura"]).strip()
+                    mf_val = str(row.get("mes_fatura") or "").strip()
+                    if (
+                        mf_val != ""
+                        and mf_val.lower() not in ["none", "nan"]
+                        and "/" in mf_val
+                    ):
+                        mes_fat_str = mf_val
                         try:
                             m_str, a_str = mes_fat_str.split("/")
                             mes_fatura, ano_fatura = int(m_str), int(a_str)
                         except Exception:
                             mes_fatura, ano_fatura = mes, ano
                     else:
-                        if dia_compra > dia_fech:
+                        # Cálculo do ciclo de fechamento
+                        if dia_compra >= dia_fech:
                             mes_ciclo = mes + 1 if mes < 12 else 1
                             ano_ciclo = ano if mes < 12 else ano + 1
                         else:
@@ -2080,12 +2085,6 @@ elif opcao == "📅 Próximos Vencimentos":
                         "Compra no Cartão"
                     )
 
-                if "categoria" not in df_credito.columns:
-                    df_credito["categoria"] = "Fatura de Cartão"
-
-                if "forma_pagamento" not in df_credito.columns:
-                    df_credito["forma_pagamento"] = "Cartão de Crédito"
-
                 df_faturas_agrupadas = (
                     df_credito.groupby(
                         ["nome_exibicao_cartao", "mes_fatura", "pago"],
@@ -2096,9 +2095,17 @@ elif opcao == "📅 Próximos Vencimentos":
                         "id": "first",
                         "ids_compras": lambda x: list(x),
                         "descricao": lambda x: list(x),
-                        "data": "first",
-                        "categoria": "first",
-                        "forma_pagamento": "first",
+                        "data": "min",
+                        "categoria": (
+                            lambda x: x.iloc[0]
+                            if "categoria" in df_credito.columns
+                            else "Fatura de Cartão"
+                        ),
+                        "forma_pagamento": (
+                            lambda x: x.iloc[0]
+                            if "forma_pagamento" in df_credito.columns
+                            else "Cartão de Crédito"
+                        ),
                     })
                 )
 
@@ -2132,14 +2139,14 @@ elif opcao == "📅 Próximos Vencimentos":
                     target_str = f"{target_mes:02d}/{target_ano:04d}"
 
                     def pertence_ao_periodo(row):
+                        mf = str(row.get("mes_fatura") or "").strip()
+
                         if (
-                            "mes_fatura" in row
-                            and pd.notna(row["mes_fatura"])
-                            and str(row["mes_fatura"]).strip() != ""
+                            mf != ""
+                            and mf.lower() not in ["none", "nan"]
+                            and "/" in mf
                         ):
-                            return (
-                                str(row["mes_fatura"]).strip() == target_str
-                            )
+                            return mf == target_str
 
                         if "data" in row and pd.notna(row["data"]):
                             dt = pd.to_datetime(row["data"])
