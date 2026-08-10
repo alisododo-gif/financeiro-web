@@ -1869,12 +1869,10 @@ elif opcao == "📅 Próximos Vencimentos":
 
     import calendar
 
-    # 1. Data Dinâmica
     hoje = pd.to_datetime("today")
     mes_atual = hoje.month
     ano_atual = hoje.year
 
-    # 2. Seletor de Período
     opcao_periodo = st.selectbox(
         "Selecione o Mês de Visualização:",
         options=[
@@ -1897,6 +1895,8 @@ elif opcao == "📅 Próximos Vencimentos":
         target_mes, target_ano = None, None
 
     usuario_atual_id = st.session_state.get("usuario_id")
+    
+    # 1. Busca ampla: garante que pegamos lançamentos dos últimos 90 dias para montar faturas do mês atual
     vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=365)
 
     if not vencimentos:
@@ -1915,12 +1915,15 @@ elif opcao == "📅 Próximos Vencimentos":
             else:
                 df_raw["pago"] = df_raw["pago"].fillna(False).astype(bool)
 
-            # Filtro de compras no cartão
+            # 2. Identificação flexível de compras no cartão
+            col_forma = df_raw["forma_pagamento"].astype(str) if "forma_pagamento" in df_raw.columns else pd.Series([""]*len(df_raw))
+            has_nome_cartao = df_raw["nome_cartao"].notna() if "nome_cartao" in df_raw.columns else pd.Series([False]*len(df_raw))
+
             cond_cartao = (
-                df_raw["forma_pagamento"].astype(str).str.contains(r"cart[ãa]o|cr[eé]dito|riachuelo|pernambucanas|nubank|inter|c&a|mercado pago", case=False, na=False) |
-                (df_raw["nome_cartao"].notna() if "nome_cartao" in df_raw.columns else False)
+                col_forma.str.contains(r"cart|cr[eé]dito|fatura|nubank|inter|riachuelo|pernambucanas|c&a|mercado pago", case=False, na=False) |
+                has_nome_cartao
             )
-            
+
             df_outras_contas = df_raw[~cond_cartao].copy()
             if not df_outras_contas.empty:
                 df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(lambda x: [x])
@@ -1953,7 +1956,6 @@ elif opcao == "📅 Próximos Vencimentos":
 
                 def extrair_datas_cartao(row, nome_cartao_exibido):
                     dia_venc, dia_fech = None, None
-
                     for col in ["nome_cartao", "cartao"]:
                         if col in row and isinstance(row[col], dict):
                             val = row[col]
@@ -1976,7 +1978,6 @@ elif opcao == "📅 Próximos Vencimentos":
 
                     dia_venc = dia_venc if dia_venc else 15
                     dia_fech = dia_fech if dia_fech else ((dia_venc - 7) if dia_venc > 7 else (dia_venc + 23))
-
                     return pd.Series([dia_venc, dia_fech])
 
                 df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
@@ -1985,6 +1986,7 @@ elif opcao == "📅 Próximos Vencimentos":
                 )
                 df_credito["ids_compras"] = df_credito["id"]
 
+                # 3. Lógica robusta de cálculo de vencimento da fatura
                 def resolver_mes_e_vencimento_fatura(row):
                     dt_compra = pd.to_datetime(row["data"])
                     dia_venc = int(row["dia_venc_cartao"])
@@ -1993,21 +1995,16 @@ elif opcao == "📅 Próximos Vencimentos":
                     ano, mes, dia_compra = dt_compra.year, dt_compra.month, dt_compra.day
 
                     if dia_fech < dia_venc:
-                        # Exemplo: Fecha dia 5, Vence dia 15 (Mesmo mês)
                         if dia_compra >= dia_fech:
                             mes_fatura = mes + 1 if mes < 12 else 1
                             ano_fatura = ano if mes < 12 else ano + 1
                         else:
-                            mes_fatura = mes
-                            ano_fatura = ano
+                            mes_fatura, ano_fatura = mes, ano
                     else:
-                        # Exemplo: Fecha dia 25, Vence dia 5 do MÊS SEGUINTE
                         if dia_compra >= dia_fech:
-                            # Compra após o fechamento: pula 2 meses (ex: compra 26/Jul -> fatura Setembro)
                             dt_fat = dt_compra + pd.DateOffset(months=2)
                             mes_fatura, ano_fatura = dt_fat.month, dt_fat.year
                         else:
-                            # Compra antes do fechamento: vence no MÊS SEGUINTE (ex: compra 10/Jul -> fatura Agosto)
                             dt_fat = dt_compra + pd.DateOffset(months=1)
                             mes_fatura, ano_fatura = dt_fat.month, dt_fat.year
 
