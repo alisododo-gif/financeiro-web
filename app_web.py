@@ -1992,21 +1992,24 @@ elif opcao == "📅 Próximos Vencimentos":
 
                     ano, mes, dia_compra = dt_compra.year, dt_compra.month, dt_compra.day
 
-                    virou_fatura = False
                     if dia_fech < dia_venc:
+                        # Exemplo: Fecha dia 5, Vence dia 15 (Mesmo mês)
                         if dia_compra >= dia_fech:
-                            virou_fatura = True
-                    else:
-                        if dia_compra >= dia_fech:
-                            virou_fatura = True
-
-                    if virou_fatura:
-                        if mes == 12:
-                            mes_fatura, ano_fatura = 1, ano + 1
+                            mes_fatura = mes + 1 if mes < 12 else 1
+                            ano_fatura = ano if mes < 12 else ano + 1
                         else:
-                            mes_fatura, ano_fatura = mes + 1, ano
+                            mes_fatura = mes
+                            ano_fatura = ano
                     else:
-                        mes_fatura, ano_fatura = mes, ano
+                        # Exemplo: Fecha dia 25, Vence dia 5 do MÊS SEGUINTE
+                        if dia_compra >= dia_fech:
+                            # Compra após o fechamento: pula 2 meses (ex: compra 26/Jul -> fatura Setembro)
+                            dt_fat = dt_compra + pd.DateOffset(months=2)
+                            mes_fatura, ano_fatura = dt_fat.month, dt_fat.year
+                        else:
+                            # Compra antes do fechamento: vence no MÊS SEGUINTE (ex: compra 10/Jul -> fatura Agosto)
+                            dt_fat = dt_compra + pd.DateOffset(months=1)
+                            mes_fatura, ano_fatura = dt_fat.month, dt_fat.year
 
                     max_dias = calendar.monthrange(ano_fatura, mes_fatura)[1]
                     dia_valido = min(dia_venc, max_dias)
