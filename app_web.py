@@ -1869,25 +1869,22 @@ elif opcao == "📅 Próximos Vencimentos":
 
     import calendar
 
-    # 1. DATA DINÂMICA
+    # 1. Data Dinâmica
     hoje = pd.to_datetime("today")
     mes_atual = hoje.month
     ano_atual = hoje.year
 
-    # 2. SELETOR DE MÊS / PERÍODO
-    col_filtro1, col_filtro2 = st.columns([2, 2])
-    with col_filtro1:
-        opcao_periodo = st.selectbox(
-            "Selecione o Mês de Visualização:",
-            options=[
-                f"📅 Mês Atual ({mes_atual:02d}/{ano_atual})",
-                f"⏪ Mês Anterior ({(mes_atual-1 if mes_atual > 1 else 12):02d}/{(ano_atual if mes_atual > 1 else ano_atual-1)})",
-                f"⏩ Próximo Mês ({(mes_atual+1 if mes_atual < 12 else 1):02d}/{(ano_atual if mes_atual < 12 else ano_atual+1)})",
-                "🔮 Ver Todos os Próximos Dias"
-            ]
-        )
+    # 2. Seletor de Período
+    opcao_periodo = st.selectbox(
+        "Selecione o Mês de Visualização:",
+        options=[
+            f"📅 Mês Atual ({mes_atual:02d}/{ano_atual})",
+            f"⏪ Mês Anterior ({(mes_atual-1 if mes_atual > 1 else 12):02d}/{(ano_atual if mes_atual > 1 else ano_atual-1)})",
+            f"⏩ Próximo Mês ({(mes_atual+1 if mes_atual < 12 else 1):02d}/{(ano_atual if mes_atual < 12 else ano_atual+1)})",
+            "🔮 Ver Todos os Próximos Dias"
+        ]
+    )
 
-    # Define o mês e ano alvo
     if "Mês Atual" in opcao_periodo:
         target_mes, target_ano = mes_atual, ano_atual
     elif "Mês Anterior" in opcao_periodo:
@@ -1900,8 +1897,6 @@ elif opcao == "📅 Próximos Vencimentos":
         target_mes, target_ano = None, None
 
     usuario_atual_id = st.session_state.get("usuario_id")
-    
-    # Busca lançamentos
     vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=365)
 
     if not vencimentos:
@@ -1926,35 +1921,26 @@ elif opcao == "📅 Próximos Vencimentos":
                 (df_raw["nome_cartao"].notna() if "nome_cartao" in df_raw.columns else False)
             )
             
-            # Contas comuns
             df_outras_contas = df_raw[~cond_cartao].copy()
             if not df_outras_contas.empty:
                 df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(lambda x: [x])
 
-            # Faturas de Cartão
             df_credito = df_raw[cond_cartao].copy()
             df_faturas_agrupadas = pd.DataFrame()
 
             if not df_credito.empty:
                 mapa_cartoes = {}
-                for fn_name in ["buscar_cartoes", "listar_cartoes", "buscar_cartoes_usuario", "carregar_cartoes"]:
-                    if fn_name in globals() and callable(globals()[fn_name]):
-                        try:
-                            res_cartoes = globals()[fn_name](usuario_atual_id)
-                            if res_cartoes:
-                                for c in res_cartoes:
-                                    if isinstance(c, dict):
-                                        n = str(c.get("nome") or c.get("nome_cartao") or "").strip().lower()
-                                        v = c.get("dia_vencimento") or c.get("vencimento") or c.get("dia_venc")
-                                        f = c.get("dia_fechamento") or c.get("fechamento") or c.get("dia_fech")
-                                        if n:
-                                            v_int = int(v) if v and str(v).isdigit() else 15
-                                            # Caso não haja fechamento explícito, define 7 dias antes do vencimento
-                                            f_int = int(f) if f and str(f).isdigit() else ((v_int - 7) if v_int > 7 else (v_int + 23))
-                                            mapa_cartoes[n] = {"vencimento": v_int, "fechamento": f_int}
-                                break
-                        except Exception:
-                            pass
+                res_cartoes = listar_cartoes(usuario_atual_id)
+                if res_cartoes:
+                    for c in res_cartoes:
+                        if isinstance(c, dict):
+                            n = str(c.get("nome") or c.get("nome_cartao") or "").strip().lower()
+                            v = c.get("dia_vencimento") or c.get("vencimento") or c.get("dia_venc")
+                            f = c.get("dia_fechamento") or c.get("fechamento") or c.get("dia_fech")
+                            if n:
+                                v_int = int(v) if v and str(v).isdigit() else 15
+                                f_int = int(f) if f and str(f).isdigit() else ((v_int - 7) if v_int > 7 else (v_int + 23))
+                                mapa_cartoes[n] = {"vencimento": v_int, "fechamento": f_int}
 
                 def extrair_nome_cartao(row):
                     for col in ["nome_cartao", "cartao_nome", "cartao", "nome"]:
@@ -1968,7 +1954,6 @@ elif opcao == "📅 Próximos Vencimentos":
                 def extrair_datas_cartao(row, nome_cartao_exibido):
                     dia_venc, dia_fech = None, None
 
-                    # 1. Verifica objeto do cartão na própria linha
                     for col in ["nome_cartao", "cartao"]:
                         if col in row and isinstance(row[col], dict):
                             val = row[col]
@@ -1977,7 +1962,6 @@ elif opcao == "📅 Próximos Vencimentos":
                             if v and str(v).isdigit(): dia_venc = int(v)
                             if f and str(f).isdigit(): dia_fech = int(f)
 
-                    # 2. Verifica no mapa trazido da base de cartões
                     nome_key = nome_cartao_exibido.strip().lower()
                     if not dia_venc and nome_key in mapa_cartoes:
                         dia_venc = mapa_cartoes[nome_key]["vencimento"]
@@ -2008,14 +1992,11 @@ elif opcao == "📅 Próximos Vencimentos":
 
                     ano, mes, dia_compra = dt_compra.year, dt_compra.month, dt_compra.day
 
-                    # Regra de virada de fatura baseada no fechamento
                     virou_fatura = False
                     if dia_fech < dia_venc:
-                        # Fechamento no mesmo mês do vencimento (ex: fecha dia 8, vence dia 15)
                         if dia_compra >= dia_fech:
                             virou_fatura = True
                     else:
-                        # Fechamento no mês anterior ao vencimento (ex: fecha dia 28, vence dia 5)
                         if dia_compra >= dia_fech:
                             virou_fatura = True
 
@@ -2056,14 +2037,12 @@ elif opcao == "📅 Próximos Vencimentos":
                     lambda r: f"💳 Fatura {r['nome_exibicao_cartao']} ({r['mes_fatura']})", axis=1
                 )
 
-            # Unifica tudo
             dfs_concatenar = [df for df in [df_outras_contas, df_faturas_agrupadas] if not df.empty]
             df_venc = pd.concat(dfs_concatenar, ignore_index=True) if dfs_concatenar else pd.DataFrame()
 
             if not df_venc.empty:
                 df_venc["data_dt"] = pd.to_datetime(df_venc["data"])
 
-                # Aplica filtro do mês selecionado
                 if target_mes and target_ano:
                     df_venc = df_venc[
                         (df_venc["data_dt"].dt.month == target_mes) & 
@@ -2078,7 +2057,6 @@ elif opcao == "📅 Próximos Vencimentos":
                 df_pendentes = df_venc[df_venc["pago"] == False].copy()
                 df_pagos = df_venc[df_venc["pago"] == True].copy()
 
-                # --- CARDS RESUMO ---
                 col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
                 with col_kpi1:
                     st.metric("Total Pendente (A Pagar)", fmt_moeda(df_pendentes["valor"].sum()) if not df_pendentes.empty else "R$ 0,00")
@@ -2089,7 +2067,6 @@ elif opcao == "📅 Próximos Vencimentos":
 
                 st.markdown("---")
 
-                # --- ABAS PENDENTES vs PAGAS ---
                 tab_pendentes, tab_pagas = st.tabs([
                     f"⏳ Contas Não Pagas / Pendentes ({len(df_pendentes)})", 
                     f"✅ Contas Pagas / Quitadas ({len(df_pagos)})"
@@ -2117,7 +2094,7 @@ elif opcao == "📅 Próximos Vencimentos":
 
                 with tab_pagas:
                     if df_pagos.empty:
-                        st.info("Nenhuma conta marcada como paga neste período. Ao clicar em 'Marcar como Pago' em uma conta pendente, ela aparecerá aqui.")
+                        st.info("Nenhuma conta marcada como paga neste período.")
                     else:
                         for _, row in df_pagos.iterrows():
                             id_lanc = row["id"]
@@ -2132,6 +2109,14 @@ elif opcao == "📅 Próximos Vencimentos":
                                         desfazer_pagamento_lancamento(sub_id)
                                     st.cache_data.clear()
                                     st.rerun()
+
+# --- ABA: CORREÇÃO DO FINAL DO ARQUIVO (CONTAS A RECEBER) ---
+# Caso você mantenha a aba Contas a Receber no final, complete o botão truncado:
+                with col_acoes:
+                    txt_btn = "↩️ Mudar p/ Pendente" if recebido else "✅ Marcar Recebido"
+                    if st.button(txt_btn, key=f"status_rec_{item.get('id')}"):
+                        alternar_status_contas_a_receber(item.get('id'), not recebido)
+                        st.rerun()
                                     
 # --- ABA: CARTÕES & FATURAS ---
 elif opcao == "💳 Cartões & Faturas":
