@@ -1867,13 +1867,15 @@ elif opcao == "📅 Próximos Vencimentos":
     st.title("📅 Próximos Vencimentos e Faturas")
     st.caption("Acompanhe contas pendentes e quitadas por período.")
 
+    import calendar
+
     # 1. DATA DINÂMICA
     hoje = pd.to_datetime("today")
     mes_atual = hoje.month
     ano_atual = hoje.year
 
     # 2. SELETOR DE MÊS / PERÍODO
-    col_filtro1, col_filtro2 = st.columns([2, 2])
+    col_filtro1, _ = st.columns([2, 2])
     with col_filtro1:
         opcao_periodo = st.selectbox(
             "Selecione o Mês de Visualização:",
@@ -1885,7 +1887,6 @@ elif opcao == "📅 Próximos Vencimentos":
             ]
         )
 
-    # Define o mês e ano alvo com base na escolha
     if "Mês Atual" in opcao_periodo:
         target_mes, target_ano = mes_atual, ano_atual
     elif "Mês Anterior" in opcao_periodo:
@@ -1899,8 +1900,18 @@ elif opcao == "📅 Próximos Vencimentos":
 
     usuario_atual_id = st.session_state.get("usuario_id")
     
-    # 3. BUSCA DE DADOS (Busca amplitude de 365 dias)
+    # 3. BUSCA COMPRAS/LANÇAMENTOS
     vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=365)
+
+    # 4. BUSCA TABELA DE CARTÕES NO SUPABASE PARA OBTER DIA DE FECHAMENTO E VENCIMENTO REAIS
+    df_cartoes_bd = pd.DataFrame()
+    try:
+        # Ajuste o nome da sua função de conexão/query se necessário
+        res_cartoes = supabase.table("cartoes").select("*").execute()
+        if res_cartoes.data:
+            df_cartoes_bd = pd.DataFrame(res_cartoes.data)
+    except Exception as e:
+        st.warning(f"Aviso: Não foi possível carregar regras da tabela 'cartoes': {e}")
 
     if not vencimentos:
         st.info("Nenhum lançamento encontrado no banco de dados.")
@@ -1918,65 +1929,67 @@ elif opcao == "📅 Próximos Vencimentos":
             else:
                 df_raw["pago"] = df_raw["pago"].fillna(False).astype(bool)
 
-            # Identifica quais contas pertencem a cartões de crédito
+            # Identifica se é lançamento de cartão
             cond_cartao = (
                 df_raw["forma_pagamento"].astype(str).str.contains(r"cart[ãa]o|cr[eé]dito|riachuelo|pernambucanas", case=False, na=False) |
+                (df_raw["cartao_id"].notna() if "cartao_id" in df_raw.columns else False) |
                 (df_raw["nome_cartao"].notna() if "nome_cartao" in df_raw.columns else False)
             )
             
-            # Contas comuns (Boletos, Pix, Dinheiro, etc.)
             df_outras_contas = df_raw[~cond_cartao].copy()
             if not df_outras_contas.empty:
                 df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(lambda x: [x])
 
-            # Processamento de Cartão de Crédito
             df_credito = df_raw[cond_cartao].copy()
             df_faturas_agrupadas = pd.DataFrame()
 
             if not df_credito.empty:
-                def extrair_nome_cartao(row):
-                    for col in ["nome_cartao", "cartao_nome", "cartao", "nome"]:
-                        if col in row and pd.notna(row[col]):
-                            val = row[col]
-                            nome = val.get("nome_cartao", "Cartão de Crédito") if isinstance(val, dict) else str(val)
-                            if nome.strip():
-                                return nome.strip()
-                    txt = f"{row.get('descricao', '')} {row.get('forma_pagamento', '')}".lower()
-                    if "riachuelo" in txt:
-                        return "Riachuelo"
-                    elif "pernambucanas" in txt:
-                        return "Pernambucanas"
-                    return "Cartão de Crédito"
+                # Função para extrair dados do cartão cruzando com a tabela public.cartoes
+                def enriquecer_dados_cartao(row):
+                    nome_cartao = "Cartão de Crédito"
+                    dia_fech = 5
+                    dia_venc = 15
 
-                def extrair_dia_vencimento(row):
-                    for col in ["dia_vencimento_cartao", "dia_vencimento", "vencimento", "dia_venc"]:
-                        if col in row and pd.notna(row[col]):
-                            val = str(row[col]).strip()
-                            if val.isdigit():
-                                return int(val)
-                    return 10
+                    # Tenta localizar o cartão cadastrado na tabela public.cartoes
+                    if not df_cartoes_bd.empty:
+                        c_match = None
+                        
+                        # Match por cartao_id
+                        if "cartao_id" in row and pd.notna(row["cartao_id"]):
+                            match = df_cartoes_bd[df_cartoes_bd["id"].astype(str) == str(row["cartao_id"])]
+                            if not match.empty:
+                                c_match = match.iloc[0]
 
-                def extrair_dia_fechamento(row):
-                    for col in ["dia_fechamento_cartao", "dia_fechamento", "fechamento", "dia_corte"]:
-                        if col in row and pd.notna(row[col]):
-                            val = str(row[col]).strip()
-                            if val.isdigit():
-                                return int(val)
-                    venc = extrair_dia_vencimento(row)
-                    return max(1, int(venc) - 7)
+                        # Match por nome
+                        if c_match is None and "nome_cartao" in row and pd.notna(row["nome_cartao"]):
+                            match = df_cartoes_bd[df_cartoes_bd["nome_cartao"].astype(str).str.lower() == str(row["nome_cartao"]).lower()]
+                            if not match.empty:
+                                c_match = match.iloc[0]
 
-                df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
-                df_credito["dia_venc_cartao"] = df_credito.apply(extrair_dia_vencimento, axis=1)
-                df_credito["dia_fech_cartao"] = df_credito.apply(extrair_dia_fechamento, axis=1)
+                        if c_match is not None:
+                            nome_cartao = str(c_match.get("nome_cartao", nome_cartao))
+                            dia_fech = int(c_match.get("dia_fechamento", dia_fech))
+                            dia_venc = int(c_match.get("dia_vencimento", dia_venc))
+                    else:
+                        # Fallback se não conseguiu consultar public.cartoes
+                        if "nome_cartao" in row and pd.notna(row["nome_cartao"]):
+                            nome_cartao = str(row["nome_cartao"])
+                        elif "descricao" in row:
+                            nome_cartao = str(row["descricao"])
+
+                    return pd.Series([nome_cartao, dia_fech, dia_venc])
+
+                df_credito[["nome_exibicao_cartao", "dia_fech_cartao", "dia_venc_cartao"]] = df_credito.apply(
+                    enriquecer_dados_cartao, axis=1
+                )
                 df_credito["ids_compras"] = df_credito["id"]
 
-                def resolver_mes_e_vencimento_fatura(row):
-                    import calendar
+                # Resolve Mês da Fatura e Data de Vencimento
+                def resolver_mes_fatura(row):
+                    dia_venc = int(row["dia_venc_cartao"])
+                    dia_fech = int(row["dia_fech_cartao"])
 
-                    dia_venc = int(row.get("dia_venc_cartao", 10))
-                    dia_fech = int(row.get("dia_fech_cartao", max(1, dia_venc - 7)))
-
-                    # 1. Se o mês da fatura já veio definido pelo banco/cadastro (ex: "08/2026")
+                    # Se já existe mês_fatura explícito (ex: "08/2026")
                     mes_fat_banco = row.get("mes_fatura") or row.get("fatura_mes")
                     if pd.notna(mes_fat_banco) and "/" in str(mes_fat_banco):
                         try:
@@ -1987,7 +2000,6 @@ elif opcao == "📅 Próximos Vencimentos":
                         except Exception:
                             pass
 
-                    # 2. Cálculo pela data da compra e dia de fechamento
                     dt_compra = pd.to_datetime(row.get("data") or row.get("data_compra") or row.get("data_vencimento"))
                     if pd.isna(dt_compra):
                         dt_compra = pd.to_datetime("today")
@@ -1996,7 +2008,7 @@ elif opcao == "📅 Próximos Vencimentos":
                     mes = dt_compra.month
                     dia = dt_compra.day
 
-                    # Se comprou no dia de fechamento ou depois, fatura do próximo mês
+                    # Se a compra foi realizada no dia do fechamento ou depois -> vai para a fatura do mês seguinte
                     if dia >= dia_fech:
                         if mes == 12:
                             mes = 1
@@ -2011,14 +2023,11 @@ elif opcao == "📅 Próximos Vencimentos":
                     mes_fat_str = f"{mes:02d}/{ano:04d}"
                     return pd.Series([data_venc_str, mes_fat_str])
 
-                df_credito[["data_venc_calculada", "mes_fatura_calculado"]] = df_credito.apply(
-                    resolver_mes_e_vencimento_fatura, axis=1
-                )
-
+                df_credito[["data_venc_calculada", "mes_fatura_calculado"]] = df_credito.apply(resolver_mes_fatura, axis=1)
                 df_credito["data"] = df_credito["data_venc_calculada"]
                 df_credito["mes_fatura"] = df_credito["mes_fatura_calculado"]
 
-                # Agrupa os lançamentos por cartão e mês de fatura
+                # Agrupamento das faturas
                 faturas_list = []
                 for (nome_cartao, mes_fat), grupo in df_credito.groupby(["nome_exibicao_cartao", "mes_fatura"]):
                     tudo_pago = bool(grupo["pago"].all())
@@ -2039,7 +2048,7 @@ elif opcao == "📅 Próximos Vencimentos":
                 if faturas_list:
                     df_faturas_agrupadas = pd.DataFrame(faturas_list)
 
-            # Junta faturas agrupadas + contas comuns
+            # Unifica Lançamentos Comuns + Faturas Agrupadas
             dfs_para_concatenar = [df for df in [df_outras_contas, df_faturas_agrupadas] if not df.empty]
             
             if dfs_para_concatenar:
@@ -2050,7 +2059,7 @@ elif opcao == "📅 Próximos Vencimentos":
             if not df_venc.empty:
                 df_venc["data_dt"] = pd.to_datetime(df_venc["data"])
 
-                # Aplica o filtro do Mês Selecionado (se o usuário escolheu um mês específico)
+                # Aplica o filtro de mês/ano selecionado
                 if target_mes and target_ano:
                     df_venc = df_venc[
                         (df_venc["data_dt"].dt.month == target_mes) & 
