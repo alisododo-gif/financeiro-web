@@ -1867,7 +1867,9 @@ elif opcao == "📅 Próximos Vencimentos":
     st.title("📅 Próximos Vencimentos e Faturas")
     st.caption("Acompanhe contas pendentes e quitadas por período.")
 
-    # 1. DATA DINÂMICA (Muda automaticamente a cada mês)
+    import calendar
+
+    # 1. DATA DINÂMICA
     hoje = pd.to_datetime("today")
     mes_atual = hoje.month
     ano_atual = hoje.year
@@ -1899,7 +1901,7 @@ elif opcao == "📅 Próximos Vencimentos":
 
     usuario_atual_id = st.session_state.get("usuario_id")
     
-    # Busca lançamentos estendidos (365 dias para cobrir passados/futuros)
+    # Busca lançamentos
     vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=365)
 
     if not vencimentos:
@@ -1918,9 +1920,8 @@ elif opcao == "📅 Próximos Vencimentos":
             else:
                 df_raw["pago"] = df_raw["pago"].fillna(False).astype(bool)
 
-            # Captura "cartão", "crédito", "riachuelo", "pernambucanas", etc., ou verifica se a coluna nome_cartao está preenchida
             cond_cartao = (
-                df_raw["forma_pagamento"].str.contains(r"cart[ãa]o|cr[eé]dito|riachuelo|pernambucanas", case=False, na=False) |
+                df_raw["forma_pagamento"].astype(str).str.contains(r"cart[ãa]o|cr[eé]dito|riachuelo|pernambucanas|nubank|inter|c&a|mercado pago", case=False, na=False) |
                 (df_raw["nome_cartao"].notna() if "nome_cartao" in df_raw.columns else False)
             )
             
@@ -1934,25 +1935,59 @@ elif opcao == "📅 Próximos Vencimentos":
             df_faturas_agrupadas = pd.DataFrame()
 
             if not df_credito.empty:
-                import calendar
+                # Busca cadastro de cartões para vincular o dia de vencimento real de cada bandeira
+                mapa_cartoes = {}
+                for fn_name in ["buscar_cartoes", "listar_cartoes", "buscar_cartoes_usuario", "carregar_cartoes"]:
+                    if fn_name in globals() and callable(globals()[fn_name]):
+                        try:
+                            res_cartoes = globals()[fn_name](usuario_atual_id)
+                            if res_cartoes:
+                                for c in res_cartoes:
+                                    if isinstance(c, dict):
+                                        n = str(c.get("nome") or c.get("nome_cartao") or "").strip().lower()
+                                        v = c.get("dia_vencimento") or c.get("vencimento") or c.get("dia_venc")
+                                        if n and v:
+                                            mapa_cartoes[n] = int(v)
+                                break
+                        except Exception:
+                            pass
 
                 def extrair_nome_cartao(row):
                     for col in ["nome_cartao", "cartao_nome", "cartao", "nome"]:
                         if col in row and pd.notna(row[col]):
                             val = row[col]
-                            return val.get("nome_cartao", "Cartão de Crédito") if isinstance(val, dict) else str(val)
+                            if isinstance(val, dict):
+                                return str(val.get("nome_cartao") or val.get("nome") or "Cartão de Crédito")
+                            return str(val)
                     return "Cartão de Crédito"
 
-                def extrair_dia_vencimento(row):
-                    for col in ["dia_vencimento_cartao", "dia_vencimento", "vencimento", "dia_venc"]:
+                def extrair_dia_vencimento(row, nome_cartao_exibid):
+                    # 1. Tenta extrair da própria linha da transação se for dicionário/coluna válida
+                    for col in ["dia_vencimento_cartao", "dia_vencimento", "vencimento", "dia_venc", "nome_cartao", "cartao"]:
                         if col in row and pd.notna(row[col]):
-                            val = str(row[col]).strip()
-                            if val.isdigit():
+                            val = row[col]
+                            if isinstance(val, dict):
+                                for k in ["dia_vencimento", "vencimento", "dia_venc"]:
+                                    if k in val and pd.notna(val[k]) and str(val[k]).isdigit():
+                                        return int(val[k])
+                            elif str(val).isdigit():
                                 return int(val)
-                    return 10
+
+                    # 2. Procura o vencimento no cadastro do cartão correspondente
+                    nome_key = nome_cartao_exibid.strip().lower()
+                    if nome_key in mapa_cartoes:
+                        return mapa_cartoes[nome_key]
+
+                    for k, v in mapa_cartoes.items():
+                        if k in nome_key or nome_key in k:
+                            return v
+
+                    return 10  # Valor padrão caso o cartão não esteja cadastrado no BD
 
                 df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
-                df_credito["dia_venc_cartao"] = df_credito.apply(extrair_dia_vencimento, axis=1)
+                df_credito["dia_venc_cartao"] = df_credito.apply(
+                    lambda r: extrair_dia_vencimento(r, r["nome_exibicao_cartao"]), axis=1
+                )
                 df_credito["ids_compras"] = df_credito["id"]
 
                 def resolver_mes_e_vencimento_fatura(row):
@@ -1990,7 +2025,8 @@ elif opcao == "📅 Próximos Vencimentos":
                 )
 
             # Unifica tudo
-            df_venc = pd.concat([df_outras_contas, df_faturas_agrupadas], ignore_index=True)
+            dfs_concatenar = [df for df in [df_outras_contas, df_faturas_agrupadas] if not df.empty]
+            df_venc = pd.concat(dfs_concatenar, ignore_index=True) if dfs_concatenar else pd.DataFrame()
 
             if not df_venc.empty:
                 df_venc["data_dt"] = pd.to_datetime(df_venc["data"])
