@@ -1899,7 +1899,7 @@ elif opcao == "📅 Próximos Vencimentos":
 
     usuario_atual_id = st.session_state.get("usuario_id")
     
-    # Busca lançamentos estendidos (90 dias para cobrir passados/futuros)
+    # Busca lançamentos estendidos (365 dias para cobrir passados/futuros)
     vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=365)
 
     if not vencimentos:
@@ -1921,7 +1921,7 @@ elif opcao == "📅 Próximos Vencimentos":
             # Captura "cartão", "crédito", "riachuelo", "pernambucanas", etc., ou verifica se a coluna nome_cartao está preenchida
             cond_cartao = (
                 df_raw["forma_pagamento"].str.contains(r"cart[ãa]o|cr[eé]dito|riachuelo|pernambucanas", case=False, na=False) |
-                df_raw["nome_cartao"].notna() if "nome_cartao" in df_raw.columns else False
+                (df_raw["nome_cartao"].notna() if "nome_cartao" in df_raw.columns else False)
             )
             
             # Contas comuns
@@ -1934,6 +1934,8 @@ elif opcao == "📅 Próximos Vencimentos":
             df_faturas_agrupadas = pd.DataFrame()
 
             if not df_credito.empty:
+                import calendar
+
                 def extrair_nome_cartao(row):
                     for col in ["nome_cartao", "cartao_nome", "cartao", "nome"]:
                         if col in row and pd.notna(row[col]):
@@ -1958,7 +1960,6 @@ elif opcao == "📅 Próximos Vencimentos":
                     dia_venc = int(row["dia_venc_cartao"])
                     ano, mes = dt_compra.year, dt_compra.month
 
-                    import calendar
                     max_dias = calendar.monthrange(ano, mes)[1]
                     dia_valido = min(dia_venc, max_dias)
 
@@ -2002,7 +2003,7 @@ elif opcao == "📅 Próximos Vencimentos":
                     ].copy()
 
             if df_venc.empty:
-                st.warning(f"Nenhum registro encontrado para a seleção de período.")
+                st.warning("Nenhum registro encontrado para a seleção de período.")
             else:
                 df_venc = df_venc.sort_values(by="data").reset_index(drop=True)
 
