@@ -1864,40 +1864,55 @@ elif opcao == "🎯 Orçamentos por Categoria":
 
 # --- ABA: PRÓXIMOS VENCIMENTOS ---
 elif opcao == "📅 Próximos Vencimentos":
-    st.title("📅 Próximos Vencimentos")
-    st.caption("Acompanhe todas as contas (pagas e pendentes) e faturas consolidadas do mês.")
+    st.title("📅 Próximos Vencimentos e Faturas")
+    st.caption("Acompanhe contas pendentes e quitadas por período.")
 
+    # 1. DATA DINÂMICA (Muda automaticamente a cada mês)
     hoje = pd.to_datetime("today")
     mes_atual = hoje.month
     ano_atual = hoje.year
 
-    # Seletor de visualização
-    modo_visualizacao = st.radio(
-        "Selecione o período de visualização:",
-        options=[f"📅 Apenas Mês Atual ({mes_atual:02d}/{ano_atual})", "🔮 Todos os Próximos Dias"],
-        horizontal=True
-    )
+    # 2. SELETOR DE MÊS / PERÍODO
+    col_filtro1, col_filtro2 = st.columns([2, 2])
+    with col_filtro1:
+        opcao_periodo = st.selectbox(
+            "Selecione o Mês de Visualização:",
+            options=[
+                f"📅 Mês Atual ({mes_atual:02d}/{ano_atual})",
+                f"⏪ Mês Anterior ({(mes_atual-1 if mes_atual > 1 else 12):02d}/{(ano_atual if mes_atual > 1 else ano_atual-1)})",
+                f"⏩ Próximo Mês ({(mes_atual+1 if mes_atual < 12 else 1):02d}/{(ano_atual if mes_atual < 12 else ano_atual+1)})",
+                "🔮 Ver Todos os Próximos Dias"
+            ]
+        )
 
-    dias_filtro = 90  # Busca até 90 dias para garantir que pegue o mês atual completo
-    if "Próximos Dias" in modo_visualizacao:
-        dias_filtro = st.slider("Dias à frente:", min_value=5, max_value=90, value=30, step=5)
+    # Define o mês e ano alvo com base na escolha
+    if "Mês Atual" in opcao_periodo:
+        target_mes, target_ano = mes_atual, ano_atual
+    elif "Mês Anterior" in opcao_periodo:
+        target_mes = mes_atual - 1 if mes_atual > 1 else 12
+        target_ano = ano_atual if mes_atual > 1 else ano_atual - 1
+    elif "Próximo Mês" in opcao_periodo:
+        target_mes = mes_atual + 1 if mes_atual < 12 else 1
+        target_ano = ano_atual if mes_atual < 12 else ano_atual + 1
+    else:
+        target_mes, target_ano = None, None
 
     usuario_atual_id = st.session_state.get("usuario_id")
-    vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=dias_filtro)
+    
+    # Busca lançamentos estendidos (90 dias para cobrir passados/futuros)
+    vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=90)
 
     if not vencimentos:
-        st.success("🎉 Nenhuma despesa ou fatura registrada!")
+        st.info("Nenhum lançamento encontrado para o período.")
     else:
         df_raw = pd.DataFrame(vencimentos)
 
-        # Filtra por usuário
         if "usuario_id" in df_raw.columns and usuario_atual_id is not None:
             df_raw = df_raw[df_raw["usuario_id"].astype(str) == str(usuario_atual_id)].copy()
 
         if df_raw.empty:
-            st.success("🎉 Nenhuma despesa encontrada!")
+            st.info("Nenhum lançamento encontrado para este usuário.")
         else:
-            # Garante coluna de status de pagamento
             if "pago" not in df_raw.columns:
                 df_raw["pago"] = False
             else:
@@ -1905,12 +1920,12 @@ elif opcao == "📅 Próximos Vencimentos":
 
             cond_cartao = df_raw["forma_pagamento"].str.contains(r"cartão de crédito|credito", case=False, na=False)
             
-            # 1. OUTRAS CONTAS (Boletos, Recorrentes e Avulsas)
+            # Contas comuns
             df_outras_contas = df_raw[~cond_cartao].copy()
             if not df_outras_contas.empty:
                 df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(lambda x: [x])
 
-            # 2. FATURAS DE CARTÃO DE CRÉDITO
+            # Faturas de Cartão
             df_credito = df_raw[cond_cartao].copy()
             df_faturas_agrupadas = pd.DataFrame()
 
@@ -1920,10 +1935,6 @@ elif opcao == "📅 Próximos Vencimentos":
                         if col in row and pd.notna(row[col]):
                             val = row[col]
                             return val.get("nome_cartao", "Cartão de Crédito") if isinstance(val, dict) else str(val)
-                    if "cartoes" in row and isinstance(row["cartoes"], dict):
-                        return row["cartoes"].get("nome_cartao", "Cartão de Crédito")
-                    if "cartao_id" in row and pd.notna(row["cartao_id"]):
-                        return f"Cartão #{int(row['cartao_id'])}"
                     return "Cartão de Crédito"
 
                 def extrair_dia_vencimento(row):
@@ -1932,10 +1943,6 @@ elif opcao == "📅 Próximos Vencimentos":
                             val = str(row[col]).strip()
                             if val.isdigit():
                                 return int(val)
-                    if "cartoes" in row and isinstance(row["cartoes"], dict):
-                        v = row["cartoes"].get("dia_vencimento") or row["cartoes"].get("dia_venc") or row["cartoes"].get("vencimento")
-                        if v and str(v).strip().isdigit():
-                            return int(str(v).strip())
                     return 10
 
                 df_credito["nome_exibicao_cartao"] = df_credito.apply(extrair_nome_cartao, axis=1)
@@ -1943,23 +1950,8 @@ elif opcao == "📅 Próximos Vencimentos":
                 df_credito["ids_compras"] = df_credito["id"]
 
                 def resolver_mes_e_vencimento_fatura(row):
-                    # Se já houver mes_fatura explícito, utiliza ele diretamente
-                    if "mes_fatura" in row and pd.notna(row["mes_fatura"]) and "/" in str(row["mes_fatura"]):
-                        mes_fat = str(row["mes_fatura"])
-                        dia = row["dia_venc_cartao"]
-                        try:
-                            m, a = map(int, mes_fat.split("/"))
-                            import calendar
-                            max_d = calendar.monthrange(a, m)[1]
-                            data_venc = f"{a:04d}-{m:02d}-{min(int(dia), max_d):02d}"
-                            return pd.Series([data_venc, mes_fat])
-                        except Exception:
-                            pass
-
-                    # Força a data de vencimento da fatura com base na data da compra/lançamento
                     dt_compra = pd.to_datetime(row["data"])
                     dia_venc = int(row["dia_venc_cartao"])
-                    
                     ano, mes = dt_compra.year, dt_compra.month
 
                     import calendar
@@ -1977,53 +1969,46 @@ elif opcao == "📅 Próximos Vencimentos":
                 df_credito["data"] = df_credito["data_venc_calculada"]
                 df_credito["mes_fatura"] = df_credito["mes_fatura_calculado"]
 
-                colunas_agrupamento = ["nome_exibicao_cartao", "mes_fatura", "pago"]
                 df_faturas_agrupadas = (
-                    df_credito.groupby(colunas_agrupamento, as_index=False)
+                    df_credito.groupby(["nome_exibicao_cartao", "mes_fatura", "pago"], as_index=False)
                     .agg({
                         "valor": "sum",
                         "id": "first",
                         "ids_compras": lambda x: list(x),
                         "data": "first",
-                        "dia_venc_cartao": "first",
                         "categoria": lambda x: "Fatura de Cartão",
                         "forma_pagamento": lambda x: "Cartão de Crédito"
                     })
                 )
-
                 df_faturas_agrupadas["descricao"] = df_faturas_agrupadas.apply(
                     lambda r: f"💳 Fatura {r['nome_exibicao_cartao']} ({r['mes_fatura']})", axis=1
                 )
 
-            # 3. UNIFICAÇÃO E FILTRO DE EXIBIÇÃO
+            # Unifica tudo
             df_venc = pd.concat([df_outras_contas, df_faturas_agrupadas], ignore_index=True)
 
             if not df_venc.empty:
                 df_venc["data_dt"] = pd.to_datetime(df_venc["data"])
 
-                # FILTRA APENAS MÊS ATUAL (Mês 8) SE O SELETOR ESTIVER EM MÊS ATUAL
-                if "Apenas Mês Atual" in modo_visualizacao:
+                # Aplica o filtro do Mês Selecionado
+                if target_mes and target_ano:
                     df_venc = df_venc[
-                        (df_venc["data_dt"].dt.month == mes_atual) & 
-                        (df_venc["data_dt"].dt.year == ano_atual)
+                        (df_venc["data_dt"].dt.month == target_mes) & 
+                        (df_venc["data_dt"].dt.year == target_ano)
                     ].copy()
 
             if df_venc.empty:
-                st.info(f"Nenhuma conta ou fatura encontrada para o Mês {mes_atual:02d}/{ano_atual}.")
+                st.warning(f"Nenhum registro encontrado para a seleção de período.")
             else:
                 df_venc = df_venc.sort_values(by="data").reset_index(drop=True)
 
-                # SEPARAÇÃO EM PENDENTES E PAGAS
                 df_pendentes = df_venc[df_venc["pago"] == False].copy()
                 df_pagos = df_venc[df_venc["pago"] == True].copy()
 
-                # --- CARDS DE RESUMO DO MÊS ---
+                # --- CARDS RESUMO ---
                 col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
                 with col_kpi1:
-                    st.metric(
-                        "Total Pendente (A Pagar)",
-                        fmt_moeda(df_pendentes["valor"].sum()) if not df_pendentes.empty else "R$ 0,00",
-                    )
+                    st.metric("Total Pendente (A Pagar)", fmt_moeda(df_pendentes["valor"].sum()) if not df_pendentes.empty else "R$ 0,00")
                 with col_kpi2:
                     st.metric("Total Já Pago (Quitado)", fmt_moeda(df_pagos["valor"].sum()) if not df_pagos.empty else "R$ 0,00")
                 with col_kpi3:
@@ -2031,122 +2016,49 @@ elif opcao == "📅 Próximos Vencimentos":
 
                 st.markdown("---")
 
-                # --- ABAS INTERATIVAS (PENDENTES vs PAGAS) ---
+                # --- ABAS PENDENTES vs PAGAS ---
                 tab_pendentes, tab_pagas = st.tabs([
                     f"⏳ Contas Não Pagas / Pendentes ({len(df_pendentes)})", 
                     f"✅ Contas Pagas / Quitadas ({len(df_pagos)})"
                 ])
 
-                # ABA 1: CONTAS NÃO PAGAS
                 with tab_pendentes:
                     if df_pendentes.empty:
-                        st.success("🎉 Todas as contas deste mês já foram pagas!")
+                        st.success("🎉 Nenhuma conta pendente para este período!")
                     else:
-                        df_pendentes["Valor_Fmt"] = df_pendentes["valor"].apply(lambda v: fmt_moeda(v))
-                        df_pendentes["Data_Fmt"] = pd.to_datetime(df_pendentes["data"]).dt.strftime("%d/%m/%Y")
-                        hoje_dt = pd.to_datetime("today").normalize()
-                        df_pendentes["Dias_Restantes"] = (pd.to_datetime(df_pendentes["data"]) - hoje_dt).dt.days
-
                         for _, row in df_pendentes.iterrows():
                             id_lanc = row["id"]
                             lista_ids = row.get("ids_compras") if isinstance(row.get("ids_compras"), list) else [id_lanc]
-                            dias = int(row["Dias_Restantes"])
+                            valor_fmt = fmt_moeda(row["valor"])
+                            data_fmt = pd.to_datetime(row["data"]).strftime("%d/%m/%Y")
 
-                            if dias == 0:
-                                badge = "⚠️ **VENCE HOJE!**"
-                            elif dias < 0:
-                                badge = f"🚨 **VENCIDA HÁ {abs(dias)} DIA(S)!**"
-                            else:
-                                badge = f"⏳ Vence em {dias} dia(s)"
+                            with st.expander(f"📅 {data_fmt} — {row['descricao']} | {valor_fmt}"):
+                                st.write(f"**Categoria:** {row.get('categoria', 'Geral')}")
+                                st.write(f"**Forma de Pagamento:** {row.get('forma_pagamento', 'N/A')}")
+                                
+                                if st.button("✅ Marcar como Pago", key=f"pago_{id_lanc}", type="primary"):
+                                    for sub_id in lista_ids:
+                                        marcar_lancamento_como_pago(sub_id)
+                                    st.cache_data.clear()
+                                    st.rerun()
 
-                            with st.expander(f"📅 {row['Data_Fmt']} — {row['descricao']} | {row['Valor_Fmt']}"):
-                                c1, c2 = st.columns(2)
-                                with c1:
-                                    st.write(f"**Categoria:** {row.get('categoria', 'Não informada')}")
-                                    st.write(f"**Forma de Pagamento:** {row.get('forma_pagamento', 'Não informada')}")
-                                with c2:
-                                    st.write(f"**Status:** {badge}")
-
-                                st.markdown("---")
-                                col_btn_pago, col_btn_del, _ = st.columns([2, 1, 3])
-
-                                with col_btn_pago:
-                                    if st.button(
-                                        "✅ Marcar como Pago",
-                                        key=f"pago_{id_lanc}",
-                                        type="primary",
-                                        use_container_width=True,
-                                    ):
-                                        sucesso_todos = True
-                                        for sub_id in lista_ids:
-                                            if not marcar_lancamento_como_pago(sub_id):
-                                                sucesso_todos = False
-
-                                        if sucesso_todos:
-                                            st.cache_data.clear()
-                                            st.success("Conta baixada e movida para Pagas!")
-                                            st.rerun()
-                                        else:
-                                            st.error("Erro ao dar baixa.")
-
-                                with col_btn_del:
-                                    if st.button(
-                                        "🗑️ Excluir",
-                                        key=f"del_venc_{id_lanc}",
-                                        use_container_width=True,
-                                    ):
-                                        sucesso_del = True
-                                        for sub_id in lista_ids:
-                                            if not excluir_lancamento_pendente(sub_id):
-                                                sucesso_del = False
-
-                                        if sucesso_del:
-                                            st.cache_data.clear()
-                                            st.warning("Removido com sucesso!")
-                                            st.rerun()
-                                        else:
-                                            st.error("Erro ao excluir.")
-
-                # ABA 2: CONTAS PAGAS
                 with tab_pagas:
                     if df_pagos.empty:
-                        st.info("Nenhuma conta paga encontrada para este mês.")
+                        st.info("Nenhuma conta marcada como paga neste período. Ao clicar em 'Marcar como Pago' em uma conta pendente, ela aparecerá aqui.")
                     else:
-                        df_pagos["Valor_Fmt"] = df_pagos["valor"].apply(lambda v: fmt_moeda(v))
-                        df_pagos["Data_Fmt"] = pd.to_datetime(df_pagos["data"]).dt.strftime("%d/%m/%Y")
-
                         for _, row in df_pagos.iterrows():
                             id_lanc = row["id"]
                             lista_ids = row.get("ids_compras") if isinstance(row.get("ids_compras"), list) else [id_lanc]
+                            valor_fmt = fmt_moeda(row["valor"])
+                            data_fmt = pd.to_datetime(row["data"]).strftime("%d/%m/%Y")
 
-                            with st.expander(f"✔️ {row['Data_Fmt']} — {row['descricao']} | {row['Valor_Fmt']}"):
-                                c1, c2 = st.columns(2)
-                                with c1:
-                                    st.write(f"**Categoria:** {row.get('categoria', 'Não informada')}")
-                                    st.write(f"**Forma de Pagamento:** {row.get('forma_pagamento', 'Não informada')}")
-                                with c2:
-                                    st.write("**Status:** ✅ Pago / Quitado")
-
-                                st.markdown("---")
-                                col_btn_undo, _ = st.columns([2, 4])
-                                with col_btn_undo:
-                                    if st.button(
-                                        "↩️ Desfazer Pagamento",
-                                        key=f"desfazer_tab_{id_lanc}",
-                                        type="secondary",
-                                        use_container_width=True,
-                                    ):
-                                        sucesso_estorno = True
-                                        for sub_id in lista_ids:
-                                            if not desfazer_pagamento_lancamento(sub_id):
-                                                sucesso_estorno = False
-
-                                        if sucesso_estorno:
-                                            st.cache_data.clear()
-                                            st.warning("Estornado para Não Pagas!")
-                                            st.rerun()
-                                        else:
-                                            st.error("Erro ao estornar o pagamento.")
+                            with st.expander(f"✔️ {data_fmt} — {row['descricao']} | {valor_fmt}"):
+                                st.write(f"**Status:** ✅ Quitado")
+                                if st.button("↩️ Desfazer Pagamento", key=f"undo_{id_lanc}"):
+                                    for sub_id in lista_ids:
+                                        desfazer_pagamento_lancamento(sub_id)
+                                    st.cache_data.clear()
+                                    st.rerun()
 # --- ABA: CARTÕES & FATURAS ---
 elif opcao == "💳 Cartões & Faturas":
     st.title("💳 Gestão de Cartões de Crédito & Faturas")
