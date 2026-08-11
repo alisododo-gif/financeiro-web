@@ -683,18 +683,25 @@ def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # Dispara a verificação de alertas a cada 5 horas (18000 segundos)
-    app.job_queue.run_repeating(
+    fuso_br = pytz.timezone("America/Sao_Paulo")
+
+    # 1º Alerta do dia: 08:00 da manhã
+    app.job_queue.run_daily(
         processar_e_enviar_alertas,
-        interval=18000,
-        first=10
+        time=time(hour=9, minute=0, tzinfo=fuso_br)
     )
 
-    # Dispara o ping para não deixar o Streamlit hibernar (a cada 5 horas)
+    # 2º Alerta do dia: 15:00 da tarde
+    app.job_queue.run_daily(
+        processar_e_enviar_alertas,
+        time=time(hour=15, minute=0, tzinfo=fuso_br)
+    )
+
+    # Ping do Streamlit (a cada 5 horas para manter ativo)
     app.job_queue.run_repeating(
         ping_streamlit,
         interval=18000,
-        first=15
+        first=18000
     )
 
     # Handlers dos comandos
@@ -710,7 +717,3 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_geral))
 
     app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
