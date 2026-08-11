@@ -32,9 +32,54 @@ def criar_tabelas_se_nao_existirem():
 
 
 # =====================================================================
-# --- FUNÇÕES DE BUSCA E LEITURA OTIMIZADAS (COM CACHE) ---
+# --- AJUDANTES DE LIMPEZA CIRÚRGICA DE CACHE ---
 # =====================================================================
 
+def limpar_cache_movimentacoes():
+    """Invalida apenas as buscas e relatórios de movimentações."""
+    obter_df_movimentacoes_bruto.clear()
+    buscar_todas_movimentacoes.clear()
+    dados_dashboard.clear()
+    dados_grafico_mensal.clear()
+    dados_grafico_categorias.clear()
+    dados_grafico_tags.clear()
+    obter_transacoes.clear()
+    buscar_vencimentos_proximos.clear()
+    buscar_gastos_fatura.clear()
+
+
+def limpar_cache_contas():
+    """Invalida apenas o cache de contas bancárias."""
+    listar_contas.clear()
+    nomes_contas.clear()
+    obter_id_conta_por_nome.clear()
+
+
+def limpar_cache_cartoes():
+    """Invalida apenas o cache de cartões de crédito."""
+    listar_cartoes.clear()
+    buscar_gastos_fatura.clear()
+
+
+def limpar_cache_metas():
+    """Invalida apenas o cache de metas financeiras."""
+    listar_metas.clear()
+
+
+def limpar_cache_orcamentos():
+    """Invalida apenas o cache de orçamentos."""
+    obter_limite_orcamento.clear()
+    obter_limites_por_categoria.clear()
+
+
+def limpar_cache_contas_receber():
+    """Invalida apenas o cache de contas a receber."""
+    buscar_contas_a_receber.clear()
+
+
+# =====================================================================
+# --- FUNÇÕES DE BUSCA E LEITURA OTIMIZADAS (COM CACHE) ---
+# =====================================================================
 
 def _construir_query_data(url_base, mes, ano):
     """Auxiliar para aplicar filtros de data/fatura direto no Supabase."""
@@ -56,6 +101,7 @@ def _construir_query_data(url_base, mes, ano):
             return f"{url_base}&data=gte.{ano}-01-01&data=lt.{int(ano)+1}-01-01"
 
     return url_base
+
 
 @st.cache_data(ttl=300, show_spinner=False)
 def obter_df_movimentacoes_bruto(usuario_id, mes, ano):
@@ -89,6 +135,7 @@ def buscar_todas_movimentacoes(usuario_id, mes, ano):
             m.get("categoria", ""),
         ])
     return dados_filtrados
+
 
 @st.cache_data(ttl=60, show_spinner=False)
 def dados_dashboard(usuario_id, mes, ano):
@@ -280,11 +327,7 @@ def obter_transacoes(usuario_id):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def buscar_vencimentos_proximos(usuario_id, dias=60, dias_atras=90):
-    # Permite buscar compras de até 'dias_atras' (90 dias atrás)
-    # para capturar faturas de cartão com compras feitas no mês passado.
-    data_inicio = (datetime.now() - timedelta(days=dias_atras)).strftime(
-        "%Y-%m-%d"
-    )
+    data_inicio = (datetime.now() - timedelta(days=dias_atras)).strftime("%Y-%m-%d")
     data_limite = (datetime.now() + timedelta(days=dias)).strftime("%Y-%m-%d")
 
     url = (
@@ -305,14 +348,10 @@ def buscar_vencimentos_proximos(usuario_id, dias=60, dias_atras=90):
                 cartao_obj = item.get("cartoes")
                 if isinstance(cartao_obj, dict):
                     item["nome_cartao"] = cartao_obj.get("nome_cartao")
-                    item["dia_vencimento_cartao"] = cartao_obj.get(
-                        "dia_vencimento"
-                    )
+                    item["dia_vencimento_cartao"] = cartao_obj.get("dia_vencimento")
                 elif isinstance(cartao_obj, list) and len(cartao_obj) > 0:
                     item["nome_cartao"] = cartao_obj[0].get("nome_cartao")
-                    item["dia_vencimento_cartao"] = cartao_obj[0].get(
-                        "dia_vencimento"
-                    )
+                    item["dia_vencimento_cartao"] = cartao_obj[0].get("dia_vencimento")
             return dados
     except Exception:
         pass
@@ -340,9 +379,8 @@ def carregar_dados_iniciais_paralelo(usuario_id, mes, ano):
 
 
 # =====================================================================
-# --- FUNÇÕES DE ESCRITA, EDIÇÃO E EXCLUSÃO (BATCH + INVALIDATION) ---
+# --- FUNÇÕES DE ESCRITA, EDIÇÃO E EXCLUSÃO (BATCH + CIRÚRGICO) ---
 # =====================================================================
-
 
 def cadastrar_cartao(usuario_id, nome, limite, dia_fechamento, dia_vencimento):
     payload = {
@@ -354,7 +392,7 @@ def cadastrar_cartao(usuario_id, nome, limite, dia_fechamento, dia_vencimento):
     }
     res = session.post(f"{BASE_URL}/cartoes", json=payload, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 201]:
-        st.cache_data.clear()
+        limpar_cache_cartoes()
         return True
     st.error(f"Erro Supabase ({res.status_code}): {res.text}")
     return False
@@ -364,7 +402,7 @@ def excluir_cartao(usuario_id, cartao_id):
     url = f"{BASE_URL}/cartoes?id=eq.{cartao_id}&usuario_id=eq.{usuario_id}"
     res = session.delete(url, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        limpar_cache_cartoes()
         return True
     return False
 
@@ -383,7 +421,7 @@ def definir_limite_orcamento(usuario_id, limite):
         session.patch(f"{BASE_URL}/orcamentos?id=eq.{oid}", json={"limite": limite}, timeout=DEFAULT_TIMEOUT)
     else:
         session.post(f"{BASE_URL}/orcamentos", json={"usuario_id": usuario_id, "limite": limite}, timeout=DEFAULT_TIMEOUT)
-    st.cache_data.clear()
+    limpar_cache_orcamentos()
 
 
 def cadastrar_conta(usuario_id, nome, saldo=0.00):
@@ -394,7 +432,7 @@ def cadastrar_conta(usuario_id, nome, saldo=0.00):
     }
     res = session.post(f"{BASE_URL}/contas", json=payload, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 201]:
-        st.cache_data.clear()
+        limpar_cache_contas()
         return True
     return False
 
@@ -402,7 +440,7 @@ def cadastrar_conta(usuario_id, nome, saldo=0.00):
 def excluir_conta(usuario_id, conta_id):
     res = session.delete(f"{BASE_URL}/contas?id=eq.{conta_id}&usuario_id=eq.{usuario_id}", timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        limpar_cache_contas()
         return True
     return False
 
@@ -420,20 +458,20 @@ def criar_meta(usuario_id, nome_meta, valor_alvo, prazo):
         timeout=DEFAULT_TIMEOUT,
     )
     if res.status_code in [200, 201]:
-        st.cache_data.clear()
+        limpar_cache_metas()
 
 
 def atualizar_progresso_meta(meta_id, valor_poupado):
     res = session.patch(f"{BASE_URL}/metas?id=eq.{meta_id}", json={"valor_poupado": valor_poupado}, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        limpar_cache_metas()
 
 
 def excluir_meta(usuario_id, meta_id):
     url = f"{BASE_URL}/metas?id=eq.{meta_id}&usuario_id=eq.{usuario_id}"
     res = session.delete(url, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        limpar_cache_metas()
         return True
     return False
 
@@ -484,18 +522,7 @@ def salvar_movimentacao(
 
     res = session.post(url, json=payload, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 201]:
-        # ⚡ LIMPEZA CIRÚRGICA DE CACHE
-        # Invalida apenas o cache das funções impactadas por novas movimentações,
-        # sem apagar o cache global do Streamlit (contas, cartões, metas, etc.)
-        obter_df_movimentacoes_bruto.clear()
-        buscar_todas_movimentacoes.clear()
-        dados_dashboard.clear()
-        dados_grafico_mensal.clear()
-        dados_grafico_categorias.clear()
-        dados_grafico_tags.clear()
-        obter_transacoes.clear()
-        buscar_vencimentos_proximos.clear()
-        
+        limpar_cache_movimentacoes()
         return True
 
     st.error(f"❌ Erro Supabase ({res.status_code}): {res.text}")
@@ -516,9 +543,6 @@ def salvar_movimentacao_parcelada(
     dia_fechamento=None,
     tags=None,
 ):
-    """
-    ⚡ OTIMIZADO COM BATCH INSERT (1 única requisição HTTP para todas as parcelas)
-    """
     dt_base = datetime.strptime(data_base, "%Y-%m-%d")
     valor_parcela = round(float(valor) / int(parcelas), 2)
 
@@ -556,7 +580,7 @@ def salvar_movimentacao_parcelada(
 
     res = session.post(f"{BASE_URL}/movimentacoes", json=payloads, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 201]:
-        st.cache_data.clear()
+        limpar_cache_movimentacoes()
         return True
     st.error(f"Erro ao salvar parcelas ({res.status_code}): {res.text}")
     return False
@@ -576,9 +600,6 @@ def salvar_movimentacao_recorrente(
     dia_fechamento=None,
     tags=None,
 ):
-    """
-    ⚡ OTIMIZADO COM BATCH INSERT (1 única requisição HTTP para todas as recorrências)
-    """
     dt_base = datetime.strptime(data_base, "%Y-%m-%d")
     c_id = int(conta_id) if (conta_id is not None and str(conta_id).isdigit()) else None
     crt_id = int(cartao_id) if (cartao_id is not None and str(cartao_id).isdigit()) else None
@@ -613,7 +634,7 @@ def salvar_movimentacao_recorrente(
 
     res = session.post(f"{BASE_URL}/movimentacoes", json=payloads, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 201]:
-        st.cache_data.clear()
+        limpar_cache_movimentacoes()
         return True
     st.error(f"Erro ao salvar lançamentos recorrentes ({res.status_code}): {res.text}")
     return False
@@ -623,7 +644,7 @@ def excluir_movimentacao(usuario_id, mov_id):
     url = f"{BASE_URL}/movimentacoes?id=eq.{mov_id}&usuario_id=eq.{usuario_id}"
     res = session.delete(url, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        limpar_cache_movimentacoes()
         return True
     st.error(f"Erro ao excluir ({res.status_code}): {res.text}")
     return False
@@ -636,7 +657,7 @@ def atualizar_categoria_e_forma(usuario_id, mov_id, categoria, forma_pagamento):
         timeout=DEFAULT_TIMEOUT,
     )
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        limpar_cache_movimentacoes()
     return res.status_code in [200, 204]
 
 
@@ -644,7 +665,7 @@ def excluir_usuario_admin(usuario_id):
     url = f"{BASE_URL}/usuarios?id=eq.{usuario_id}"
     res = session.delete(url, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        listar_todos_usuarios_admin.clear()
         return True
     return False
 
@@ -657,7 +678,7 @@ def atualizar_status_e_mensalidade(usuario_id, novo_status, novo_valor_mensalida
     }
     res = session.patch(url, json=payload, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        listar_todos_usuarios_admin.clear()
         return True
     return False
 
@@ -671,7 +692,7 @@ def salvar_orcamento_categoria(usuario_id, categoria, valor_limite):
     }
     res = session.post(url, json=payload, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 201]:
-        st.cache_data.clear()
+        limpar_cache_orcamentos()
         return True
     return False
 
@@ -680,7 +701,7 @@ def excluir_orcamento_categoria(usuario_id, categoria):
     url = f"{BASE_URL}/orcamentos?usuario_id=eq.{usuario_id}&categoria=eq.{categoria}"
     res = session.delete(url, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        limpar_cache_orcamentos()
         return True
     return False
 
@@ -690,7 +711,7 @@ def alterar_status_pagamento(id_lancamento, status_pago: bool):
     payload = {"pago": status_pago}
     res = session.patch(url, json=payload, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        limpar_cache_movimentacoes()
         return True
     return False
 
@@ -707,7 +728,7 @@ def excluir_lancamento_pendente(id_lancamento):
     url = f"{BASE_URL}/movimentacoes?id=eq.{id_lancamento}"
     res = session.delete(url, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        limpar_cache_movimentacoes()
         return True
     return False
 
@@ -721,7 +742,7 @@ def dar_baixa_fatura_completa(usuario_id, cartao_id, mes_fatura):
     payload = {"pago": True}
     res = session.patch(url, json=payload, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        limpar_cache_movimentacoes()
         return True
     return False
 
@@ -731,7 +752,7 @@ def atualizar_limite_cartao(usuario_id, cartao_id, novo_limite):
     payload = {"limite": float(novo_limite)}
     res = session.patch(url, json=payload, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        limpar_cache_cartoes()
         return True
     return False
 
@@ -746,9 +767,6 @@ def salvar_despesa_cartao(
     dia_fechamento,
     parcelas=1,
 ):
-    """
-    ⚡ OTIMIZADO COM BATCH INSERT
-    """
     try:
         valor_parcela = round(float(valor) / int(parcelas), 2)
         data_obj = (
@@ -778,7 +796,7 @@ def salvar_despesa_cartao(
 
         res = session.post(f"{BASE_URL}/movimentacoes", json=payloads, timeout=DEFAULT_TIMEOUT)
         if res.status_code in [200, 201]:
-            st.cache_data.clear()
+            limpar_cache_movimentacoes()
             return True
         return False
     except Exception as e:
@@ -789,7 +807,6 @@ def salvar_despesa_cartao(
 # =====================================================================
 # --- FUNÇÕES AUXILIARES E DE INTERFACE ---
 # =====================================================================
-
 
 def calcular_mes_fatura(data_transacao_str, dia_fechamento):
     dt = (
@@ -912,7 +929,6 @@ def gerar_insights_financeiros(usuario_id, mes_selecionado, ano_selecionado, mov
 # --- FUNÇÕES PARA A TABELA 'contas_receber' ---
 # =====================================================================
 
-
 @st.cache_data(ttl=60, show_spinner=False)
 def buscar_contas_a_receber(usuario_id, status_filtro="Todos"):
     url = f"{BASE_URL}/contas_receber?usuario_id=eq.{usuario_id}&order=data_recebimento.asc"
@@ -940,7 +956,7 @@ def salvar_conta_a_receber(usuario_id, descricao, valor, data_recebimento):
     }
     res = session.post(url, json=payload, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 201]:
-        st.cache_data.clear()
+        limpar_cache_contas_receber()
         return True
     st.error(f"Erro Supabase ({res.status_code}): {res.text}")
     return False
@@ -951,7 +967,7 @@ def alternar_status_contas_a_receber(mov_id, recebido_atual):
     url = f"{BASE_URL}/contas_receber?id=eq.{mov_id}"
     res = session.patch(url, json={"recebido": novo_status}, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        limpar_cache_contas_receber()
         return True
     return False
 
@@ -960,7 +976,7 @@ def excluir_conta_a_receber(usuario_id, mov_id):
     url = f"{BASE_URL}/contas_receber?id=eq.{mov_id}&usuario_id=eq.{usuario_id}"
     res = session.delete(url, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        limpar_cache_contas_receber()
         return True
     return False
 
@@ -974,7 +990,7 @@ def atualizar_conta_a_receber(mov_id, usuario_id, nova_descricao, novo_valor, no
     }
     res = session.patch(url, json=payload, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        st.cache_data.clear()
+        limpar_cache_contas_receber()
         return True
     st.error(f"Erro ao atualizar: {res.text}")
     return False
