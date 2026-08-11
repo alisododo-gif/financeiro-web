@@ -411,7 +411,7 @@ if not usuario_atual_id:
             if caminho_logo:
                 _, col_img, _ = st.columns([1, 2, 1])
                 with col_img:
-                    st.image(caminho_logo, use_container_width=True)
+                    st.image(caminho_logo, width="stretch")
 
             st.markdown(
                 "<p style='text-align: center; color: #94a3b8; font-size: 12px; margin-top: 5px; margin-bottom: 15px;'>Acesse sua conta para gerenciar suas finanças</p>",
@@ -424,7 +424,7 @@ if not usuario_atual_id:
                 with st.form("form_login", clear_on_submit=False):
                     username_input = st.text_input("Seu Usuário", key="login_user", placeholder="Digite seu usuário")
                     password_input = st.text_input("Senha", type="password", key="login_pass", placeholder="••••••••")
-                    btn_login = st.form_submit_button("Entrar no Sistema", type="primary", use_container_width=True)
+                    btn_login = st.form_submit_button("Entrar no Sistema", type="primary", width="stretch")
 
                 if btn_login:
                     if not username_input.strip() or not password_input.strip():
@@ -444,7 +444,7 @@ if not usuario_atual_id:
                     username_cad = st.text_input("Escolha um Usuário", key="cad_user", placeholder="Ex: joao.silva")
                     telefone_cad = st.text_input("Telefone (WhatsApp)", key="cad_tel", placeholder="556599998888")
                     password_cad = st.text_input("Crie uma Senha", type="password", key="cad_pass", placeholder="••••••••")
-                    btn_cad = st.form_submit_button("Cadastrar e Solicitar Acesso", type="primary", use_container_width=True)
+                    btn_cad = st.form_submit_button("Cadastrar e Solicitar Acesso", type="primary", width="stretch")
 
                 if btn_cad:
                     if username_cad.strip() and telefone_cad.strip() and password_cad.strip():
@@ -503,9 +503,9 @@ if st.session_state.get("is_admin", False):
 
 with st.sidebar:
     if os.path.exists(os.path.join("assets", "logo")):
-        st.image(os.path.join("assets", "logo"), use_container_width=True)
+        st.image(os.path.join("assets", "logo"), width="stretch")
     else:
-        st.image("assets/logo", use_container_width=True)
+        st.image("assets/logo", width="stretch")
         
     st.write(f"👤 Usuário: **{st.session_state.get('usuario_id', '')}** {'(👑 Admin)' if st.session_state.get('is_admin') else ''}")
     st.markdown("---")
@@ -514,12 +514,12 @@ with st.sidebar:
         eh_ativo = (st.session_state["pagina_atual"] == item)
         tipo_botao = "primary" if eh_ativo else "secondary"
         
-        if st.button(item, key=f"btn_nav_{item}", type=tipo_botao, use_container_width=True):
+        if st.button(item, key=f"btn_nav_{item}", type=tipo_botao, width="stretch"):
             st.session_state["pagina_atual"] = item
             st.rerun()
     
     st.markdown("---")
-    if st.button("🚪 Sair do Sistema", use_container_width=True):
+    if st.button("🚪 Sair do Sistema", width="stretch"):
         st.query_params.clear()
         if "usuario_id" in st.session_state:
             del st.session_state["usuario_id"]
@@ -565,7 +565,7 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                     with st.container(border=True):
                         st.markdown(f"👤 **Cliente:** {row['usuario']}")
                         v_mensal = st.number_input("Definir Mensalidade (R$):", min_value=0.0, value=49.90, key=f"v_pend_{row['id']}")
-                        if st.button("✅ Ativar Conta", key=f"btn_lib_{row['id']}", use_container_width=True, type="primary"):
+                        if st.button("✅ Ativar Conta", key=f"btn_lib_{row['id']}", width="stretch", type="primary"):
                             if atualizar_status_e_mensalidade(row['id'], 'ativo', v_mensal):
                                 st.success(f"Acesso liberado para {row['usuario']}!")
                                 st.rerun()
@@ -581,7 +581,7 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
             mensalidade_manual = st.number_input("Valor da Mensalidade (R$):", min_value=0.0, value=49.90)
             status_manual = st.selectbox("Status Inicial:", ["ativo", "inativo", "pendente"])
             
-            if st.form_submit_button("Salvar e Criar Cliente", use_container_width=True, type="primary"):
+            if st.form_submit_button("Salvar e Criar Cliente", width="stretch", type="primary"):
                 if novo_usr and nova_sen:
                     res_manual = criar_usuario_rest(novo_usr, nova_sen, status=status_manual, valor_mensalidade=mensalidade_manual, telefone=novo_tel)
                     if res_manual == "Existe":
@@ -617,11 +617,11 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                     
                     with col_b1:
                         if status_atual == 'ativo':
-                            if st.button("🚫 Suspender", key=f"btn_susp_{row['id']}", use_container_width=True):
+                            if st.button("🚫 Suspender", key=f"btn_susp_{row['id']}", width="stretch"):
                                 atualizar_status_e_mensalidade(row['id'], 'inativo', float(row.get('valor_mensalidade', 0.0)))
                                 st.rerun()
                         else:
-                            if st.button("⚡ Reativar", key=f"btn_reat_{row['id']}", use_container_width=True):
+                            if st.button("⚡ Reativar", key=f"btn_reat_{row['id']}", width="stretch"):
                                 atualizar_status_e_mensalidade(row['id'], 'ativo', float(row.get('valor_mensalidade', 0.0)))
                                 st.rerun()
                                 
@@ -630,14 +630,14 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                             tel_cadastro = row.get('telefone', '')
                             if tel_cadastro:
                                 url_whatsapp = criar_link_cobranca(telefone=tel_cadastro, nome=row['usuario'], valor=float(row.get('valor_mensalidade', 0.0)))
-                                st.link_button("💬 Cobrar", url_whatsapp, use_container_width=True)
+                                st.link_button("💬 Cobrar", url_whatsapp, width="stretch")
                             else:
-                                if st.button("❌ Excluir", key=f"btn_del_{row['id']}", use_container_width=True):
+                                if st.button("❌ Excluir", key=f"btn_del_{row['id']}", width="stretch"):
                                     if excluir_usuario_admin(row['id']):
                                         st.success("Usuário deletado!")
                                         st.rerun()
                         else:
-                            if st.button("❌ Excluir", key=f"btn_del_{row['id']}", use_container_width=True):
+                            if st.button("❌ Excluir", key=f"btn_del_{row['id']}", width="stretch"):
                                 if excluir_usuario_admin(row['id']):
                                     st.success("Usuário deletado!")
                                     st.rerun()
@@ -883,7 +883,7 @@ elif opcao == "🎯 Metas de Economia":
                 with col_b1:
                     st.write("")
                     st.write("")
-                    if st.button("➕ Depositar", key=f"dep_{m[0]}", use_container_width=True):
+                    if st.button("➕ Depositar", key=f"dep_{m[0]}", width="stretch"):
                         novo_saldo = val_guardado + valor_mov
                         atualizar_progresso_meta(m[0], novo_saldo)
                         st.cache_data.clear()
@@ -894,7 +894,7 @@ elif opcao == "🎯 Metas de Economia":
                 with col_b2:
                     st.write("")
                     st.write("")
-                    if st.button("➖ Resgatar", key=f"res_{m[0]}", use_container_width=True):
+                    if st.button("➖ Resgatar", key=f"res_{m[0]}", width="stretch"):
                         if valor_mov > val_guardado:
                             st.error("O valor de resgate é maior do que o saldo guardado!")
                         else:
@@ -908,7 +908,7 @@ elif opcao == "🎯 Metas de Economia":
                 with col_b3:
                     st.write("")
                     st.write("")
-                    if st.button("🗑️ Excluir", key=f"del_{m[0]}", use_container_width=True, type="secondary"):
+                    if st.button("🗑️ Excluir", key=f"del_{m[0]}", width="stretch", type="secondary"):
                         if excluir_meta(st.session_state["usuario_id"], m[0]):
                             st.cache_data.clear()
                             st.success(f"Meta '{m[1]}' excluída com sucesso!")
@@ -964,7 +964,7 @@ elif opcao == "🏦 Gerir Contas":
             col_c2.write(f"Saldo Inicial: {formatar_moeda_ptbr(csaldo)}")
             
             with col_c3:
-                if st.button("Remover", key=f"del_c_{cid}"):
+                if st.button("Remover", key=f"del_c_{cid}", width="stretch"):
                     if excluir_conta(st.session_state["usuario_id"], cid):
                         st.success("Conta removida com sucesso!")
                         st.rerun()
@@ -1120,7 +1120,7 @@ elif opcao == "💸 Lançar Movimentações":
         with col_del_2:
             st.write("")
             st.write("") 
-            if st.button("🗑️ Excluir", use_container_width=True, type="secondary"):
+            if st.button("🗑️ Excluir", width="stretch", type="secondary"):
                 id_limpo = int(id_para_deletar)
                 if excluir_movimentacao(usuario_id=st.session_state["usuario_id"], mov_id=id_limpo):
                     st.cache_data.clear()
@@ -1297,7 +1297,7 @@ elif opcao == "🎯 Orçamentos por Categoria":
             cat_orc = st.selectbox("Categoria", CATEGORIAS_DESPADREVAL)
             limite_val = st.number_input("Teto Mensal (R$)", min_value=10.0, value=500.0, step=50.0)
 
-            if st.form_submit_button("Salvar Limite", use_container_width=True):
+            if st.form_submit_button("Salvar Limite", width="stretch"):
                 if salvar_orcamento_categoria(uid, cat_orc, limite_val):
                     st.cache_data.clear()
                     st.success(f"Limite para '{cat_orc}' atualizado com sucesso!")
@@ -1746,7 +1746,7 @@ elif opcao == "💳 Cartões & Faturas":
             with col_lim2:
                 st.write("")
                 st.write("")
-                if st.button("✏️ Atualizar Limite", use_container_width=True):
+                if st.button("✏️ Atualizar Limite", width="stretch"):
                     if atualizar_limite_cartao(user_id, cartao_id_ger, novo_limite):
                         st.success("Limite atualizado com sucesso!")
                         st.rerun()
