@@ -1391,6 +1391,8 @@ elif opcao == "📅 Próximos Vencimentos":
 
     def normalizar_mes_fatura(val):
         if pd.isna(val) or not val: return None, None
+        if hasattr(val, 'month') and hasattr(val, 'year'):
+            return int(val.month), int(val.year)
         s = str(val).strip()
         if "/" in s:
             partes = s.split("/")
@@ -1432,12 +1434,13 @@ elif opcao == "📅 Próximos Vencimentos":
                             c_id = normalizar_id(c.get("id"))
                             mapa_cartoes_info[c_id] = {
                                 "nome": str(c.get("nome_cartao") or c.get("nome") or "Cartão"),
-                                "vencimento": int(c.get("dia_vencimento") or c.get("vencimento") or 13),
-                                "fechamento": int(c.get("dia_fechamento") or c.get("fechamento") or 6),
+                                "vencimento": int(c.get("dia_vencimento") or c.get("vencimento") or 15),
+                                "fechamento": int(c.get("dia_fechamento") or c.get("fechamento") or 8),
                             }
             except Exception:
                 pass
 
+            # 1. IDENTIFICA APENAS LANÇAMENTOS DE CARTÃO DE CRÉDITO
             def eh_cartao(row):
                 cid = normalizar_id(row.get("cartao_id"))
                 fp = str(row.get("forma_pagamento") or "").lower()
@@ -1445,11 +1448,10 @@ elif opcao == "📅 Próximos Vencimentos":
                 desc = str(row.get("descricao") or "").lower()
                 cat = str(row.get("categoria") or "").lower()
 
-                # 1. REGRA DE EXCLUSÃO: Se for PIX, Boleto, Débito ou Dinheiro, NUNCA é fatura de cartão
+                # Exclusão explícita para evitar que Pix/Boleto entrem como cartão
                 if any(x in fp for x in ["pix", "boleto", "debito", "débito", "dinheiro", "especie", "espécie", "transferencia", "transferência"]):
                     return False
 
-                # 2. REGRAS DE INCLUSÃO: Identifica se realmente pertence a cartão de crédito
                 if cid != "": return True
                 if nc != "" and nc.lower() not in ["none", "nan"]: return True
                 if any(x in fp for x in ["cart", "credito", "crédito", "fatura"]): return True
@@ -1460,11 +1462,36 @@ elif opcao == "📅 Próximos Vencimentos":
 
             cond_cartao = df_raw.apply(eh_cartao, axis=1)
 
+            # 2. FILTRA "OUTRAS CONTAS": MANTÉM SOMENTE BOLETOS E CONTAS FIXAS/RECORRENTES
+            def eh_boleto_ou_recorrente(row):
+                fp = str(row.get("forma_pagamento") or "").lower()
+                desc = str(row.get("descricao") or "").lower()
+                cat = str(row.get("categoria") or "").lower()
+                tipo = str(row.get("tipo") or "").lower()
+
+                eh_boleto = "boleto" in fp or "boleto" in desc or "boleto" in cat
+
+                flag_recorrente = row.get("recorrente") or row.get("fixo") or row.get("e_fixo") or row.get("is_recorrente")
+                eh_fixo_recorrente = (
+                    bool(flag_recorrente) is True
+                    or any(x in fp for x in ["fixo", "recorrente"])
+                    or any(x in desc for x in ["fixo", "recorrente", "assinatura", "mensalidade"])
+                    or any(x in cat for x in ["fixo", "recorrente", "assinatura", "mensalidade"])
+                    or any(x in tipo for x in ["fixo", "recorrente"])
+                )
+
+                return eh_boleto or eh_fixo_recorrente
+
             df_outras_contas = df_raw[~cond_cartao].copy()
             if not df_outras_contas.empty:
-                df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(lambda x: [x])
-                df_outras_contas["descricao_detalhada"] = df_outras_contas["descricao"]
+                cond_permitidos = df_outras_contas.apply(eh_boleto_ou_recorrente, axis=1)
+                df_outras_contas = df_outras_contas[cond_permitidos].copy()
 
+                if not df_outras_contas.empty:
+                    df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(lambda x: [x])
+                    df_outras_contas["descricao_detalhada"] = df_outras_contas["descricao"]
+
+            # 3. TRATAMENTO DAS FATURAS DE CARTÃO
             df_credito = df_raw[cond_cartao].copy()
             df_faturas_agrupadas = pd.DataFrame()
 
@@ -1477,7 +1504,7 @@ elif opcao == "📅 Próximos Vencimentos":
 
                 def resolver_datas_fatura(row):
                     cid = normalizar_id(row.get("cartao_id"))
-                    info = mapa_cartoes_info.get(cid, {"vencimento": 13, "fechamento": 6})
+                    info = mapa_cartoes_info.get(cid, {"vencimento": 15, "fechamento": 8})
                     dia_venc, dia_fech = info["vencimento"], info["fechamento"]
 
                     m_fat, a_fat = normalizar_mes_fatura(row.get("mes_fatura"))
