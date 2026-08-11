@@ -1390,13 +1390,7 @@ elif opcao == "📅 Próximos Vencimentos":
         except ValueError: return s.split(".")[0]
 
     def normalizar_mes_fatura(val):
-        if pd.isna(val) or not val: 
-            return None, None
-        
-        # Se já for um objeto datetime / date
-        if hasattr(val, 'month') and hasattr(val, 'year'):
-            return int(val.month), int(val.year)
-            
+        if pd.isna(val) or not val: return None, None
         s = str(val).strip()
         if "/" in s:
             partes = s.split("/")
@@ -1445,16 +1439,23 @@ elif opcao == "📅 Próximos Vencimentos":
                 pass
 
             def eh_cartao(row):
-                cid, fp = normalizar_id(row.get("cartao_id")), str(row.get("forma_pagamento") or "").lower()
-                mf, nc = str(row.get("mes_fatura") or "").strip(), str(row.get("nome_cartao") or "").strip()
-                desc, cat = str(row.get("descricao") or "").lower(), str(row.get("categoria") or "").lower()
+                cid = normalizar_id(row.get("cartao_id"))
+                fp = str(row.get("forma_pagamento") or "").lower()
+                nc = str(row.get("nome_cartao") or "").strip()
+                desc = str(row.get("descricao") or "").lower()
+                cat = str(row.get("categoria") or "").lower()
 
+                # 1. REGRA DE EXCLUSÃO: Se for PIX, Boleto, Débito ou Dinheiro, NUNCA é fatura de cartão
+                if any(x in fp for x in ["pix", "boleto", "debito", "débito", "dinheiro", "especie", "espécie", "transferencia", "transferência"]):
+                    return False
+
+                # 2. REGRAS DE INCLUSÃO: Identifica se realmente pertence a cartão de crédito
                 if cid != "": return True
                 if nc != "" and nc.lower() not in ["none", "nan"]: return True
-                if any(x in fp for x in ["cart", "credito", "crédito", "fatura", "riachuelo"]): return True
+                if any(x in fp for x in ["cart", "credito", "crédito", "fatura"]): return True
                 if any(x in desc for x in ["cartão", "cartao", "credito", "crédito", "fatura"]): return True
                 if any(x in cat for x in ["cartão", "cartao", "crédito"]): return True
-                if mf != "" and mf.lower() not in ["none", "nan"] and ("/" in mf or "-" in mf): return True
+
                 return False
 
             cond_cartao = df_raw.apply(eh_cartao, axis=1)
@@ -1476,8 +1477,7 @@ elif opcao == "📅 Próximos Vencimentos":
 
                 def resolver_datas_fatura(row):
                     cid = normalizar_id(row.get("cartao_id"))
-                    # Ajuste o fallback padrão para fechamento 8 e vencimento 15
-                    info = mapa_cartoes_info.get(cid, {"vencimento": 15, "fechamento": 8})
+                    info = mapa_cartoes_info.get(cid, {"vencimento": 13, "fechamento": 6})
                     dia_venc, dia_fech = info["vencimento"], info["fechamento"]
 
                     m_fat, a_fat = normalizar_mes_fatura(row.get("mes_fatura"))
