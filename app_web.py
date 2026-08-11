@@ -14,8 +14,6 @@ import re
 import os
 import base64
 
-
-# Novas importações para o PDF profissional e leve
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -69,34 +67,28 @@ from funcoes import (
 
 from views import render_sidebar_footer
 
-import streamlit as st
-
-# --- CONFIGURAÇÃO DA PÁGINA (DEVE APARECER APENAS UMA VEZ) ---
+# --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
     page_title="FinanceiroPro Web",
-    page_icon="logo",  # <--- Altere aqui para o nome do seu arquivo de logo
+    page_icon="logo",
     layout="wide",
     initial_sidebar_state="expanded",
 )
-# --- NOVA PERSISTÊNCIA VIA URL (NATIVA E IMEDIATA) ---
-# Se o ID do usuário estiver na URL da página, loga ele automaticamente após o F5
+
 url_uid = st.query_params.get("uid")
 
 if "usuario_id" not in st.session_state:
     st.session_state["usuario_id"] = int(url_uid) if url_uid else None
 
 if "is_admin" not in st.session_state:
-    # Se o ID recuperado for o do admin (1), já define como True automaticamente
     st.session_state["is_admin"] = True if st.session_state["usuario_id"] == 1 else False
 
-# --- TRANSFERIDO PARA O TOPO ABSOLUTO ---
 if st.session_state["usuario_id"] == 1:
     st.session_state["is_admin"] = True
 
 def fmt_moeda(valor):
     return formatar_moeda_ptbr(float(valor))
 
-# --- ADICIONADO: DEFINIÇÃO GLOBAL DA FUNÇÃO DO WHATSAPP ---
 def criar_link_cobranca(telefone, nome, valor):
     if not telefone:
         return None
@@ -111,45 +103,28 @@ def criar_link_cobranca(telefone, nome, valor):
     texto_codificado = urllib.parse.quote(mensagem)
     return f"https://api.whatsapp.com/send?phone=55{telefone_limpo}&text={texto_codificado}"
 
-
 CATEGORIAS_DESPADREVAL = ["Alimentação", "Transporte", "Cartão de Crédito", "Cartão de Débito", "Pix", "Moradia", "Lazer", "Saúde", "Educação", "Assinaturas/Serviços", "Outros"]
 CATEGORIAS_RECEITAS = ["Salário", "Freelance", "Investimentos", "Presente/Prêmio"]
 
-# --- FUNÇÃO DE EXPORTAÇÃO EXCEL PROFISSIONAL (SEM LOGO) ---
 def gerar_excel_profissional(dados_banco, mes, ano):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Extrato Financeiro"
     ws.views.sheetView[0].showGridLines = True
 
-    # Título do Relatório
     ws.merge_cells("A1:I1")
     ws["A1"] = f"Relatório de Extrato Detalhado - Período: {mes}/{ano}"
     ws["A1"].font = Font(name="Arial", size=16, bold=True, color="FFFFFF")
-    ws["A1"].fill = PatternFill(
-        start_color="1F4E78", end_color="1F4E78", fill_type="solid"
-    )
+    ws["A1"].fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 40
 
-    headers = [
-        "ID",
-        "Data",
-        "Conta",
-        "Tipo",
-        "Forma Pagto",
-        "Descrição",
-        "Valor",
-        "Categoria",
-        "Tags",
-    ]
+    headers = ["ID", "Data", "Conta", "Tipo", "Forma Pagto", "Descrição", "Valor", "Categoria", "Tags"]
     ws.append([])
     ws.append(headers)
     ws.row_dimensions[3].height = 26
 
-    header_fill = PatternFill(
-        start_color="2C3E50", end_color="2C3E50", fill_type="solid"
-    )
+    header_fill = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
     header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
     header_align = Alignment(horizontal="center", vertical="center")
 
@@ -172,16 +147,8 @@ def gerar_excel_profissional(dados_banco, mes, ano):
     total_despesas = 0.0
 
     for item in dados_banco:
-        v_id = item[0]
-        v_data = item[1]
-        v_conta = item[2]
-        v_tipo = item[3]
-        v_forma = item[4]
-        v_desc = item[5]
-        v_valor = item[6]
-        v_cat = item[7]
+        v_id, v_data, v_conta, v_tipo, v_forma, v_desc, v_valor, v_cat = item[:8]
         v_tags = item[8] if len(item) > 8 else ""
-
         v_valor_float = float(v_valor)
 
         try:
@@ -194,23 +161,11 @@ def gerar_excel_profissional(dados_banco, mes, ano):
         else:
             total_despesas += v_valor_float
 
-        ws.append([
-            v_id,
-            v_data_fmt,
-            v_conta,
-            v_tipo,
-            v_forma,
-            v_desc,
-            v_valor_float,
-            v_cat,
-            v_tags,
-        ])
+        ws.append([v_id, v_data_fmt, v_conta, v_tipo, v_forma, v_desc, v_valor_float, v_cat, v_tags])
         ws.row_dimensions[row_num].height = 20
 
         bg_color = "F9FBFD" if row_num % 2 == 0 else "FFFFFF"
-        row_fill = PatternFill(
-            start_color=bg_color, end_color=bg_color, fill_type="solid"
-        )
+        row_fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
 
         for col_num in range(1, 10):
             cell = ws.cell(row=row_num, column=col_num)
@@ -219,37 +174,19 @@ def gerar_excel_profissional(dados_banco, mes, ano):
             cell.font = Font(name="Arial", size=10)
 
             if col_num in [1, 2, 4, 5]:
-                cell.alignment = Alignment(
-                    horizontal="center", vertical="center"
-                )
+                cell.alignment = Alignment(horizontal="center", vertical="center")
             elif col_num == 7:
-                cell.alignment = Alignment(
-                    horizontal="right", vertical="center"
-                )
+                cell.alignment = Alignment(horizontal="right", vertical="center")
                 cell.number_format = '"R$"#,##0.00'
-                cell.font = Font(
-                    name="Arial",
-                    size=10,
-                    color=(
-                        "27AE60"
-                        if str(v_tipo).lower() == "receita"
-                        else "C0392B"
-                    ),
-                )
+                cell.font = Font(name="Arial", size=10, color="27AE60" if str(v_tipo).lower() == "receita" else "C0392B")
             else:
-                cell.alignment = Alignment(
-                    horizontal="left", vertical="center"
-                )
+                cell.alignment = Alignment(horizontal="left", vertical="center")
         row_num += 1
 
-    # --- BLOCO DE TOTAIS NO EXCEL ---
     ws.append([])
     row_num += 1
 
-    # 1. Total Receitas
-    ws.merge_cells(
-        start_row=row_num, start_column=1, end_row=row_num, end_column=6
-    )
+    ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=6)
     cell_lbl_rec = ws.cell(row=row_num, column=1, value="Total Receitas:")
     cell_lbl_rec.font = Font(name="Arial", size=10, bold=True)
     cell_lbl_rec.alignment = Alignment(horizontal="right", vertical="center")
@@ -261,10 +198,7 @@ def gerar_excel_profissional(dados_banco, mes, ano):
 
     row_num += 1
 
-    # 2. Total Despesas
-    ws.merge_cells(
-        start_row=row_num, start_column=1, end_row=row_num, end_column=6
-    )
+    ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=6)
     cell_lbl_des = ws.cell(row=row_num, column=1, value="Total Despesas:")
     cell_lbl_des.font = Font(name="Arial", size=10, bold=True)
     cell_lbl_des.alignment = Alignment(horizontal="right", vertical="center")
@@ -276,19 +210,11 @@ def gerar_excel_profissional(dados_banco, mes, ano):
 
     row_num += 1
 
-    # 3. Saldo Líquido
-    grey_fill = PatternFill(
-        start_color="EAEDED", end_color="EAEDED", fill_type="solid"
-    )
-
-    ws.merge_cells(
-        start_row=row_num, start_column=1, end_row=row_num, end_column=6
-    )
+    grey_fill = PatternFill(start_color="EAEDED", end_color="EAEDED", fill_type="solid")
+    ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=6)
     cell_lbl_saldo = ws.cell(row=row_num, column=1, value="SALDO LÍQUIDO:")
     cell_lbl_saldo.font = Font(name="Arial", size=10, bold=True)
-    cell_lbl_saldo.alignment = Alignment(
-        horizontal="right", vertical="center"
-    )
+    cell_lbl_saldo.alignment = Alignment(horizontal="right", vertical="center")
 
     for col_idx in range(1, 8):
         ws.cell(row=row_num, column=col_idx).fill = grey_fill
@@ -299,7 +225,6 @@ def gerar_excel_profissional(dados_banco, mes, ano):
     cell_val_saldo.number_format = '"R$"#,##0.00'
     cell_val_saldo.alignment = Alignment(horizontal="right", vertical="center")
 
-    # Ajuste automático de largura das colunas
     for col in ws.columns:
         max_len = 0
         col_letter = get_column_letter(col[0].column)
@@ -314,8 +239,6 @@ def gerar_excel_profissional(dados_banco, mes, ano):
     wb.save(output)
     return output.getvalue()
 
-
-# --- FUNÇÃO DE EXPORTAÇÃO PDF SUPER LEVE E ESTÁVEL (SEM LOGO) ---
 def gerar_pdf_profissional(dados_banco, mes, ano):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
@@ -335,21 +258,11 @@ def gerar_pdf_profissional(dados_banco, mes, ano):
     story.append(Paragraph(f"Período consultado: {mes}/{ano} — Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
     
     table_data = [["ID", "Data", "Conta", "Tipo", "Forma Pagto", "Descrição", "Valor", "Categoria", "Tags"]]
-    
-    total_rec = 0.0
-    total_des = 0.0
+    total_rec, total_des = 0.0, 0.0
     
     for item in dados_banco:
-        v_id = item[0]
-        v_data = item[1]
-        v_conta = item[2]
-        v_tipo = item[3]
-        v_forma = item[4]
-        v_desc = item[5]
-        v_valor = item[6]
-        v_cat = item[7]
+        v_id, v_data, v_conta, v_tipo, v_forma, v_desc, v_valor, v_cat = item[:8]
         v_tags = item[8] if len(item) > 8 else ""
-        
         v_valor_float = float(v_valor)
         
         try:
@@ -425,11 +338,8 @@ def fazer_login_rest(usuario, senha):
             return usuario_banco['id']
     return None
 
-import hashlib
-import requests
-import streamlit as st
-
 def criar_usuario_rest(usuario, senha, status='pendente', valor_mensalidade=0.0, telefone=""):
+    import requests
     BASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
     headers = {
@@ -447,7 +357,6 @@ def criar_usuario_rest(usuario, senha, status='pendente', valor_mensalidade=0.0,
     senha_hash = hashlib.sha256(senha.encode('utf-8')).hexdigest()
     url_ins = f"{BASE_URL}/usuarios"
     
-    # Payload para o Supabase
     payload = {
         "usuario": usuario.strip(), 
         "senha": senha_hash, 
@@ -462,66 +371,33 @@ def criar_usuario_rest(usuario, senha, status='pendente', valor_mensalidade=0.0,
         return res_ins.json()[0]['id']
     return False
 
-# ==============================================================================
-# AUTENTICAÇÃO (ALTA PERFORMANCE + LOGO CENTRALIZADA)
-# ==============================================================================
+# --- AUTENTICAÇÃO ---
 if st.session_state.get("usuario_id") is None:
     st.markdown(
         """
         <style>
-        /* Oculta elementos pesados da interface */
         [data-testid="stSidebar"], [data-testid="stHeader"], footer { display: none !important; }
-        
-        .stApp {
-            background-color: #0b0f19;
-        }
-
-        /* Seletor de Abas estilo iOS/SaaS */
+        .stApp { background-color: #0b0f19; }
         .stTabs [data-baseweb="tab-list"] {
-            gap: 4px;
-            background-color: #0f141d;
-            padding: 4px;
-            border-radius: 10px;
-            border: 1px solid #232d3f;
+            gap: 4px; background-color: #0f141d; padding: 4px; border-radius: 10px; border: 1px solid #232d3f;
         }
         .stTabs [data-baseweb="tab"] {
-            height: 36px;
-            border-radius: 8px;
-            color: #94a3b8;
-            font-weight: 500;
-            border: none !important;
-            flex-grow: 1;
-            justify-content: center;
+            height: 36px; border-radius: 8px; color: #94a3b8; font-weight: 500; border: none !important; flex-grow: 1; justify-content: center;
         }
-        .stTabs [aria-selected="true"] {
-            background-color: #2563eb !important;
-            color: #ffffff !important;
-        }
-
-        /* Inputs ultra leves */
-        .stTextInput input {
-            background-color: #0f141d !important;
-            color: #ffffff !important;
-            border: 1px solid #232d3f !important;
-            border-radius: 8px !important;
-        }
+        .stTabs [aria-selected="true"] { background-color: #2563eb !important; color: #ffffff !important; }
+        .stTextInput input { background-color: #0f141d !important; color: #ffffff !important; border: 1px solid #232d3f !important; border-radius: 8px !important; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # --- VERIFICAÇÃO DE AUTENTICAÇÃO ---
 usuario_atual_id = st.session_state.get("usuario_id") or st.query_params.get("uid")
 
 if not usuario_atual_id:
-    # Layout de 1 coluna principal rápida no mobile
     _, col_center, _ = st.columns([0.1, 0.8, 0.1]) if st.session_state.get('is_mobile', False) else st.columns([1, 1.2, 1])
 
     with col_center:
-        # Card principal via container
         with st.container(border=True):
-            
-            # --- CORREÇÃO DA LOGO: Adicionada validação de extensões válidas ---
             pasta_assets = "assets"
             extensoes_logo = ["logo"]
             caminho_logo = None
@@ -532,7 +408,6 @@ if not usuario_atual_id:
                     caminho_logo = p
                     break
 
-            # Renderiza apenas se encontrar a IMAGEM (arquivo válido)
             if caminho_logo:
                 _, col_img, _ = st.columns([1, 2, 1])
                 with col_img:
@@ -545,7 +420,6 @@ if not usuario_atual_id:
 
             tab_login, tab_cadastro = st.tabs(["🔑 Fazer Login", "📝 Criar Nova Conta"])
 
-            # TAB 1: LOGIN
             with tab_login:
                 with st.form("form_login", clear_on_submit=False):
                     username_input = st.text_input("Seu Usuário", key="login_user", placeholder="Digite seu usuário")
@@ -565,7 +439,6 @@ if not usuario_atual_id:
                         else:
                             st.error("Usuário incorreto, senha inválida ou restrição de acesso.")
 
-            # TAB 2: CRIAR CONTA
             with tab_cadastro:
                 with st.form("form_cadastro", clear_on_submit=False):
                     username_cad = st.text_input("Escolha um Usuário", key="cad_user", placeholder="Ex: joao.silva")
@@ -591,76 +464,27 @@ if not usuario_atual_id:
                     else:
                         st.error("Por favor, preencha todos os campos obrigatórios.")
 
-    # 🛑 Trava a execução para impedir lentidão do restante do app
     st.stop()
 
-# ==============================================================================
-# NAVEGAÇÃO E BARRA LATERAL (LOGO CENTRALIZADA 145PX + SEM SCROLL)
-# ==============================================================================
-
-# CSS com ajuste fino de altura e margens zero para encaixar perfeitamente sem scroll
+# --- NAVEGAÇÃO E BARRA LATERAL ---
 st.markdown(
     """
     <style>
-    /* Remove o overflow/scroll interno e compacta o container da Sidebar */
-    [data-testid="stSidebar"] > div:first-child {
-        padding-top: 0.5rem !important;
-        padding-bottom: 0.5rem !important;
-    }
-
-    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-        gap: 0px !important;
-        padding: 0 !important;
-    }
-
-    /* Centralização estrita da Logo */
-    [data-testid="stSidebar"] [data-testid="stImage"] {
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        width: 100% !important;
-        margin: 0 auto !important;
-    }
-
-    [data-testid="stSidebar"] img {
-        max-width: 145px !important;
-        width: 145px !important;
-        margin: 0 auto 4px auto !important;
-        display: block !important;
-    }
-
-    /* Usuário centralizado com espaçamento enxuto */
-    [data-testid="stSidebar"] p, [data-testid="stSidebar"] div {
-        font-size: 0.75rem !important;
-        margin: 2px 0 !important;
-        text-align: center !important;
-    }
-
-    /* Linhas divisórias ultrafinas */
-    [data-testid="stSidebar"] hr {
-        margin: 4px 0 !important;
-    }
-
-    /* Botões na medida ideal (34px) com margem zerada entre eles */
-    [data-testid="stSidebar"] .stButton button {
-        height: 34px !important;
-        min-height: 34px !important;
-        padding: 0px 8px !important;
-        font-size: 12.5px !important;
-        font-weight: 500 !important;
-        border-radius: 6px !important;
-        margin: 1px 0 !important;
-    }
+    [data-testid="stSidebar"] > div:first-child { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0px !important; padding: 0 !important; }
+    [data-testid="stSidebar"] [data-testid="stImage"] { display: flex !important; justify-content: center !important; align-items: center !important; width: 100% !important; margin: 0 auto !important; }
+    [data-testid="stSidebar"] img { max-width: 145px !important; width: 145px !important; margin: 0 auto 4px auto !important; display: block !important; }
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] div { font-size: 0.75rem !important; margin: 2px 0 !important; text-align: center !important; }
+    [data-testid="stSidebar"] hr { margin: 4px 0 !important; }
+    [data-testid="stSidebar"] .stButton button { height: 34px !important; min-height: 34px !important; padding: 0px 8px !important; font-size: 12.5px !important; font-weight: 500 !important; border-radius: 6px !important; margin: 1px 0 !important; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# Define a página inicial padrão no session_state
 if "pagina_atual" not in st.session_state:
     st.session_state["pagina_atual"] = "📊 Dashboard"
 
-# Lista de opções de menu
 opcoes_menu = [
     "📊 Dashboard",
     "🏦 Gerir Contas",
@@ -677,7 +501,6 @@ opcoes_menu = [
 if st.session_state.get("is_admin", False):
     opcoes_menu.append("👑 Painel Admin SaaS")
 
-# Barra lateral
 with st.sidebar:
     if os.path.exists(os.path.join("assets", "logo")):
         st.image(os.path.join("assets", "logo"), use_container_width=True)
@@ -687,7 +510,6 @@ with st.sidebar:
     st.write(f"👤 Usuário: **{st.session_state.get('usuario_id', '')}** {'(👑 Admin)' if st.session_state.get('is_admin') else ''}")
     st.markdown("---")
     
-    # Renderiza cada opção do menu
     for item in opcoes_menu:
         eh_ativo = (st.session_state["pagina_atual"] == item)
         tipo_botao = "primary" if eh_ativo else "secondary"
@@ -707,23 +529,19 @@ with st.sidebar:
             del st.session_state["pagina_atual"]
         st.rerun()
 
-# Atribui a opção atual selecionada para o restante do app
 opcao = st.session_state["pagina_atual"]
 
-# --- PAINEL ADMIN SAAS COMPLETO (LAYOUT RESPONSIVO PARA MOBILE) ---
+# --- PAINEL ADMIN SAAS ---
 if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
     st.title("👑 Painel de Controle Master SaaS")
     
-    # 1. Carregar todos os usuários do banco
     usuarios_lista = listar_todos_usuarios_admin()
     df_users = pd.DataFrame(usuarios_lista)
     
-    # 2. Métrica de Faturamento Total Recorrente (MRR)
     faturamento_mrr = 0.0
     if not df_users.empty and 'valor_mensalidade' in df_users.columns:
         faturamento_mrr = df_users[df_users['status'] == 'ativo']['valor_mensalidade'].astype(float).sum()
         
-    # Exibição das métricas principais em container limpo
     st.metric("💰 Faturamento Mensal Estimado (Ativos)", fmt_moeda(faturamento_mrr))
     
     if not df_users.empty:
@@ -732,10 +550,8 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
         col_fat2.metric("⏳ Pendentes", len(df_users[df_users['status'] == 'pendente']))
 
     st.markdown("---")
-    
     adm_tab1, adm_tab2, adm_tab3 = st.tabs(["⏳ Liberar Cadastros", "➕ Criar Cliente Manual", "👥 Gerenciar Clientes"])
     
-    # TAB 1: LIBERAR CADASTROS
     with adm_tab1:
         st.write("### 🔑 Clientes aguardando liberação")
         if not df_users.empty and 'status' in df_users.columns:
@@ -744,15 +560,9 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                 st.success("Nenhum cliente aguardando liberação no momento.")
             else:
                 for idx, row in df_pendentes.iterrows():
-                    # Card individual responsivo para celular
                     with st.container(border=True):
                         st.markdown(f"👤 **Cliente:** {row['usuario']}")
-                        v_mensal = st.number_input(
-                            "Definir Mensalidade (R$):", 
-                            min_value=0.0, 
-                            value=49.90, 
-                            key=f"v_pend_{row['id']}"
-                        )
+                        v_mensal = st.number_input("Definir Mensalidade (R$):", min_value=0.0, value=49.90, key=f"v_pend_{row['id']}")
                         if st.button("✅ Ativar Conta", key=f"btn_lib_{row['id']}", use_container_width=True, type="primary"):
                             if atualizar_status_e_mensalidade(row['id'], 'ativo', v_mensal):
                                 st.success(f"Acesso liberado para {row['usuario']}!")
@@ -760,7 +570,6 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
         else:
             st.info("Nenhum registro encontrado.")
             
-    # TAB 2: CRIAR CLIENTE MANUALMENTE
     with adm_tab2:
         st.write("### ➕ Cadastrar novo cliente")
         with st.form("form_cadastro_manual", clear_on_submit=True):
@@ -772,13 +581,7 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
             
             if st.form_submit_button("Salvar e Criar Cliente", use_container_width=True, type="primary"):
                 if novo_usr and nova_sen:
-                    res_manual = criar_usuario_rest(
-                        novo_usr, 
-                        nova_sen, 
-                        status=status_manual, 
-                        valor_mensalidade=mensalidade_manual, 
-                        telefone=novo_tel        
-                    )
+                    res_manual = criar_usuario_rest(novo_usr, nova_sen, status=status_manual, valor_mensalidade=mensalidade_manual, telefone=novo_tel)
                     if res_manual == "Existe":
                         st.error("Este nome de usuário já existe.")
                     elif res_manual:
@@ -787,7 +590,6 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                 else:
                     st.error("Preencha o usuário e a senha.")
 
-    # TAB 3: GERENCIAR CLIENTES
     with adm_tab3:
         st.write("### 👥 Gerenciamento de Clientes")
         if not df_users.empty:
@@ -797,9 +599,7 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                 
                 status_atual = row.get('status', 'ativo')
                 
-                # Card de Usuário com bordoes limpos para visualização Mobile
                 with st.container(border=True):
-                    # Cabeçalho do Card
                     col_info1, col_info2 = st.columns([2, 1])
                     col_info1.markdown(f"👤 **{row['usuario']}**")
                     
@@ -811,8 +611,6 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                         col_info2.markdown("⏳ **Pendente**")
                     
                     st.caption(f"💵 Mensalidade: **{fmt_moeda(row.get('valor_mensalidade', 0.0))}**")
-                    
-                    # Botões de Ação do Card
                     col_b1, col_b2 = st.columns(2)
                     
                     with col_b1:
@@ -829,50 +627,29 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                         if status_atual in ['inativo', 'pendente']:
                             tel_cadastro = row.get('telefone', '')
                             if tel_cadastro:
-                                url_whatsapp = criar_link_cobranca(
-                                    telefone=tel_cadastro,
-                                    nome=row['usuario'],
-                                    valor=float(row.get('valor_mensalidade', 0.0))
-                                )
+                                url_whatsapp = criar_link_cobranca(telefone=tel_cadastro, nome=row['usuario'], valor=float(row.get('valor_mensalidade', 0.0)))
                                 st.link_button("💬 Cobrar", url_whatsapp, use_container_width=True)
                             else:
                                 if st.button("❌ Excluir", key=f"btn_del_{row['id']}", use_container_width=True):
                                     if excluir_usuario_admin(row['id']):
                                         st.success("Usuário deletado!")
                                         st.rerun()
-                                    else:
-                                        st.error("Erro ao deletar.")
                         else:
                             if st.button("❌ Excluir", key=f"btn_del_{row['id']}", use_container_width=True):
                                 if excluir_usuario_admin(row['id']):
                                     st.success("Usuário deletado!")
                                     st.rerun()
-                                else:
-                                    st.error("Erro ao deletar.")
 
 # --- ABA 1: DASHBOARD ---
 elif opcao == "📊 Dashboard":
     st.markdown("<h2>📊 Dashboard Financeiro</h2>", unsafe_allow_html=True)
     
-    # Mapeamento dos meses por extenso
-    opcoes_meses = [
-        "Todos", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-        "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-    ]
+    opcoes_meses = ["Todos", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
     
     col_mes, col_ano = st.columns(2)
     with col_mes:
-        mes_nome = st.selectbox(
-            "Filtrar por Mês", 
-            opcoes_meses, 
-            index=datetime.now().month  # Define o mês atual por padrão
-        )
-        
-        # Converte a seleção de volta para o formato esperado ("Todos", "01", "02", ...)
-        if mes_nome == "Todos":
-            mes_selecionado = "Todos"
-        else:
-            mes_selecionado = f"{opcoes_meses.index(mes_nome):02d}"
+        mes_nome = st.selectbox("Filtrar por Mês", opcoes_meses, index=datetime.now().month)
+        mes_selecionado = "Todos" if mes_nome == "Todos" else f"{opcoes_meses.index(mes_nome):02d}"
 
     with col_ano:
         opcoes_anos = ["2026", "2027", "2028", "2029", "2030"]
@@ -888,18 +665,12 @@ elif opcao == "📊 Dashboard":
     m3.metric("🏦 Saldo Atual", fmt_moeda(dados['saldo']))
     m4.metric("🎯 Eficiência", f"{(dados['saldo']/dados['receitas']*100) if dados['receitas'] > 0 else 0:.1f}%")
 
-   # --- SEÇÃO DE ASSISTENTE DE IA / INSIGHTS FINANCEIROS ---
     st.markdown("---")
     st.markdown("### 🤖 Assistente de IA / Insights Financeiros")
 
     try:
-        # Aproveita as funções que já existem e funcionam no seu projeto
         metas_raw = listar_metas(st.session_state["usuario_id"])
-        
-        # Cria insights diretamente a partir das métricas e metas carregadas
         insights_gerados = []
-        
-        # 1. Alerta de Comprometimento de Renda (Despesas x Receitas)
         rec_tot = float(dados.get('receitas', 0))
         desp_tot = float(dados.get('despesas', 0))
         
@@ -907,59 +678,37 @@ elif opcao == "📊 Dashboard":
             pct_comp = (desp_tot / rec_tot) * 100
             if pct_comp >= 85:
                 insights_gerados.append({
-                    "tipo": "error",
-                    "icone": "🚨",
-                    "titulo": "Alerta de Comprometimento",
+                    "tipo": "error", "icone": "🚨", "titulo": "Alerta de Comprometimento",
                     "texto": f"Suas despesas representam **{pct_comp:.1f}%** da sua receita neste período!"
                 })
             elif pct_comp <= 50:
                 insights_gerados.append({
-                    "tipo": "success",
-                    "icone": "👏",
-                    "titulo": "Excelente Gestão",
+                    "tipo": "success", "icone": "👏", "titulo": "Excelente Gestão",
                     "texto": f"Você comprometeu apenas **{pct_comp:.1f}%** das suas receitas até agora."
                 })
 
-        # 2. Insights sobre as Metas
         if metas_raw:
             for m in metas_raw:
                 try:
-                    nome_m = m[1]
-                    alvo_m = float(m[2])
-                    guardado_m = float(m[3])
+                    nome_m, alvo_m, guardado_m = m[1], float(m[2]), float(m[3])
                     if alvo_m > 0:
                         pct_m = (guardado_m / alvo_m) * 100
                         if pct_m >= 100:
-                            insights_gerados.append({
-                                "tipo": "success",
-                                "icone": "🏆",
-                                "titulo": f"Meta Alcançada!",
-                                "texto": f"Parabéns! A meta **{nome_m}** atingiu **100%** do objetivo!"
-                            })
+                            insights_gerados.append({"tipo": "success", "icone": "🏆", "titulo": "Meta Alcançada!", "texto": f"Parabéns! A meta **{nome_m}** atingiu **100%** do objetivo!"})
                         elif pct_m >= 75:
-                            insights_gerados.append({
-                                "tipo": "info",
-                                "icone": "🎯",
-                                "titulo": f"Meta {nome_m}",
-                                "texto": f"Falta pouco! Você já atingiu **{pct_m:.0f}%** da meta **{nome_m}**."
-                            })
+                            insights_gerados.append({"tipo": "info", "icone": "🎯", "titulo": f"Meta {nome_m}", "texto": f"Falta pouco! Você já atingiu **{pct_m:.0f}%** da meta **{nome_m}**."})
                 except Exception:
                     pass
 
-        # Exibição dos cards
         if insights_gerados:
             cols_ins = st.columns(min(len(insights_gerados), 3))
             for idx, item in enumerate(insights_gerados[:3]):
                 with cols_ins[idx % len(cols_ins)]:
                     msg = f"{item['icone']} **{item['titulo']}**\n\n{item['texto']}"
-                    if item["tipo"] == "warning":
-                        st.warning(msg)
-                    elif item["tipo"] == "success":
-                        st.success(msg)
-                    elif item["tipo"] == "error":
-                        st.error(msg)
-                    else:
-                        st.info(msg)
+                    if item["tipo"] == "warning": st.warning(msg)
+                    elif item["tipo"] == "success": st.success(msg)
+                    elif item["tipo"] == "error": st.error(msg)
+                    else: st.info(msg)
         else:
             st.info("💡 **Tudo sob controle**: Não foram detectados alertas críticos para o filtro selecionado.")
 
@@ -999,14 +748,12 @@ elif opcao == "📊 Dashboard":
         else:
             st.info("Nenhuma despesa registrada para o período selecionado.")
 
-    # --- OTIMIZAÇÃO: GRÁFICOS DE TAGS / EVENTOS ---
     st.markdown("---")
     st.markdown("### 🏷️ Gastos por Tag / Evento")
 
     try:
         tags_retornadas, valores_tags = dados_grafico_tags(st.session_state["usuario_id"], mes_selecionado, ano_selecionado)
         if tags_retornadas and len(tags_retornadas) > 0:
-            # Processamento rápido via Dataframe direto
             df_grouped = (
                 pd.DataFrame({"Tag": tags_retornadas, "Valor": valores_tags})
                 .assign(Tag_Norm=lambda x: "#" + x["Tag"].astype(str).str.strip().str.lower().str.lstrip("#"))
@@ -1015,30 +762,20 @@ elif opcao == "📊 Dashboard":
 
             col_t1, col_t2 = st.columns([1.5, 1])
             with col_t1:
-                fig_tags = px.pie(
-                    df_grouped, 
-                    names="Tag_Norm", 
-                    values="Valor", 
-                    hole=0.4,
-                    color_discrete_sequence=px.colors.qualitative.Pastel
-                )
+                fig_tags = px.pie(df_grouped, names="Tag_Norm", values="Valor", hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
                 fig_tags.update_traces(textposition='inside', textinfo='percent+label')
                 fig_tags.update_layout(height=350, margin=dict(l=20, r=20, t=20, b=20))
                 st.plotly_chart(fig_tags, width="stretch")
                 
             with col_t2:
                 st.write("#### 📋 Detalhamento")
-                df_tags_detalhe = pd.DataFrame({
-                    "Tag": df_grouped["Tag_Norm"],
-                    "Total Gasto": df_grouped["Valor"].apply(fmt_moeda)
-                })
+                df_tags_detalhe = pd.DataFrame({"Tag": df_grouped["Tag_Norm"], "Total Gasto": df_grouped["Valor"].apply(fmt_moeda)})
                 st.dataframe(df_tags_detalhe, width="stretch")
         else:
             st.info("💡 Nenhuma movimentação com tag registrada para o período selecionado.")
     except Exception:
         pass
 
-    # --- SEÇÃO DE GRÁFICOS DE METAS NO DASHBOARD ---
     st.markdown("---")
     st.markdown("### 🎯 Progresso das Metas de Economia")
 
@@ -1054,29 +791,14 @@ elif opcao == "📊 Dashboard":
         with col_g1:
             st.write("#### 📊 Comparativo por Meta")
             fig_metas = go.Figure()
-            fig_metas.add_trace(go.Bar(
-                x=nomes_metas, 
-                y=valores_guardados, 
-                name='Guardado (R$)', 
-                marker_color='#2ecc71'
-            ))
-            fig_metas.add_trace(go.Bar(
-                x=nomes_metas, 
-                y=valores_alvo, 
-                name='Objetivo (R$)', 
-                marker_color='#3498db'
-            ))
-            fig_metas.update_layout(
-                barmode='group', 
-                height=350, 
-                margin=dict(l=20, r=20, t=20, b=20)
-            )
+            fig_metas.add_trace(go.Bar(x=nomes_metas, y=valores_guardados, name='Guardado (R$)', marker_color='#2ecc71'))
+            fig_metas.add_trace(go.Bar(x=nomes_metas, y=valores_alvo, name='Objetivo (R$)', marker_color='#3498db'))
+            fig_metas.update_layout(barmode='group', height=350, margin=dict(l=20, r=20, t=20, b=20))
             st.plotly_chart(fig_metas, width="stretch")
 
         with col_g2:
             st.write("#### 🎯 Conclusão Geral dos Objetivos")
-            total_guardado = sum(valores_guardados)
-            total_alvo = sum(valores_alvo)
+            total_guardado, total_alvo = sum(valores_guardados), sum(valores_alvo)
             porcentagem_total = (total_guardado / total_alvo * 100) if total_alvo > 0 else 0
 
             fig_gauge = go.Figure(go.Indicator(
@@ -1086,10 +808,7 @@ elif opcao == "📊 Dashboard":
                 gauge={
                     'axis': {'range': [0, 100]},
                     'bar': {'color': "#2ecc71"},
-                    'steps': [
-                        {'range': [0, 50], 'color': "#34495e"},
-                        {'range': [50, 85], 'color': "#2980b9"}
-                    ],
+                    'steps': [{'range': [0, 50], 'color': "#34495e"}, {'range': [50, 85], 'color': "#2980b9"}],
                 }
             ))
             fig_gauge.update_layout(height=350, margin=dict(l=20, r=20, t=20, b=20))
@@ -1129,14 +848,11 @@ elif opcao == "🎯 Metas de Economia":
 
                 st.write(f"### {m[1]} (Até: {data_limite_fmt})")
                 
-                # --- EXTRAÇÃO E LIMPEZA TOTAL DE CRASES/FORMATOS DE CÓDIGO ---
                 def limpar_valor_numerico(val):
                     if val is None:
                         return 0.0
-                    # Remove crases, letras, R$, etc., mantendo só dígitos, vírgulas e pontos
                     texto_limpo = re.sub(r"[^\d,. ]", "", str(val)).strip()
                     try:
-                        # Se já for número formatado com vírgula no final
                         if "," in texto_limpo:
                             texto_limpo = texto_limpo.replace(".", "").replace(",", ".")
                         return float(texto_limpo)
@@ -1149,11 +865,8 @@ elif opcao == "🎯 Metas de Economia":
                 guardado_str = f"R$ {val_guardado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 alvo_str = f"R$ {val_alvo:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-                # EXIBIÇÃO VIA HTML PURO: Impede 100% que o Streamlit formate como bloco de código
                 st.markdown(
-                    f"<p style='font-size: 1.1rem; margin-bottom: 0px;'>"
-                    f"<b>Guardado:</b> {guardado_str} de {alvo_str}"
-                    f"</p>", 
+                    f"<p style='font-size: 1.1rem; margin-bottom: 0px;'><b>Guardado:</b> {guardado_str} de {alvo_str}</p>", 
                     unsafe_allow_html=True
                 )
                 
@@ -1163,14 +876,7 @@ elif opcao == "🎯 Metas de Economia":
                 col_v, col_b1, col_b2, col_b3 = st.columns([2, 1, 1, 1])
 
                 with col_v:
-                    valor_mov = st.number_input(
-                        "Valor da movimentação (R$):", 
-                        min_value=0.0, 
-                        value=100.0,
-                        step=50.0,
-                        format="%.2f",
-                        key=f"val_{m[0]}"
-                    )
+                    valor_mov = st.number_input("Valor da movimentação (R$):", min_value=0.0, value=100.0, step=50.0, format="%.2f", key=f"val_{m[0]}")
 
                 with col_b1:
                     st.write("")
@@ -1229,7 +935,6 @@ elif opcao == "🏦 Gerir Contas":
         if st.form_submit_button("Cadastrar Conta"):
             nome_final = nome_personalizado.strip() if banco_selecionado == "Outro" else banco_selecionado
             if nome_final:
-                # Passa o usuario_id, nome e saldo_inicial para a função
                 if cadastrar_conta(st.session_state["usuario_id"], nome_final, saldo_inicial_input):
                     st.success(f"Conta '{nome_final}' cadastrada com sucesso!")
                     st.rerun()
@@ -1245,7 +950,6 @@ elif opcao == "🏦 Gerir Contas":
     
     if contas_lista:
         for item in contas_lista:
-            # Suporta tanto retorno em Dicionário (Supabase API) quanto Tupla/Lista
             if isinstance(item, dict):
                 cid = item.get("id")
                 cnome = item.get("nome", "Sem Nome")
@@ -1271,11 +975,9 @@ elif opcao == "🏦 Gerir Contas":
 elif opcao == "💸 Lançar Movimentações":
     st.title("💸 Lançar Movimentações")
     
-    # 1. Busca contas e cartões cadastrados
     contas_raw = listar_contas(st.session_state["usuario_id"]) or []
     cartoes_raw = listar_cartoes(st.session_state["usuario_id"]) or []
 
-    # Mapeia contas para exibição no selectbox
     mapa_contas = {}
     for c in contas_raw:
         if isinstance(c, dict):
@@ -1283,25 +985,16 @@ elif opcao == "💸 Lançar Movimentações":
         elif isinstance(c, (list, tuple)):
             mapa_contas[str(c[1])] = c[0]
 
-    # Mapeia cartões para exibição no selectbox
-    mapa_cartoes = {}
-    cartoes_info = {}
+    mapa_cartoes, cartoes_info = {}, {}
     for c in cartoes_raw:
         if isinstance(c, dict):
             label_cartao = f"{c['nome_cartao']} (Fecha dia {c['dia_fechamento']})"
             mapa_cartoes[label_cartao] = c['id']
             cartoes_info[c['id']] = c['dia_fechamento']
 
-    # Seleção da Frequência do Lançamento
-    modalidade = st.radio(
-        "Frequência do Lançamento", 
-        ["Único", "Parcelado", "Fixo / Recorrente"], 
-        horizontal=True
-    )
-
+    modalidade = st.radio("Frequência do Lançamento", ["Único", "Parcelado", "Fixo / Recorrente"], horizontal=True)
     tipo_mov = st.selectbox("Tipo de Lançamento", ["Despesa", "Receita"])
     
-    # --- SELEÇÃO DE DESCRIÇÃO COM SUPORTE A "OUTROS" ---
     OPCOES_DESCRICAO = [
         "Mercado", "Combustível", "Custo de Casa", "Pix Recebido", "Pix Enviado",
         "Cartão de Débito", "Cartão de Crédito", "Almoço / Jantar / Lanche",
@@ -1312,25 +1005,14 @@ elif opcao == "💸 Lançar Movimentações":
     desc_container = st.container()
     with desc_container:
         desc_selecionada = st.selectbox("Descrição / Histórico", OPCOES_DESCRICAO, key="select_desc_mov")
-        
         desc_customizada = ""
         if desc_selecionada == "Outros":
-            desc_customizada = st.text_input(
-                "Digite a descrição personalizada:", 
-                placeholder="Ex: Compra na feira", 
-                key="txt_desc_custom"
-            )
+            desc_customizada = st.text_input("Digite a descrição personalizada:", placeholder="Ex: Compra na feira", key="txt_desc_custom")
 
-    # --- SELEÇÃO DE FORMA DE PAGAMENTO ---
     forma = st.selectbox("Forma de Pagamento", ["Pix", "Dinheiro", "Cartão de Crédito", "Cartão de Débito", "Boleto"])
 
-    # --- FORMULÁRIO DE CADASTRO ---
     with st.form("lancamento_form", clear_on_submit=True, border=False):
-        
-        # CONDICIONAL 1: Se for Cartão de Crédito, mostra a lista de Cartões
-        cartao_id_sel = None
-        fechamento_cartao_sel = None
-        conta_label = None
+        cartao_id_sel, fechamento_cartao_sel, conta_label = None, None, None
 
         if forma == "Cartão de Crédito":
             if mapa_cartoes:
@@ -1339,8 +1021,6 @@ elif opcao == "💸 Lançar Movimentações":
                 fechamento_cartao_sel = cartoes_info.get(cartao_id_sel)
             else:
                 st.warning("⚠️ Nenhum cartão encontrado! Por favor, cadastre um cartão na aba '💳 Cartões & Faturas' primeiro.")
-
-        # CONDICIONAL 2: Se NÃO for Cartão de Crédito, mostra a lista de Contas
         else:
             if mapa_contas:
                 conta_label = st.selectbox("Conta Origem/Destino", list(mapa_contas.keys()))
@@ -1349,14 +1029,8 @@ elif opcao == "💸 Lançar Movimentações":
 
         col_v, col_q = st.columns(2)
         with col_v:
-            val = st.number_input(
-                "Valor da Parcela (R$)" if modalidade == "Parcelado" else "Valor (R$)", 
-                min_value=0.0,
-                step=50.0,
-                format="%.2f"
-            )
+            val = st.number_input("Valor da Parcela (R$)" if modalidade == "Parcelado" else "Valor (R$)", min_value=0.0, step=50.0, format="%.2f")
             
-        
         num_repeticoes = 1
         with col_q:
             if modalidade == "Parcelado":
@@ -1365,18 +1039,10 @@ elif opcao == "💸 Lançar Movimentações":
                 num_repeticoes = st.number_input("Repetir por quantos meses?", min_value=2, max_value=60, value=12, step=1)
 
         cat_sel = st.selectbox("Categoria", CATEGORIAS_DESPADREVAL if tipo_mov == "Despesa" else CATEGORIAS_RECEITAS)
-        
-        # CAMPO DE TAGS
-        tags_input = st.text_input(
-            "🏷️ Tags / Etiquetas (Opcional)", 
-            placeholder="Ex: #Viagem2026, #Trabalho, #Reforma",
-            help="Separe por vírgulas para indicar eventos ou projetos específicos."
-        )
+        tags_input = st.text_input("🏷️ Tags / Etiquetas (Opcional)", placeholder="Ex: #Viagem2026, #Trabalho, #Reforma", help="Separe por vírgulas para indicar eventos ou projetos específicos.")
 
-        # Data no fuso do Brasil
         fuso_br = pytz.timezone("America/Sao_Paulo")
         hoje_br = datetime.now(fuso_br).date()
-
         data_f = st.date_input("Data da Operação", value=hoje_br, format="DD/MM/YYYY")
         
         enviado = st.form_submit_button("Registrar Transação")
@@ -1384,7 +1050,6 @@ elif opcao == "💸 Lançar Movimentações":
         if enviado:
             desc_final = desc_customizada.strip() if desc_selecionada == "Outros" else desc_selecionada
 
-            # Validações dos campos obrigatórios
             if desc_selecionada == "Outros" and not desc_final:
                 st.error("Por favor, digite a descrição personalizada.")
             elif forma == "Cartão de Crédito" and not cartao_id_sel:
@@ -1393,58 +1058,30 @@ elif opcao == "💸 Lançar Movimentações":
                 st.error("Por favor, selecione uma Conta Origem/Destino.")
             else:
                 data_salvar = data_f.strftime("%Y-%m-%d")
-                
-                # Se for Cartão de Crédito, conta_id é None
                 id_real_conta = mapa_contas[conta_label] if conta_label else None
-                
-                # Calcula o mês da fatura se for Cartão de Crédito
                 mes_fatura_calc = None
                 if cartao_id_sel and fechamento_cartao_sel:
                     mes_fatura_calc = calcular_mes_fatura(data_salvar, fechamento_cartao_sel)
 
                 if modalidade == "Parcelado":
                     sucesso = salvar_movimentacao_parcelada(
-                        usuario_id=st.session_state["usuario_id"],
-                        conta_id=id_real_conta,
-                        descricao=desc_final,
-                        valor=val,
-                        tipo=tipo_mov,
-                        forma_pagamento=forma,
-                        parcelas=int(num_repeticoes),
-                        data_base=data_salvar,
-                        categoria=cat_sel,
-                        cartao_id=cartao_id_sel,
-                        dia_fechamento=fechamento_cartao_sel,
-                        tags=tags_input
+                        usuario_id=st.session_state["usuario_id"], conta_id=id_real_conta, descricao=desc_final,
+                        valor=val, tipo=tipo_mov, forma_pagamento=forma, parcelas=int(num_repeticoes),
+                        data_base=data_salvar, categoria=cat_sel, cartao_id=cartao_id_sel,
+                        dia_fechamento=fechamento_cartao_sel, tags=tags_input
                     )
                 elif modalidade == "Fixo / Recorrente":
                     sucesso = salvar_movimentacao_recorrente(
-                        usuario_id=st.session_state["usuario_id"],
-                        conta_id=id_real_conta,
-                        descricao=desc_final,
-                        valor=val,
-                        tipo=tipo_mov,
-                        forma_pagamento=forma,
-                        meses=int(num_repeticoes),
-                        data_base=data_salvar,
-                        categoria=cat_sel,
-                        cartao_id=cartao_id_sel,
-                        dia_fechamento=fechamento_cartao_sel,
-                        tags=tags_input
+                        usuario_id=st.session_state["usuario_id"], conta_id=id_real_conta, descricao=desc_final,
+                        valor=val, tipo=tipo_mov, forma_pagamento=forma, meses=int(num_repeticoes),
+                        data_base=data_salvar, categoria=cat_sel, cartao_id=cartao_id_sel,
+                        dia_fechamento=fechamento_cartao_sel, tags=tags_input
                     )
                 else:
                     sucesso = salvar_movimentacao(
-                        usuario_id=st.session_state["usuario_id"], 
-                        conta_id=id_real_conta, 
-                        descricao=desc_final, 
-                        valor=val, 
-                        tipo=tipo_mov, 
-                        forma_pagamento=forma, 
-                        data_str=data_salvar, 
-                        categoria=cat_sel,
-                        cartao_id=cartao_id_sel,
-                        mes_fatura=mes_fatura_calc,
-                        tags=tags_input
+                        usuario_id=st.session_state["usuario_id"], conta_id=id_real_conta, descricao=desc_final,
+                        valor=val, tipo=tipo_mov, forma_pagamento=forma, data_str=data_salvar,
+                        categoria=cat_sel, cartao_id=cartao_id_sel, mes_fatura=mes_fatura_calc, tags=tags_input
                     )
                 
                 if sucesso:
@@ -1454,56 +1091,37 @@ elif opcao == "💸 Lançar Movimentações":
                 else:
                     st.error("Erro ao salvar a transação no banco de dados. Tente novamente.")
 
-    # --- SEÇÃO DE LANÇAMENTOS RECENTES ---
     st.markdown("---")
     st.subheader("🕒 Lançamentos Recentes")
     
     dados_recentes = buscar_todas_movimentacoes(st.session_state["usuario_id"], "Todos", "Todos")
     
     if dados_recentes:
-        df_recentes = pd.DataFrame(
-            dados_recentes, 
-            columns=["ID", "Data", "Conta", "Tipo", "Forma Pagto", "Descrição", "Valor", "Categoria"]
-        )
-        
-        # Ordena estritamente do ID mais recente (maior) para o mais antigo (menor)
+        df_recentes = pd.DataFrame(dados_recentes, columns=["ID", "Data", "Conta", "Tipo", "Forma Pagto", "Descrição", "Valor", "Categoria"])
         df_recentes["ID"] = pd.to_numeric(df_recentes["ID"])
         df_recentes = df_recentes.sort_values(by="ID", ascending=False)
         
-        # Formatação para exibição
         df_exibicao = df_recentes.copy()
         df_exibicao["Valor"] = df_exibicao["Valor"].apply(lambda v: fmt_moeda(v))
         df_exibicao["Data"] = pd.to_datetime(df_exibicao["Data"]).dt.strftime('%d/%m/%Y')
         
-        # Tabela rolável de dados
         with st.container(height=300):
             st.dataframe(df_exibicao, width="stretch", hide_index=True)
 
-        # --- ÁREA DE EXCLUSÃO DE REGISTRO ---
         st.markdown("#### 🗑️ Excluir Lançamento Incorreto")
         col_del_1, col_del_2 = st.columns([3, 1])
         
         with col_del_1:
-            # Garante que os IDs sejam inteiros para o selectbox
             ids_disponiveis = [int(i) for i in df_recentes["ID"].tolist()]
-            id_para_deletar = st.selectbox(
-                "Selecione o ID da transação que deseja remover:", 
-                ids_disponiveis,
-                key="select_del_id"
-            )
+            id_para_deletar = st.selectbox("Selecione o ID da transação que deseja remover:", ids_disponiveis, key="select_del_id")
             
         with col_del_2:
-            st.write("") # Espaçamento vertical para alinhar o botão
+            st.write("")
             st.write("") 
             if st.button("🗑️ Excluir", use_container_width=True, type="secondary"):
                 id_limpo = int(id_para_deletar)
-                
-                # Chamada com a ordem correta (usuario_id, mov_id)
-                if excluir_movimentacao(
-                    usuario_id=st.session_state["usuario_id"], 
-                    mov_id=id_limpo
-                ):
-                    st.cache_data.clear() # Limpa caches ativos para sincronizar a tabela
+                if excluir_movimentacao(usuario_id=st.session_state["usuario_id"], mov_id=id_limpo):
+                    st.cache_data.clear()
                     st.success(f"Lançamento ID {id_limpo} excluído com sucesso!")
                     st.rerun()
                 else:
@@ -1515,25 +1133,12 @@ elif opcao == "💸 Lançar Movimentações":
 elif opcao == "📋 Extrato Detalhado":
     st.title("📋 Extrato Detalhado de Transações")
     
-    # Lista de meses por extenso
-    opcoes_meses = [
-        "Todos", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-        "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-    ]
+    opcoes_meses = ["Todos", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
     
     col_e1, col_e2 = st.columns(2)
     with col_e1: 
-        mes_nome_extrato = st.selectbox(
-            "Filtrar Mês", 
-            opcoes_meses, 
-            index=datetime.now().month  # Seleciona o mês atual por padrão
-        )
-        
-        # Converte o nome do mês para o formato numérico esperado ("Todos" ou "01", "02", ...)
-        if mes_nome_extrato == "Todos":
-            mes_extrato = "Todos"
-        else:
-            mes_extrato = f"{opcoes_meses.index(mes_nome_extrato):02d}"
+        mes_nome_extrato = st.selectbox("Filtrar Mês", opcoes_meses, index=datetime.now().month)
+        mes_extrato = "Todos" if mes_nome_extrato == "Todos" else f"{opcoes_meses.index(mes_nome_extrato):02d}"
 
     with col_e2: 
         ano_extrato = st.selectbox("Filtrar Ano", ["Todos", "2026", "2027", "2028", "2029", "2030"], index=1)
@@ -1546,27 +1151,13 @@ elif opcao == "📋 Extrato Detalhado":
         
         with c_btn1:
             excel_data = gerar_excel_profissional(dados_banco, mes_extrato, ano_extrato)
-            st.download_button(
-                label="🟢 Baixar Excel (.xlsx)",
-                data=excel_data,
-                file_name=f"extrato_financeiro_{mes_extrato}_{ano_extrato}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                width="stretch"
-            )
+            st.download_button("🟢 Baixar Excel (.xlsx)", data=excel_data, file_name=f"extrato_financeiro_{mes_extrato}_{ano_extrato}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
             
         with c_btn2:
             pdf_data = gerar_pdf_profissional(dados_banco, mes_extrato, ano_extrato)
-            st.download_button(
-                label="🔴 Baixar PDF Relatório",
-                data=pdf_data,
-                file_name=f"extrato_financeiro_{mes_extrato}_{ano_extrato}.pdf",
-                mime="application/pdf",
-                width="stretch"
-            )
+            st.download_button("🔴 Baixar PDF Relatório", data=pdf_data, file_name=f"extrato_financeiro_{mes_extrato}_{ano_extrato}.pdf", mime="application/pdf", width="stretch")
             
         st.markdown("---")
-
-        # Ajuste para carregar a coluna Tags caso esteja no banco
         colunas = ["ID", "Data", "Conta", "Tipo", "Forma Pagto", "Descrição", "Valor", "Categoria", "Tags"]
         
         df = pd.DataFrame(dados_banco)
@@ -1576,7 +1167,6 @@ elif opcao == "📋 Extrato Detalhado":
             df = pd.DataFrame(dados_banco, columns=["ID", "Data", "Conta", "Tipo", "Forma Pagto", "Descrição", "Valor", "Categoria"])
             df["Tags"] = ""
 
-        # Filtro opcional por Tags
         todas_tags = set()
         for t in df["Tags"].dropna():
             if t:
@@ -1588,12 +1178,9 @@ elif opcao == "📋 Extrato Detalhado":
                 df = df[df["Tags"].astype(str).apply(lambda x: any(tag.lower() in x.lower() for tag in tags_sel))]
 
         df["Valor"] = df["Valor"].apply(lambda v: fmt_moeda(v))
-
-        # Formata a data para o padrão brasileiro na tela
         df["Data"] = pd.to_datetime(df["Data"]).dt.strftime('%d/%m/%Y')
 
         st.dataframe(df, width="stretch")
-        
         st.markdown("---")
         st.write("#### 🛠️ Operações Avançadas")
         id_excluir = st.number_input("Deseja deletar algum lançamento? Digite o ID dele aqui:", min_value=0, step=1)
@@ -1639,7 +1226,6 @@ elif opcao == "⚙️ Configurações":
 elif opcao == "🎯 Orçamentos por Categoria":
     st.title("📊 Dashboard de Orçamentos e Limites")
 
-    # --- FILTRO DE MÊS E ANO ---
     hoje = datetime.now().date()
     col_f1, col_f2 = st.columns(2)
     with col_f1:
@@ -1652,163 +1238,88 @@ elif opcao == "🎯 Orçamentos por Categoria":
     with col_f2:
         ano_sel = st.number_input("📆 Ano", min_value=2020, max_value=2035, value=hoje.year)
 
-    # 1. Busca dados iniciais
     uid = st.session_state["usuario_id"]
     limite_geral = obter_limite_orcamento(uid)
-    limites_dict = obter_limites_por_categoria(
-        uid
-    )  # Esperado dict { 'Categoria': limite } ou { 'Categoria': {'id': x, 'limite': y} }
+    limites_dict = obter_limites_por_categoria(uid)
     movs_todas = buscar_todas_movimentacoes(uid, "Todos", "Todos")
 
-    # Processa total de gastos por categoria
     gastos_por_cat = {}
     if movs_todas:
-        df_m = pd.DataFrame(
-            movs_todas,
-            columns=[
-                "ID",
-                "Data",
-                "Conta",
-                "Tipo",
-                "Forma Pagto",
-                "Descrição",
-                "Valor",
-                "Categoria",
-            ],
-        )
+        df_m = pd.DataFrame(movs_todas, columns=["ID", "Data", "Conta", "Tipo", "Forma Pagto", "Descrição", "Valor", "Categoria"])
         df_despesas = df_m[df_m["Tipo"] == "Despesa"].copy()
         if not df_despesas.empty:
-            # Converte a coluna Data para o formato datetime
             df_despesas["Data"] = pd.to_datetime(df_despesas["Data"], errors="coerce")
-            
-            # Filtra conforme Mês e Ano selecionados
-            df_despesas = df_despesas[
-                (df_despesas["Data"].dt.month == mes_sel) & 
-                (df_despesas["Data"].dt.year == ano_sel)
-            ]
-            
-            df_despesas["Valor"] = pd.to_numeric(
-                df_despesas["Valor"], errors="coerce"
-            )
-            gastos_por_cat = (
-                df_despesas.groupby("Categoria")["Valor"].sum().to_dict()
-            )
+            df_despesas = df_despesas[(df_despesas["Data"].dt.month == mes_sel) & (df_despesas["Data"].dt.year == ano_sel)]
+            df_despesas["Valor"] = pd.to_numeric(df_despesas["Valor"], errors="coerce")
+            gastos_por_cat = df_despesas.groupby("Categoria")["Valor"].sum().to_dict()
 
-    # --- DASHBOARD VISUAL (MÉTRICAS GERAIS) ---
-    total_orcado = sum(
-        v if isinstance(v, (int, float)) else v.get("limite", 0.0)
-        for v in limites_dict.values()
-    )
-    total_gasto = sum(
-        gastos_por_cat.get(cat, 0.0) for cat in limites_dict.keys()
-    )
+    total_orcado = sum(v if isinstance(v, (int, float)) else v.get("limite", 0.0) for v in limites_dict.values())
+    total_gasto = sum(gastos_por_cat.get(cat, 0.0) for cat in limites_dict.keys())
     saldo_restante = total_orcado - total_gasto
 
     col_m1, col_m2, col_m3 = st.columns(3)
     col_m1.metric("🎯 Total Orçado", fmt_moeda(total_orcado))
     col_m2.metric("💸 Total Gasto", fmt_moeda(total_gasto))
-    col_m3.metric(
-        "💰 Saldo Restante",
-        fmt_moeda(saldo_restante),
-        delta=fmt_moeda(saldo_restante),
-        delta_color="normal" if saldo_restante >= 0 else "inverse",
-    )
+    col_m3.metric("💰 Saldo Restante", fmt_moeda(saldo_restante), delta=fmt_moeda(saldo_restante), delta_color="normal" if saldo_restante >= 0 else "inverse")
 
     if limite_geral > 0:
-        st.info(
-            f"💡 Seu teto global cadastrado no sistema é de **{fmt_moeda(limite_geral)}**"
-        )
+        st.info(f"💡 Seu teto global cadastrado no sistema é de **{fmt_moeda(limite_geral)}**")
 
     st.markdown("---")
     col_cad, col_vis = st.columns([1, 2])
 
-    # --- PAINEL GRÁFICO (DASHBOARD) ---
     if limites_dict:
         st.subheader("📈 Visão Geral dos Orçamentos")
-
-        # Prepara dados para o gráfico
         dados_grafico = []
         for cat, dados in limites_dict.items():
-            lim = (
-                float(dados.get("limite", 0.0))
-                if isinstance(dados, dict)
-                else float(dados)
-            )
+            lim = float(dados.get("limite", 0.0)) if isinstance(dados, dict) else float(dados)
             gst = float(gastos_por_cat.get(cat, 0.0))
-            dados_grafico.append(
-                {"Categoria": cat, "Gasto Atual": gst, "Limite": lim}
-            )
+            dados_grafico.append({"Categoria": cat, "Gasto Atual": gst, "Limite": lim})
 
         df_chart = pd.DataFrame(dados_grafico)
 
         if not df_chart.empty:
             col_g1, col_g2 = st.columns(2)
-
             with col_g1:
                 st.markdown("**Comparativo: Gasto vs. Limite**")
-                # Gráfico de barras lado a lado
-                st.bar_chart(
-                    df_chart.set_index("Categoria")[["Gasto Atual", "Limite"]],
-                    height=250,
-                )
-
+                st.bar_chart(df_chart.set_index("Categoria")[["Gasto Atual", "Limite"]], height=250)
             with col_g2:
                 st.markdown("**Distribuição do Teto Orçado**")
-                # Gráfico de rosca simples via st.bar_chart horizontal
-                st.bar_chart(
-                    df_chart.set_index("Categoria")["Limite"],
-                    horizontal=True,
-                    height=250,
-                )
+                st.bar_chart(df_chart.set_index("Categoria")["Limite"], horizontal=True, height=250)
 
         st.markdown("---")
 
-    # --- LADO ESQUERDO: FORMULÁRIO DE CADASTRO ---
     with col_cad:
         with st.form("form_orcamento", clear_on_submit=True):
             st.subheader("⚙️ Definir Limite")
             cat_orc = st.selectbox("Categoria", CATEGORIAS_DESPADREVAL)
-            limite_val = st.number_input(
-                "Teto Mensal (R$)", min_value=10.0, value=500.0, step=50.0
-            )
+            limite_val = st.number_input("Teto Mensal (R$)", min_value=10.0, value=500.0, step=50.0)
 
-            if st.form_submit_button(
-                "Salvar Limite", use_container_width=True
-            ):
+            if st.form_submit_button("Salvar Limite", use_container_width=True):
                 if salvar_orcamento_categoria(uid, cat_orc, limite_val):
                     st.cache_data.clear()
-                    st.success(
-                        f"Limite para '{cat_orc}' atualizado com sucesso!"
-                    )
+                    st.success(f"Limite para '{cat_orc}' atualizado com sucesso!")
                     st.rerun()
                 else:
                     st.error("Erro ao salvar limite no banco de dados. Tente novamente.")
 
-    # --- LADO DIREITO: ACOMPANHAMENTO, ALTERAÇÃO E EXCLUSÃO ---
     with col_vis:
         st.subheader("📈 Acompanhamento de Gastos")
-
         if not limites_dict:
-            st.info(
-                "Nenhum limite por categoria cadastrado ainda. Defina um no formulário ao lado!"
-            )
+            st.info("Nenhum limite por categoria cadastrado ainda. Defina um no formulário ao lado!")
         else:
             for cat_nome, dados_limite in limites_dict.items():
                 if isinstance(dados_limite, dict):
                     limite = float(dados_limite.get("limite", 0.0))
-                    orc_id = dados_limite.get("id")
                 else:
                     limite = float(dados_limite)
-                    orc_id = cat_nome
 
                 gasto_atual = float(gastos_por_cat.get(cat_nome, 0.0))
                 porcentagem = min(gasto_atual / limite, 1.0) if limite > 0 else 0.0
 
-                # Formata os valores no padrão numérico brasileiro puro
                 gasto_num = f"{gasto_atual:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 limite_num = f"{limite:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-                # Indicadores de Alerta
                 if gasto_atual > limite:
                     exc = f"{(gasto_atual - limite):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
                     status = f"🔴 **ESTOURADO!** Excedeu em R$ {exc}"
@@ -1819,26 +1330,13 @@ elif opcao == "🎯 Orçamentos por Categoria":
                     rest = f"{(limite - gasto_atual):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
                     status = f"🟢 **Dentro do Limite.** Restam R$ {rest}"
 
-                # RENDERIZAÇÃO 100% LIMPA EM HTML (Sem caixa verde)
                 st.markdown(f"### 📌 {cat_nome}")
-                st.markdown(
-                    f"<p style='font-size: 1rem; margin-bottom: 4px;'>"
-                    f"<b>Gasto:</b> R$ {gasto_num} de R$ {limite_num}"
-                    f"</p>",
-                    unsafe_allow_html=True
-                )
+                st.markdown(f"<p style='font-size: 1rem; margin-bottom: 4px;'><b>Gasto:</b> R$ {gasto_num} de R$ {limite_num}</p>", unsafe_allow_html=True)
                 st.progress(porcentagem)
                 st.caption(status)
 
                 col_e1, col_e2 = st.columns(2)
-
-                novo_teto = col_e1.number_input(
-                    "Alterar Limite (R$)",
-                    min_value=10.0,
-                    value=limite,
-                    step=50.0,
-                    key=f"edit_{cat_nome}",
-                )
+                novo_teto = col_e1.number_input("Alterar Limite (R$)", min_value=10.0, value=limite, step=50.0, key=f"edit_{cat_nome}")
 
                 if col_e1.button("💾 Salvar Alteração", key=f"btn_save_{cat_nome}"):
                     if salvar_orcamento_categoria(uid, cat_nome, novo_teto):
@@ -1848,96 +1346,63 @@ elif opcao == "🎯 Orçamentos por Categoria":
                     else:
                         st.error("Erro ao alterar o limite selecionado.")
 
-                if col_e2.button(
-                    "🗑️ Excluir Orçamento",
-                    key=f"btn_del_{cat_nome}",
-                    type="secondary",
-                ):
+                if col_e2.button("🗑️ Excluir Orçamento", key=f"btn_del_{cat_nome}", type="secondary"):
                     if excluir_orcamento_categoria(uid, cat_nome):
                         st.cache_data.clear()
                         st.success(f"Orçamento de {cat_nome} removido com sucesso!")
                         st.rerun()
                     else:
                         st.error("Erro ao excluir o orçamento selecionado.")
-                
                 st.markdown("---")
 
 # --- ABA: PRÓXIMOS VENCIMENTOS ---
 elif opcao == "📅 Próximos Vencimentos":
     st.title("📅 Próximos Vencimentos e Faturas")
-    st.caption(
-        "Acompanhe contas pendentes e faturas de cartão agrupadas pelo ciclo"
-        " de fechamento."
-    )
+    st.caption("Acompanhe contas pendentes e faturas de cartão agrupadas pelo ciclo de fechamento.")
 
     import calendar
 
     hoje = pd.to_datetime("today")
-    mes_atual = hoje.month
-    ano_atual = hoje.year
+    mes_atual, ano_atual = hoje.month, hoje.year
 
     opcao_periodo = st.selectbox(
         "Selecione o Mês de Visualização:",
         options=[
             f"📅 Mês Atual ({mes_atual:02d}/{ano_atual})",
-            (
-                f"⏪ Mês Anterior"
-                f" ({(mes_atual-1 if mes_atual > 1 else 12):02d}/{(ano_atual if mes_atual > 1 else ano_atual-1)})"
-            ),
-            (
-                f"⏩ Próximo Mês"
-                f" ({(mes_atual+1 if mes_atual < 12 else 1):02d}/{(ano_atual if mes_atual < 12 else ano_atual+1)})"
-            ),
+            f"⏪ Mês Anterior ({(mes_atual-1 if mes_atual > 1 else 12):02d}/{(ano_atual if mes_atual > 1 else ano_atual-1)})",
+            f"⏩ Próximo Mês ({(mes_atual+1 if mes_atual < 12 else 1):02d}/{(ano_atual if mes_atual < 12 else ano_atual+1)})",
             "🔮 Ver Todos os Registros Encontrados",
         ],
     )
 
-    if "Mês Atual" in opcao_periodo:
-        target_mes, target_ano = mes_atual, ano_atual
-    elif "Mês Anterior" in opcao_periodo:
-        target_mes = mes_atual - 1 if mes_atual > 1 else 12
-        target_ano = ano_atual if mes_atual > 1 else ano_atual - 1
-    elif "Próximo Mês" in opcao_periodo:
-        target_mes = mes_atual + 1 if mes_atual < 12 else 1
-        target_ano = ano_atual if mes_atual < 12 else ano_atual + 1
-    else:
-        target_mes, target_ano = None, None
+    if "Mês Atual" in opcao_periodo: target_mes, target_ano = mes_atual, ano_atual
+    elif "Mês Anterior" in opcao_periodo: target_mes, target_ano = (mes_atual - 1 if mes_atual > 1 else 12), (ano_atual if mes_atual > 1 else ano_atual - 1)
+    elif "Próximo Mês" in opcao_periodo: target_mes, target_ano = (mes_atual + 1 if mes_atual < 12 else 1), (ano_atual if mes_atual < 12 else ano_atual + 1)
+    else: target_mes, target_ano = None, None
 
     usuario_atual_id = st.session_state.get("usuario_id")
 
     def normalizar_id(val):
-        if pd.isna(val) or val is None:
-            return ""
+        if pd.isna(val) or val is None: return ""
         s = str(val).strip()
-        if s.lower() in ["none", "nan", "null", ""]:
-            return ""
-        try:
-            return str(int(float(s)))
-        except ValueError:
-            return s.split(".")[0]
+        if s.lower() in ["none", "nan", "null", ""]: return ""
+        try: return str(int(float(s)))
+        except ValueError: return s.split(".")[0]
 
     def normalizar_mes_fatura(val):
-        if pd.isna(val) or not val:
-            return None, None
+        if pd.isna(val) or not val: return None, None
         s = str(val).strip()
         if "/" in s:
             partes = s.split("/")
-            try:
-                return int(partes[0]), int(partes[1])
-            except Exception:
-                return None, None
+            try: return int(partes[0]), int(partes[1])
+            except Exception: return None, None
         elif "-" in s:
             partes = s.split("-")
             try:
-                if len(partes[0]) == 4:
-                    return int(partes[1]), int(partes[0])
-                else:
-                    return int(partes[0]), int(partes[1])
-            except Exception:
-                return None, None
+                return (int(partes[1]), int(partes[0])) if len(partes[0]) == 4 else (int(partes[0]), int(partes[1]))
+            except Exception: return None, None
         return None, None
 
-    # Busca registando ate 90 dias atras
     vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=60)
 
     if not vencimentos:
@@ -1945,7 +1410,6 @@ elif opcao == "📅 Próximos Vencimentos":
     else:
         df_raw = pd.DataFrame(vencimentos)
 
-        # Filtro de usuario
         if "usuario_id" in df_raw.columns and usuario_atual_id is not None:
             usr_target = normalizar_id(usuario_atual_id)
             df_raw["_usr_norm"] = df_raw["usuario_id"].apply(normalizar_id)
@@ -1955,17 +1419,10 @@ elif opcao == "📅 Próximos Vencimentos":
         if df_raw.empty:
             st.warning("Nenhum lançamento pertence ao usuário logado.")
         else:
-            df_raw["pago"] = (
-                df_raw["pago"].fillna(False).astype(bool)
-                if "pago" in df_raw.columns
-                else False
-            )
-            if "cartao_id" not in df_raw.columns:
-                df_raw["cartao_id"] = None
-            if "forma_pagamento" not in df_raw.columns:
-                df_raw["forma_pagamento"] = "N/A"
+            df_raw["pago"] = df_raw["pago"].fillna(False).astype(bool) if "pago" in df_raw.columns else False
+            if "cartao_id" not in df_raw.columns: df_raw["cartao_id"] = None
+            if "forma_pagamento" not in df_raw.columns: df_raw["forma_pagamento"] = "N/A"
 
-            # 1. Carrega dados dos cartoes
             mapa_cartoes_info = {}
             try:
                 res_cartoes = listar_cartoes(usuario_atual_id)
@@ -1974,115 +1431,55 @@ elif opcao == "📅 Próximos Vencimentos":
                         if isinstance(c, dict):
                             c_id = normalizar_id(c.get("id"))
                             mapa_cartoes_info[c_id] = {
-                                "nome": str(
-                                    c.get("nome_cartao")
-                                    or c.get("nome")
-                                    or "Cartão"
-                                ),
-                                "vencimento": int(
-                                    c.get("dia_vencimento")
-                                    or c.get("vencimento")
-                                    or 13
-                                ),
-                                "fechamento": int(
-                                    c.get("dia_fechamento")
-                                    or c.get("fechamento")
-                                    or 6
-                                ),
+                                "nome": str(c.get("nome_cartao") or c.get("nome") or "Cartão"),
+                                "vencimento": int(c.get("dia_vencimento") or c.get("vencimento") or 13),
+                                "fechamento": int(c.get("dia_fechamento") or c.get("fechamento") or 6),
                             }
             except Exception:
                 pass
 
-            # 2. Identifica se o lançamento é de cartão de crédito
             def eh_cartao(row):
-                cid = normalizar_id(row.get("cartao_id"))
-                fp = str(row.get("forma_pagamento") or "").lower()
-                mf = str(row.get("mes_fatura") or "").strip()
-                nc = str(row.get("nome_cartao") or "").strip()
-                desc = str(row.get("descricao") or "").lower()
-                cat = str(row.get("categoria") or "").lower()
+                cid, fp = normalizar_id(row.get("cartao_id")), str(row.get("forma_pagamento") or "").lower()
+                mf, nc = str(row.get("mes_fatura") or "").strip(), str(row.get("nome_cartao") or "").strip()
+                desc, cat = str(row.get("descricao") or "").lower(), str(row.get("categoria") or "").lower()
 
-                if cid != "":
-                    return True
-                if nc != "" and nc.lower() not in ["none", "nan"]:
-                    return True
-                if any(
-                    x in fp
-                    for x in [
-                        "cart",
-                        "credito",
-                        "crédito",
-                        "fatura",
-                        "riachuelo",
-                    ]
-                ):
-                    return True
-                if any(
-                    x in desc
-                    for x in ["cartão", "cartao", "credito", "crédito", "fatura"]
-                ):
-                    return True
-                if any(x in cat for x in ["cartão", "cartao", "crédito"]):
-                    return True
-                if (
-                    mf != ""
-                    and mf.lower() not in ["none", "nan"]
-                    and ("/" in mf or "-" in mf)
-                ):
-                    return True
+                if cid != "": return True
+                if nc != "" and nc.lower() not in ["none", "nan"]: return True
+                if any(x in fp for x in ["cart", "credito", "crédito", "fatura", "riachuelo"]): return True
+                if any(x in desc for x in ["cartão", "cartao", "credito", "crédito", "fatura"]): return True
+                if any(x in cat for x in ["cartão", "cartao", "crédito"]): return True
+                if mf != "" and mf.lower() not in ["none", "nan"] and ("/" in mf or "-" in mf): return True
                 return False
 
             cond_cartao = df_raw.apply(eh_cartao, axis=1)
 
             df_outras_contas = df_raw[~cond_cartao].copy()
             if not df_outras_contas.empty:
-                df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(
-                    lambda x: [x]
-                )
-                df_outras_contas["descricao_detalhada"] = df_outras_contas[
-                    "descricao"
-                ]
+                df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(lambda x: [x])
+                df_outras_contas["descricao_detalhada"] = df_outras_contas["descricao"]
 
             df_credito = df_raw[cond_cartao].copy()
             df_faturas_agrupadas = pd.DataFrame()
 
             if not df_credito.empty:
-
                 def obter_nome_cartao(row):
                     cid = normalizar_id(row.get("cartao_id"))
-                    if cid in mapa_cartoes_info:
-                        return mapa_cartoes_info[cid]["nome"]
-                    if "nome_cartao" in row and pd.notna(row["nome_cartao"]):
-                        return str(row["nome_cartao"])
-                    return "Riachuelo"
+                    if cid in mapa_cartoes_info: return mapa_cartoes_info[cid]["nome"]
+                    if "nome_cartao" in row and pd.notna(row["nome_cartao"]): return str(row["nome_cartao"])
+                    return "Cartão"
 
                 def resolver_datas_fatura(row):
                     cid = normalizar_id(row.get("cartao_id"))
-                    info = mapa_cartoes_info.get(
-                        cid, {"vencimento": 13, "fechamento": 6}
-                    )
+                    info = mapa_cartoes_info.get(cid, {"vencimento": 13, "fechamento": 6})
                     dia_venc, dia_fech = info["vencimento"], info["fechamento"]
 
-                    # Tenta pegar mes_fatura explicito do banco
-                    m_fat, a_fat = normalizar_mes_fatura(
-                        row.get("mes_fatura")
-                    )
-
+                    m_fat, a_fat = normalizar_mes_fatura(row.get("mes_fatura"))
                     if m_fat and a_fat:
                         mes_fatura, ano_fatura = m_fat, a_fat
                     else:
-                        dt_compra = pd.to_datetime(
-                            row.get("data") or pd.to_datetime("today")
-                        )
-                        ano, mes, dia_compra = (
-                            dt_compra.year,
-                            dt_compra.month,
-                            dt_compra.day,
-                        )
+                        dt_compra = pd.to_datetime(row.get("data") or pd.to_datetime("today"))
+                        ano, mes, dia_compra = dt_compra.year, dt_compra.month, dt_compra.day
 
-                        # Regra do ciclo do cartão:
-                        # Ex: Compras até dia 05/06 pertencem à fatura do MÊS ATUAL (mes)
-                        # Compras do dia 06 em diante pertencem à fatura do MÊS SEGUINTE (mes + 1)
                         if dia_compra >= dia_fech:
                             mes_fatura = mes + 1 if mes < 12 else 1
                             ano_fatura = ano if mes < 12 else ano + 1
@@ -2096,245 +1493,116 @@ elif opcao == "📅 Próximos Vencimentos":
 
                     return pd.Series([data_venc_str, mes_fat_str])
 
-                df_credito["nome_exibicao_cartao"] = df_credito.apply(
-                    obter_nome_cartao, axis=1
-                )
-                df_credito[
-                    ["data_venc_calculada", "mes_fatura_calculado"]
-                ] = df_credito.apply(resolver_datas_fatura, axis=1)
+                df_credito["nome_exibicao_cartao"] = df_credito.apply(obter_nome_cartao, axis=1)
+                df_credito[["data_venc_calculada", "mes_fatura_calculado"]] = df_credito.apply(resolver_datas_fatura, axis=1)
 
                 df_credito["data"] = df_credito["data_venc_calculada"]
                 df_credito["mes_fatura"] = df_credito["mes_fatura_calculado"]
                 df_credito["ids_compras"] = df_credito["id"]
+                df_credito["descricao"] = df_credito["descricao"].fillna("Compra no Cartão") if "descricao" in df_credito.columns else "Compra no Cartão"
 
-                if "descricao" not in df_credito.columns:
-                    df_credito["descricao"] = "Compra no Cartão"
-                else:
-                    df_credito["descricao"] = df_credito["descricao"].fillna(
-                        "Compra no Cartão"
-                    )
-
-                # Agrupa compras por Cartão + Mês Fatura
                 df_faturas_agrupadas = (
-                    df_credito.groupby(
-                        ["nome_exibicao_cartao", "mes_fatura", "pago"],
-                        as_index=False,
-                        dropna=False,
-                    )
+                    df_credito.groupby(["nome_exibicao_cartao", "mes_fatura", "pago"], as_index=False, dropna=False)
                     .agg({
-                        "valor": "sum",
-                        "id": "first",
-                        "ids_compras": lambda x: list(x),
-                        "descricao": lambda x: list(x),
-                        "data": "first",
-                        "categoria": lambda x: "Fatura de Cartão",
-                        "forma_pagamento": lambda x: "Cartão de Crédito",
+                        "valor": "sum", "id": "first", "ids_compras": lambda x: list(x),
+                        "descricao": lambda x: list(x), "data": "first",
+                        "categoria": lambda x: "Fatura de Cartão", "forma_pagamento": lambda x: "Cartão de Crédito",
                     })
                 )
 
-                df_faturas_agrupadas["descricao_detalhada"] = (
-                    df_faturas_agrupadas["descricao"]
-                )
-                df_faturas_agrupadas["descricao"] = (
-                    df_faturas_agrupadas.apply(
-                        lambda r: (
-                            f"💳 Fatura {r['nome_exibicao_cartao']}"
-                            f" ({r['mes_fatura']})"
-                        ),
-                        axis=1,
-                    )
-                )
+                df_faturas_agrupadas["descricao_detalhada"] = df_faturas_agrupadas["descricao"]
+                df_faturas_agrupadas["descricao"] = df_faturas_agrupadas.apply(lambda r: f"💳 Fatura {r['nome_exibicao_cartao']} ({r['mes_fatura']})", axis=1)
 
-            dfs_concatenar = [
-                df
-                for df in [df_outras_contas, df_faturas_agrupadas]
-                if not df.empty
-            ]
-            df_venc = (
-                pd.concat(dfs_concatenar, ignore_index=True)
-                if dfs_concatenar
-                else pd.DataFrame()
-            )
+            dfs_concatenar = [df for df in [df_outras_contas, df_faturas_agrupadas] if not df.empty]
+            df_venc = pd.concat(dfs_concatenar, ignore_index=True) if dfs_concatenar else pd.DataFrame()
 
-            # Filtro por Mês Solicitado
             if not df_venc.empty and target_mes and target_ano:
-
                 def pertence_ao_periodo(row):
                     m_fat, a_fat = normalizar_mes_fatura(row.get("mes_fatura"))
-                    if m_fat and a_fat:
-                        return m_fat == target_mes and a_fat == target_ano
-
+                    if m_fat and a_fat: return m_fat == target_mes and a_fat == target_ano
                     if "data" in row and pd.notna(row["data"]):
                         dt = pd.to_datetime(row["data"])
-                        return (
-                            dt.month == target_mes and dt.year == target_ano
-                        )
+                        return dt.month == target_mes and dt.year == target_ano
                     return False
 
-                df_venc = df_venc[
-                    df_venc.apply(pertence_ao_periodo, axis=1)
-                ].copy()
+                df_venc = df_venc[df_venc.apply(pertence_ao_periodo, axis=1)].copy()
 
             if df_venc.empty:
-                st.info(
-                    f"Nenhum lançamento encontrado para o período"
-                    f" {target_mes:02d}/{target_ano}."
-                )
+                st.info(f"Nenhum lançamento encontrado para o período {target_mes:02d}/{target_ano}.")
             else:
                 df_venc = df_venc.sort_values(by="data").reset_index(drop=True)
                 df_pendentes = df_venc[df_venc["pago"] == False].copy()
                 df_pagos = df_venc[df_venc["pago"] == True].copy()
 
                 col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
-                with col_kpi1:
-                    st.metric(
-                        "Total Pendente (A Pagar)",
-                        (
-                            fmt_moeda(df_pendentes["valor"].sum())
-                            if not df_pendentes.empty
-                            else "R$ 0,00"
-                        ),
-                    )
-                with col_kpi2:
-                    st.metric(
-                        "Total Já Pago (Quitado)",
-                        (
-                            fmt_moeda(df_pagos["valor"].sum())
-                            if not df_pagos.empty
-                            else "R$ 0,00"
-                        ),
-                    )
-                with col_kpi3:
-                    st.metric(
-                        "Total Geral do Mês",
-                        fmt_moeda(df_venc["valor"].sum()),
-                    )
+                col_kpi1.metric("Total Pendente (A Pagar)", fmt_moeda(df_pendentes["valor"].sum()) if not df_pendentes.empty else "R$ 0,00")
+                col_kpi2.metric("Total Já Pago (Quitado)", fmt_moeda(df_pagos["valor"].sum()) if not df_pagos.empty else "R$ 0,00")
+                col_kpi3.metric("Total Geral do Mês", fmt_moeda(df_venc["valor"].sum()))
 
                 st.markdown("---")
-
-                tab_pendentes, tab_pagas = st.tabs([
-                    (
-                        f"⏳ Contas Não Pagas / Pendentes"
-                        f" ({len(df_pendentes)})"
-                    ),
-                    f"✅ Contas Pagas / Quitadas ({len(df_pagos)})",
-                ])
+                tab_pendentes, tab_pagas = st.tabs([f"⏳ Contas Não Pagas / Pendentes ({len(df_pendentes)})", f"✅ Contas Pagas / Quitadas ({len(df_pagos)})"])
 
                 with tab_pendentes:
                     if df_pendentes.empty:
-                        st.success(
-                            "🎉 Nenhuma conta pendente para este período!"
-                        )
+                        st.success("🎉 Nenhuma conta pendente para este período!")
                     else:
                         for idx, row in df_pendentes.iterrows():
                             id_lanc = row["id"]
-                            lista_ids = (
-                                row.get("ids_compras")
-                                if isinstance(row.get("ids_compras"), list)
-                                else [id_lanc]
-                            )
+                            lista_ids = row.get("ids_compras") if isinstance(row.get("ids_compras"), list) else [id_lanc]
                             valor_fmt = fmt_moeda(row["valor"])
-                            data_fmt = pd.to_datetime(row["data"]).strftime(
-                                "%d/%m/%Y"
-                            )
+                            data_fmt = pd.to_datetime(row["data"]).strftime("%d/%m/%Y")
 
-                            with st.expander(
-                                f"📅 {data_fmt} — {row['descricao']} |"
-                                f" {valor_fmt}"
-                            ):
-                                st.write(
-                                    f"**Categoria:**"
-                                    f" {row.get('categoria', 'Geral')}"
-                                )
-                                st.write(
-                                    f"**Forma de Pagamento:**"
-                                    f" {row.get('forma_pagamento', 'N/A')}"
-                                )
+                            with st.expander(f"📅 {data_fmt} — {row['descricao']} | {valor_fmt}"):
+                                st.write(f"**Categoria:** {row.get('categoria', 'Geral')}")
+                                st.write(f"**Forma de Pagamento:** {row.get('forma_pagamento', 'N/A')}")
 
-                                if isinstance(
-                                    row.get("descricao_detalhada"), list
-                                ):
+                                if isinstance(row.get("descricao_detalhada"), list):
                                     st.markdown("**🛒 Compras na fatura:**")
-                                    for item in row["descricao_detalhada"]:
-                                        st.caption(f"• {item}")
+                                    for item in row["descricao_detalhada"]: st.caption(f"• {item}")
 
-                                key_btn = f"pago_{idx}_{id_lanc}"
-                                if st.button(
-                                    "✅ Marcar como Pago",
-                                    key=key_btn,
-                                    type="primary",
-                                ):
-                                    for sub_id in lista_ids:
-                                        marcar_lancamento_como_pago(sub_id)
+                                if st.button("✅ Marcar como Pago", key=f"pago_{idx}_{id_lanc}", type="primary"):
+                                    for sub_id in lista_ids: marcar_lancamento_como_pago(sub_id)
                                     st.cache_data.clear()
                                     st.rerun()
 
                 with tab_pagas:
                     if df_pagos.empty:
-                        st.info(
-                            "Nenhuma conta marcada como paga neste período."
-                        )
+                        st.info("Nenhuma conta marcada como paga neste período.")
                     else:
                         for idx, row in df_pagos.iterrows():
                             id_lanc = row["id"]
-                            lista_ids = (
-                                row.get("ids_compras")
-                                if isinstance(row.get("ids_compras"), list)
-                                else [id_lanc]
-                            )
+                            lista_ids = row.get("ids_compras") if isinstance(row.get("ids_compras"), list) else [id_lanc]
                             valor_fmt = fmt_moeda(row["valor"])
-                            data_fmt = pd.to_datetime(row["data"]).strftime(
-                                "%d/%m/%Y"
-                            )
+                            data_fmt = pd.to_datetime(row["data"]).strftime("%d/%m/%Y")
 
-                            with st.expander(
-                                f"✔️ {data_fmt} — {row['descricao']} |"
-                                f" {valor_fmt}"
-                            ):
+                            with st.expander(f"✔️ {data_fmt} — {row['descricao']} | {valor_fmt}"):
                                 st.write("**Status:** ✅ Quitado")
 
-                                if isinstance(
-                                    row.get("descricao_detalhada"), list
-                                ):
+                                if isinstance(row.get("descricao_detalhada"), list):
                                     st.markdown("**🛒 Compras na fatura:**")
-                                    for item in row["descricao_detalhada"]:
-                                        st.caption(f"• {item}")
+                                    for item in row["descricao_detalhada"]: st.caption(f"• {item}")
 
-                                key_btn = f"undo_{idx}_{id_lanc}"
-                                if st.button(
-                                    "↩️ Desfazer Pagamento", key=key_btn
-                                ):
-                                    for sub_id in lista_ids:
-                                        desfazer_pagamento_lancamento(sub_id)
+                                if st.button("↩️ Desfazer Pagamento", key=f"undo_{idx}_{id_lanc}"):
+                                    for sub_id in lista_ids: desfazer_pagamento_lancamento(sub_id)
                                     st.cache_data.clear()
                                     st.rerun()
-                                    
+
 # --- ABA: CARTÕES & FATURAS ---
 elif opcao == "💳 Cartões & Faturas":
     st.title("💳 Gestão de Cartões de Crédito & Faturas")
 
-    tab_faturas, tab_novo_cartao, tab_gerenciar = st.tabs([
-        "📄 Minhas Faturas", 
-        "➕ Cadastrar Novo Cartão", 
-        "⚙️ Gerenciar Cartões"
-    ])
+    tab_faturas, tab_novo_cartao, tab_gerenciar = st.tabs(["📄 Minhas Faturas", "➕ Cadastrar Novo Cartão", "⚙️ Gerenciar Cartões"])
 
     user_id = st.session_state.get("usuario_id")
     cartoes = listar_cartoes(user_id)
 
-# --- ABA 1: VISUALIZAR FATURAS ---
     with tab_faturas:
         if cartoes:
             c1, c2, c3 = st.columns(3)
 
             with c1:
                 dict_cartoes = {c["id"]: c.get("nome_cartao") or c.get("nome") for c in cartoes}
-                cartao_id_sel = st.selectbox(
-                    "Escolha o Cartão",
-                    options=list(dict_cartoes.keys()),
-                    format_func=lambda x: dict_cartoes[x],
-                    key="sel_cartao_fatura"
-                )
+                cartao_id_sel = st.selectbox("Escolha o Cartão", options=list(dict_cartoes.keys()), format_func=lambda x: dict_cartoes[x], key="sel_cartao_fatura")
                 cartao_info = next(c for c in cartoes if c["id"] == cartao_id_sel)
 
             with c2:
@@ -2347,61 +1615,34 @@ elif opcao == "💳 Cartões & Faturas":
             fatura_ref = f"{mes_fatura}/{ano_fatura}"
             st.markdown("---")
 
-            # --- CÁLCULO DO PERÍODO DA FATURA (OPÇÃO 2: DIA DO FECHAMENTO JÁ CAI NA PRÓXIMA) ---
             dia_fechamento = int(cartao_info['dia_fechamento'])
-            mes_int = int(mes_fatura)
-            ano_int = int(ano_fatura)
+            mes_int, ano_int = int(mes_fatura), int(ano_fatura)
 
-            # Data final: 1 dia antes do fechamento (Ex: se fecha dia 8, a fatura fecha no dia 7 às 23:59)
             data_fim_fatura = datetime(ano_int, mes_int, dia_fechamento) - timedelta(days=1)
-
-            # Data inicial: dia do fechamento do mês anterior (Ex: dia 08 do mês anterior)
-            if mes_int == 1:
-                data_inicio_fatura = datetime(ano_int - 1, 12, dia_fechamento)
-            else:
-                data_inicio_fatura = datetime(ano_int, mes_int - 1, dia_fechamento)
+            data_inicio_fatura = datetime(ano_int - 1, 12, dia_fechamento) if mes_int == 1 else datetime(ano_int, mes_int - 1, dia_fechamento)
 
             periodo_str = f"{data_inicio_fatura.strftime('%d/%m/%Y')} a {data_fim_fatura.strftime('%d/%m/%Y')}"
 
-            # 1. Gastos apenas da fatura selecionada
             compras = buscar_gastos_fatura(user_id, cartao_id_sel, fatura_ref)
             total_fatura = sum(float(item["valor"]) for item in compras) if compras else 0.0
 
-            # 2. Busca TODOS os gastos do cartão para somar o saldo devedor real
             todas_compras = buscar_gastos_fatura(user_id, cartao_id_sel, None)
-            
-            total_devedor_geral = sum(
-                float(item["valor"]) 
-                for item in todas_compras 
-                if not item.get("pago", False) and not item.get("paga", False)
-            ) if todas_compras else 0.0
+            total_devedor_geral = sum(float(item["valor"]) for item in todas_compras if not item.get("pago", False) and not item.get("paga", False)) if todas_compras else 0.0
 
-            # 3. Limite Disponível Real
             limite_total = float(cartao_info["limite"])
             limite_disponivel = limite_total - total_devedor_geral
 
-            st.info(
-                f"💡 **Informações:** Fechamento todo **dia {cartao_info['dia_fechamento']}** | "
-                f"Vencimento todo **dia {cartao_info['dia_vencimento']}**"
-            )
+            st.info(f"💡 **Informações:** Fechamento todo **dia {cartao_info['dia_fechamento']}** | Vencimento todo **dia {cartao_info['dia_vencimento']}**")
 
-            # Métricas em destaque
             m1, m2, m3 = st.columns(3)
             m1.metric("Total da Fatura", formatar_moeda_ptbr(total_fatura))
             m2.metric("Limite Disponível", formatar_moeda_ptbr(limite_disponivel))
             m3.metric("Limite Total", formatar_moeda_ptbr(limite_total))
 
-            # Título dinâmico informando o mês
             st.write(f"### 🛒 Compras da Fatura ({fatura_ref})")
-            
-            # --- CARD DE DESTAQUE DO PERÍODO PARA O CLIENTE ---
-            st.warning(
-                f"📆 **Atenção:** Esta fatura contempla as compras realizadas no período de **{periodo_str}**.\n\n"
-                f"💡 *Compras a partir do dia **{data_fim_fatura.day + 1:02d}/{mes_fatura}/{ano_fatura}** entram automaticamente na fatura do mês seguinte.*"
-            )
+            st.warning(f"📆 **Atenção:** Esta fatura contempla as compras realizadas no período de **{periodo_str}**.\n\n💡 *Compras a partir do dia **{data_fim_fatura.day + 1:02d}/{mes_fatura}/{ano_fatura}** entram automaticamente na fatura do mês seguinte.*")
             
             if compras:
-                # Verifica se todos os lançamentos da fatura já estão pagos
                 fatura_paga = all(item.get("pago", False) or item.get("paga", False) for item in compras)
 
                 if fatura_paga:
@@ -2414,32 +1655,11 @@ elif opcao == "💳 Cartões & Faturas":
                         else:
                             st.error("Erro ao dar baixa na fatura completa.")
 
-                # Exibição da tabela com formatação de moeda pt-BR
-                st.dataframe(
-                    compras,
-                    column_order=["data", "descricao", "categoria", "tags", "valor", "pago"],
-                    column_config={
-                        "valor": st.column_config.NumberColumn(
-                            "Valor",
-                            format="%.2f",
-                        )
-                    },
-                    width="stretch"
-                )
+                st.dataframe(compras, column_order=["data", "descricao", "categoria", "tags", "valor", "pago"], column_config={"valor": st.column_config.NumberColumn("Valor", format="%.2f")}, width="stretch")
 
-                # --- FERRAMENTA DE EXCLUSÃO DE ITEM DA FATURA ---
                 with st.expander("🗑️ Excluir um item desta fatura"):
-                    dict_compras_excluir = {
-                        item["id"]: f"{item['data']} | {item['descricao']} - R$ {float(item['valor']):.2f}" 
-                        for item in compras
-                    }
-                    
-                    id_para_excluir = st.selectbox(
-                        "Selecione o lançamento que deseja remover:",
-                        options=list(dict_compras_excluir.keys()),
-                        format_func=lambda x: dict_compras_excluir[x],
-                        key="select_excluir_fatura_item"
-                    )
+                    dict_compras_excluir = {item["id"]: f"{item['data']} | {item['descricao']} - R$ {float(item['valor']):.2f}" for item in compras}
+                    id_para_excluir = st.selectbox("Selecione o lançamento que deseja remover:", options=list(dict_compras_excluir.keys()), format_func=lambda x: dict_compras_excluir[x], key="select_excluir_fatura_item")
                     
                     if st.button("Confirmar Exclusão do Item", type="secondary"):
                         if excluir_movimentacao(user_id, id_para_excluir):
@@ -2454,106 +1674,55 @@ elif opcao == "💳 Cartões & Faturas":
         else:
             st.info("Nenhum cartão cadastrado. Use a aba ao lado para cadastrar seu primeiro cartão!")
 
-    # --- ABA 2: CADASTRO DE NOVO CARTÃO ---
     with tab_novo_cartao:
         st.subheader("➕ Adicionar Novo Cartão de Crédito")
-        
         with st.form("form_cartao"):
-            opcoes_bancos = [
-                "260 - Nubank",
-                "001 - Banco do Brasil",
-                "341 - Itaú Unibanco",
-                "237 - Bradesco",
-                "033 - Santander",
-                "104 - Caixa Econômica Federal",
-                "336 - C6 Bank",
-                "077 - Banco Inter",
-                "380 - PicPay",
-                "208 - BTG Pactual",
-                "102 - XP Investimentos",
-                "Outro"
-            ]
-
-            nome_cartao_selecionado = st.selectbox(
-                "Nome do Cartão",
-                options=opcoes_bancos,
-                index=0
-            )
-
+            opcoes_bancos = ["260 - Nubank", "001 - Banco do Brasil", "341 - Itaú Unibanco", "237 - Bradesco", "033 - Santander", "104 - Caixa Econômica Federal", "336 - C6 Bank", "077 - Banco Inter", "380 - PicPay", "208 - BTG Pactual", "102 - XP Investimentos", "Outro"]
+            nome_cartao_selecionado = st.selectbox("Nome do Cartão", options=opcoes_bancos, index=0)
             nome_outro = st.text_input("Se selecionou 'Outro', digite o nome do cartão:")
-
-            if nome_cartao_selecionado == "Outro":
-                nome_c = nome_outro
-            else:
-                nome_c = nome_cartao_selecionado
-
+            nome_c = nome_outro if nome_cartao_selecionado == "Outro" else nome_cartao_selecionado
             limite_c = st.number_input("Limite de Crédito Total (R$)", min_value=0.0, value=1000.0, step=100.0)
 
             c_f, c_v = st.columns(2)
-            with c_f:
-                fechamento_c = st.number_input("Dia do Fechamento", min_value=1, max_value=31, value=20)
-            with c_v:
-                vencimento_c = st.number_input("Dia do Vencimento", min_value=1, max_value=31, value=30)
+            with c_f: fechamento_c = st.number_input("Dia do Fechamento", min_value=1, max_value=31, value=20)
+            with c_v: vencimento_c = st.number_input("Dia do Vencimento", min_value=1, max_value=31, value=30)
 
             btn_salvar = st.form_submit_button("Salvar Cartão")
-
             if btn_salvar:
                 if nome_c.strip():
                     if cadastrar_cartao(user_id, nome_c, limite_c, fechamento_c, vencimento_c):
                         st.success(f"Cartão '{nome_c}' cadastrado com sucesso!")
                         st.rerun()
-                    else:
-                        st.error("Erro ao cadastrar cartão no banco de dados.")
-                else:
-                    st.error("Por favor, informe ou digite o nome do cartão.")
+                    else: st.error("Erro ao cadastrar cartão no banco de dados.")
+                else: st.error("Por favor, informe ou digite o nome do cartão.")
 
-    # --- ABA 3: GERENCIAR (ALTERAR LIMITE E EXCLUIR) ---
     with tab_gerenciar:
         st.subheader("⚙️ Alterar Limite ou Excluir Cartão")
-        
         if cartoes:
             dict_cartoes_g = {c["id"]: c.get("nome_cartao") or c.get("nome") for c in cartoes}
-            cartao_id_ger = st.selectbox(
-                "Selecione o Cartão para Configurar",
-                options=list(dict_cartoes_g.keys()),
-                format_func=lambda x: dict_cartoes_g[x],
-                key="sel_cartao_gerenciar"
-            )
-            
+            cartao_id_ger = st.selectbox("Selecione o Cartão para Configurar", options=list(dict_cartoes_g.keys()), format_func=lambda x: dict_cartoes_g[x], key="sel_cartao_gerenciar")
             cartao_sel_info = next(c for c in cartoes if c["id"] == cartao_id_ger)
             
             st.markdown("---")
-            
-            # --- Bloco 1: Alterar Limite ---
             col_lim1, col_lim2 = st.columns([2, 1])
             with col_lim1:
-                novo_limite = st.number_input(
-                    "Novo Limite Total (R$)",
-                    min_value=0.0,
-                    value=float(cartao_sel_info["limite"]),
-                    step=100.0,
-                    key="input_novo_limite"
-                )
+                novo_limite = st.number_input("Novo Limite Total (R$)", min_value=0.0, value=float(cartao_sel_info["limite"]), step=100.0, key="input_novo_limite")
             with col_lim2:
-                st.write("") # Espaçamento
+                st.write("")
                 st.write("")
                 if st.button("✏️ Atualizar Limite", use_container_width=True):
                     if atualizar_limite_cartao(user_id, cartao_id_ger, novo_limite):
                         st.success("Limite atualizado com sucesso!")
                         st.rerun()
-                    else:
-                        st.error("Erro ao atualizar o limite.")
+                    else: st.error("Erro ao atualizar o limite.")
 
             st.markdown("---")
-
-            # --- Bloco 2: Excluir Cartão ---
             st.warning("⚠️ **Zona de Perigo:** Excluir um cartão apaga as configurações dele.")
             if st.button("🗑️ Excluir Cartão", type="primary"):
                 if excluir_cartao(user_id, cartao_id_ger):
                     st.success("Cartão excluído com sucesso!")
                     st.rerun()
-                else:
-                    st.error("Erro ao excluir o cartão.")
+                else: st.error("Erro ao excluir o cartão.")
         else:
             st.info("Nenhum cartão cadastrado para gerenciar no momento.")
 
@@ -2585,80 +1754,58 @@ elif opcao == "💰 Contas a Receber":
                         usuario_id=usuario_id,
                         descricao=descricao,
                         valor=valor,
-                        data_recebimento=str(data_recebimento),
+                        data_recebimento=data_recebimento.strftime("%Y-%m-%d")
                     )
                     if sucesso:
                         st.success("Conta a receber cadastrada com sucesso!")
                         st.rerun()
+                    else:
+                        st.error("Erro ao cadastrar a conta a receber.")
 
-    st.markdown("---")
+    # 2. LISTAGEM DE REGISTROS
+    contas_receber = buscar_contas_a_receber(usuario_id)
 
-    # 2. FILTROS E EXIBIÇÃO
-    filtro_status = st.radio("Exibir:", ["Pendentes", "Recebidos", "Todos"], horizontal=True)
-    registros = buscar_contas_a_receber(usuario_id, filtro_status)
-
-    total = sum(float(m.get("valor", 0)) for m in registros)
-    
-    try:
-        val_total_fmt = fmt_moeda(total)
-    except NameError:
-        val_total_fmt = f"R$ {total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    if contas_receber:
+        df_rec = pd.DataFrame(contas_receber)
         
-    st.metric(label=f"Total em Exibição ({filtro_status})", value=val_total_fmt)
+        # Métrica Geral
+        total_a_receber = df_rec[~df_rec.get('recebido', False)]['valor'].astype(float).sum() if 'recebido' in df_rec.columns else df_rec['valor'].astype(float).sum()
+        st.metric("Total Pendente a Receber", fmt_moeda(total_a_receber))
+        st.markdown("---")
 
-    if not registros:
-        st.info("Nenhum lançamento encontrado na sua lista de Contas a Receber.")
-    else:
-        for item in registros:
-            recebido = item.get("recebido", False)
-            status_cor = "🟢 Recebido" if recebido else "🔴 Pendente"
-            
-            # Formatação visual da data para BR (AAAA-MM-DD -> DD/MM/AAAA)
-            raw_data = str(item.get("data_recebimento", ""))
+        for item in contas_receber:
+            r_id = item.get("id")
+            r_desc = item.get("descricao", "Sem Descrição")
+            r_valor = float(item.get("valor", 0.0))
+            r_data = item.get("data_recebimento") or item.get("data")
+            r_status = bool(item.get("recebido", False))
+
             try:
-                data_dt = datetime.strptime(raw_data, "%Y-%m-%d")
-                data_fmt = data_dt.strftime("%d/%m/%Y")
+                dt_fmt = pd.to_datetime(r_data).strftime("%d/%m/%Y")
             except Exception:
-                data_fmt = raw_data
+                dt_fmt = str(r_data)
 
             with st.container(border=True):
-                col_info, col_acoes = st.columns([3, 1.2])
+                c_info, c_status, c_acao = st.columns([3, 2, 1])
 
-                with col_info:
-                    val_item = float(item.get("valor", 0))
-                    try:
-                        val_item_fmt = fmt_moeda(val_item)
-                    except NameError:
-                        val_item_fmt = f"R$ {val_item:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                with c_info:
+                    st.markdown(f"**{r_desc}**")
+                    st.caption(f"📅 Previsão: {dt_fmt} | 💵 Valor: **{fmt_moeda(r_valor)}**")
 
-                    st.markdown(f"👤 **{item.get('descricao')}** — **{val_item_fmt}** ({status_cor})")
-                    st.caption(f"📅 Data Prevista: {data_fmt}")
+                with c_status:
+                    if r_status:
+                        st.success("✅ Recebido")
+                    else:
+                        st.warning("⏳ Pendente")
 
-                with col_acoes:
-                    txt_btn = "↩️ Mudar p/ Pendente" if recebido else "✅ Marcar Recebido"
-                    if st.button(txt_btn, key=f"status_rec_{item['id']}", use_container_width=True):
-                        if alternar_status_contas_a_receber(item["id"], recebido):
-                            st.rerun()
+                with c_acao:
+                    label_btn = "↩️ Desfazer" if r_status else "✅ Receber"
+                    if st.button(label_btn, key=f"status_rec_{r_id}", use_container_width=True):
+                        alternar_status_contas_a_receber(r_id, not r_status)
+                        st.rerun()
 
-                    if st.button("🗑️ Excluir", key=f"del_rec_{item['id']}", use_container_width=True):
-                        if excluir_conta_a_receber(usuario_id, item["id"]):
-                            st.rerun()
-
-                # Área de Edição (Alterar valor/data/nome)
-                with st.expander("✏️ Editar dados deste registro"):
-                    with st.form(key=f"form_edit_{item['id']}"):
-                        e_desc = st.text_input("Descrição", value=item.get("descricao", ""))
-                        e_valor = st.number_input("Valor (R$)", value=float(item.get("valor", 0.0)), step=10.0, format="%.2f")
-                        
-                        try:
-                            val_date = datetime.strptime(raw_data, "%Y-%m-%d").date()
-                        except Exception:
-                            val_date = datetime.today().date()
-                            
-                        e_data = st.date_input("Data Prevista", value=val_date, format="DD/MM/YYYY")
-                        
-                        btn_salvar_edit = st.form_submit_button("💾 Salvar Alterações")
-                        if btn_salvar_edit:
-                            if atualizar_conta_a_receber(item["id"], usuario_id, e_desc, e_valor, str(e_data)):
-                                st.success("Registro atualizado com sucesso!")
-                                st.rerun()
+                    if st.button("🗑️ Excluir", key=f"del_rec_{r_id}", use_container_width=True, type="secondary"):
+                        excluir_conta_a_receber(r_id)
+                        st.rerun()
+    else:
+        st.info("Nenhuma conta a receber cadastrada até o momento.")
