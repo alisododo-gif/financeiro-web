@@ -1,13 +1,19 @@
-streamlit
-pandas
+# Framework e Manipulação de Dados
+streamlit>=1.30.0
+pandas>=2.0.0
 pyarrow<25
 openpyxl
-psycopg2-binary
-reportlab
-plotly
-requests
-python-telegram-bot[job-queue]
+
+# Banco de Dados e Integrações
 supabase
 python-dotenv
+psycopg2-binary
+
+# Requisições e Utilitários
+requests
 pytz
-starlette<0.39.0
+python-telegram-bot[job-queue]>=20.0
+
+# Relatórios e Visualização
+plotly
+reportlab
