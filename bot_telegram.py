@@ -113,7 +113,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "👋 Você já está cadastrado no FinanceiroPro!\n\n"
             "• Para lançar: `290.00 teste receber 15/08`\n"
-            "• Para consultar pendentes: Digite /status ou `receber`"
+            "• Para consultar pendentes: Digite /status ou `receber`",
+            parse_mode="Markdown"
         )
         return
 
@@ -208,7 +209,8 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text(
             f"📥 Contas a Receber Pendentes\n"
             f"💰 Total a receber: **R$ {total_pendente:.2f}**\n"
-            f"───────────────"
+            f"───────────────",
+            parse_mode="Markdown"
         )
 
         for item in pendentes:
@@ -302,7 +304,8 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `50,00 Comida Pix` (Lançamento de Pix)\n\n"
             "• `50,00 Comida Crédito` (Lançamento de Crédito)\n\n"
             "• `50,00 Comida Débito` (Lançamento de Débito)\n\n"    
-            "• `Status, Receber ou Pendentes` (Para Consultar os Lançamentos que tem a receber)"
+            "• `Status, Receber ou Pendentes` (Para Consultar os Lançamentos que tem a receber)",
+            parse_mode="Markdown"
         )
         return
 
@@ -502,7 +505,8 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             texto_antigo = query.message.text
             await query.edit_message_text(
                 f"{texto_antigo}\n\n"
-                f"✅ **STATUS ATUALIZADO: PAGO / RECEBIDO!**"
+                f"✅ **STATUS ATUALIZADO: PAGO / RECEBIDO!**",
+                parse_mode="Markdown"
             )
             return
         except Exception as e:
@@ -685,7 +689,7 @@ def main():
 
     fuso_br = pytz.timezone("America/Sao_Paulo")
 
-    # 1º Alerta do dia: 08:00 da manhã
+    # 1º Alerta do dia: 09:00 da manhã
     app.job_queue.run_daily(
         processar_e_enviar_alertas,
         time=time(hour=9, minute=0, tzinfo=fuso_br)
@@ -717,3 +721,7 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_geral))
 
     app.run_polling()
+
+
+if __name__ == "__main__":
+    main()

@@ -529,6 +529,8 @@ with st.sidebar:
             del st.session_state["pagina_atual"]
         st.rerun()
 
+    render_sidebar_footer()
+
 opcao = st.session_state["pagina_atual"]
 
 # --- PAINEL ADMIN SAAS ---
@@ -1408,7 +1410,7 @@ elif opcao == "📅 Próximos Vencimentos":
     vencimentos = buscar_vencimentos_proximos(usuario_atual_id, dias=60)
 
     if not vencimentos:
-        st.info("Nenhum lançamento encontrado no banco de dados.")
+        st.info("Nenum lançamento encontrado no banco de dados.")
     else:
         df_raw = pd.DataFrame(vencimentos)
 

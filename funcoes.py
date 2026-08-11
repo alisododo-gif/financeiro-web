@@ -1,8 +1,7 @@
-import re
-from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+import re
 from dateutil.relativedelta import relativedelta
-import pandas as pd
 import requests
 import streamlit as st
 
@@ -13,6 +12,7 @@ import streamlit as st
 BASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
+
 def obter_sessao_http():
     s = requests.Session()
     s.headers.update({
@@ -22,6 +22,7 @@ def obter_sessao_http():
         "Prefer": "return=representation",
     })
     return s
+
 
 session = obter_sessao_http()
 DEFAULT_TIMEOUT = 5  # Timeout global para evitar travamentos
@@ -34,6 +35,7 @@ def criar_tabelas_se_nao_existirem():
 # =====================================================================
 # --- AJUDANTES DE LIMPEZA CIRÚRGICA DE CACHE ---
 # =====================================================================
+
 
 def limpar_cache_movimentacoes():
     """Invalida apenas as buscas e relatórios de movimentações."""
@@ -81,6 +83,7 @@ def limpar_cache_contas_receber():
 # --- FUNÇÕES DE BUSCA E LEITURA OTIMIZADAS (COM CACHE) ---
 # =====================================================================
 
+
 def _construir_query_data(url_base, mes, ano):
     """Auxiliar para aplicar filtros de data/fatura direto no Supabase."""
     if ano != "Todos":
@@ -123,7 +126,9 @@ def buscar_todas_movimentacoes(usuario_id, mes, ano):
     raw = obter_df_movimentacoes_bruto(usuario_id, mes, ano)
     dados_filtrados = []
     for m in raw:
-        nome_conta = m.get("contas", {}).get("nome") if m.get("contas") else "Conta"
+        nome_conta = (
+            m.get("contas", {}).get("nome") if m.get("contas") else "Conta"
+        )
         dados_filtrados.append([
             m.get("id"),
             m.get("data"),
@@ -155,7 +160,20 @@ def dados_dashboard(usuario_id, mes, ano):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def dados_grafico_mensal(usuario_id, ano):
-    meses_rotulos = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+    meses_rotulos = [
+        "Jan",
+        "Fev",
+        "Mar",
+        "Abr",
+        "Mai",
+        "Jun",
+        "Jul",
+        "Ago",
+        "Set",
+        "Out",
+        "Nov",
+        "Dez",
+    ]
     receitas = [0.0] * 12
     despesas = [0.0] * 12
 
@@ -193,7 +211,9 @@ def dados_grafico_categorias(usuario_id, mes, ano):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def dados_grafico_tags(usuario_id, mes_selecionado, ano_selecionado):
-    raw = obter_df_movimentacoes_bruto(usuario_id, mes_selecionado, ano_selecionado)
+    raw = obter_df_movimentacoes_bruto(
+        usuario_id, mes_selecionado, ano_selecionado
+    )
     agrupado_tags = {}
 
     for m in raw:
@@ -202,11 +222,15 @@ def dados_grafico_tags(usuario_id, mes_selecionado, ano_selecionado):
             continue
 
         valor = float(m.get("valor", 0))
-        tags_lista = [t.strip().lower() for t in str(raw_tags).split(",") if t.strip()]
+        tags_lista = [
+            t.strip().lower() for t in str(raw_tags).split(",") if t.strip()
+        ]
 
         for tag_item in tags_lista:
             tag_formatada = f"#{tag_item.lstrip('#')}"
-            agrupado_tags[tag_formatada] = agrupado_tags.get(tag_formatada, 0.0) + valor
+            agrupado_tags[tag_formatada] = (
+                agrupado_tags.get(tag_formatada, 0.0) + valor
+            )
 
     return list(agrupado_tags.keys()), list(agrupado_tags.values())
 
@@ -245,7 +269,9 @@ def listar_contas(usuario_id):
         url = f"{BASE_URL}/contas?usuario_id=eq.{usuario_id}&select=id,nome,saldo"
         res = session.get(url, timeout=DEFAULT_TIMEOUT)
         if res.status_code == 200 and res.json():
-            return [[c["id"], c["nome"], c.get("saldo", 0.0)] for c in res.json()]
+            return [
+                [c["id"], c["nome"], c.get("saldo", 0.0)] for c in res.json()
+            ]
     except Exception as e:
         print(f"Erro ao listar contas: {e}")
     return []
@@ -257,7 +283,16 @@ def listar_metas(usuario_id):
         url = f"{BASE_URL}/metas?usuario_id=eq.{usuario_id}&select=id,nome_meta,valor_alvo,valor_poupado,prazo"
         res = session.get(url, timeout=DEFAULT_TIMEOUT)
         if res.status_code == 200 and res.json():
-            return [[m["id"], m["nome_meta"], m["valor_alvo"], m["valor_poupado"], m["prazo"]] for m in res.json()]
+            return [
+                [
+                    m["id"],
+                    m["nome_meta"],
+                    m["valor_alvo"],
+                    m["valor_poupado"],
+                    m["prazo"],
+                ]
+                for m in res.json()
+            ]
     except Exception:
         pass
     return []
@@ -327,7 +362,9 @@ def obter_transacoes(usuario_id):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def buscar_vencimentos_proximos(usuario_id, dias=60, dias_atras=90):
-    data_inicio = (datetime.now() - timedelta(days=dias_atras)).strftime("%Y-%m-%d")
+    data_inicio = (datetime.now() - timedelta(days=dias_atras)).strftime(
+        "%Y-%m-%d"
+    )
     data_limite = (datetime.now() + timedelta(days=dias)).strftime("%Y-%m-%d")
 
     url = (
@@ -348,10 +385,14 @@ def buscar_vencimentos_proximos(usuario_id, dias=60, dias_atras=90):
                 cartao_obj = item.get("cartoes")
                 if isinstance(cartao_obj, dict):
                     item["nome_cartao"] = cartao_obj.get("nome_cartao")
-                    item["dia_vencimento_cartao"] = cartao_obj.get("dia_vencimento")
+                    item["dia_vencimento_cartao"] = cartao_obj.get(
+                        "dia_vencimento"
+                    )
                 elif isinstance(cartao_obj, list) and len(cartao_obj) > 0:
                     item["nome_cartao"] = cartao_obj[0].get("nome_cartao")
-                    item["dia_vencimento_cartao"] = cartao_obj[0].get("dia_vencimento")
+                    item["dia_vencimento_cartao"] = cartao_obj[0].get(
+                        "dia_vencimento"
+                    )
             return dados
     except Exception:
         pass
@@ -360,12 +401,15 @@ def buscar_vencimentos_proximos(usuario_id, dias=60, dias_atras=90):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def carregar_dados_iniciais_paralelo(usuario_id, mes, ano):
-    """
-    ⚡ CARREGAMENTO EM PARALELO (MULTI-THREADING)
-    Executa 4 requisições simultâneas para inicializar a aplicação instantaneamente.
+    """⚡ CARREGAMENTO EM PARALELO (MULTI-THREADING)
+
+    Executa 4 requisições simultâneas para inicializar a aplicação
+    instantaneamente.
     """
     with ThreadPoolExecutor(max_workers=4) as executor:
-        f_movs = executor.submit(obter_df_movimentacoes_bruto, usuario_id, mes, ano)
+        f_movs = executor.submit(
+            obter_df_movimentacoes_bruto, usuario_id, mes, ano
+        )
         f_contas = executor.submit(listar_contas, usuario_id)
         f_cartoes = executor.submit(listar_cartoes, usuario_id)
         f_metas = executor.submit(listar_metas, usuario_id)
@@ -382,7 +426,10 @@ def carregar_dados_iniciais_paralelo(usuario_id, mes, ano):
 # --- FUNÇÕES DE ESCRITA, EDIÇÃO E EXCLUSÃO (BATCH + CIRÚRGICO) ---
 # =====================================================================
 
-def cadastrar_cartao(usuario_id, nome, limite, dia_fechamento, dia_vencimento):
+
+def cadastrar_cartao(
+    usuario_id, nome, limite, dia_fechamento, dia_vencimento
+):
     payload = {
         "usuario_id": int(usuario_id),
         "nome_cartao": str(nome),
@@ -390,7 +437,9 @@ def cadastrar_cartao(usuario_id, nome, limite, dia_fechamento, dia_vencimento):
         "dia_fechamento": int(dia_fechamento),
         "dia_vencimento": int(dia_vencimento),
     }
-    res = session.post(f"{BASE_URL}/cartoes", json=payload, timeout=DEFAULT_TIMEOUT)
+    res = session.post(
+        f"{BASE_URL}/cartoes", json=payload, timeout=DEFAULT_TIMEOUT
+    )
     if res.status_code in [200, 201]:
         limpar_cache_cartoes()
         return True
@@ -409,7 +458,9 @@ def excluir_cartao(usuario_id, cartao_id):
 
 def alterar_senha_usuario(usuario_id, nova_senha_hash):
     url = f"{BASE_URL}/usuarios?id=eq.{usuario_id}"
-    res = session.patch(url, json={"senha": nova_senha_hash}, timeout=DEFAULT_TIMEOUT)
+    res = session.patch(
+        url, json={"senha": nova_senha_hash}, timeout=DEFAULT_TIMEOUT
+    )
     return res.status_code in [200, 204]
 
 
@@ -418,9 +469,17 @@ def definir_limite_orcamento(usuario_id, limite):
     res_check = session.get(url_check, timeout=DEFAULT_TIMEOUT)
     if res_check.status_code == 200 and res_check.json():
         oid = res_check.json()[0]["id"]
-        session.patch(f"{BASE_URL}/orcamentos?id=eq.{oid}", json={"limite": limite}, timeout=DEFAULT_TIMEOUT)
+        session.patch(
+            f"{BASE_URL}/orcamentos?id=eq.{oid}",
+            json={"limite": limite},
+            timeout=DEFAULT_TIMEOUT,
+        )
     else:
-        session.post(f"{BASE_URL}/orcamentos", json={"usuario_id": usuario_id, "limite": limite}, timeout=DEFAULT_TIMEOUT)
+        session.post(
+            f"{BASE_URL}/orcamentos",
+            json={"usuario_id": usuario_id, "limite": limite},
+            timeout=DEFAULT_TIMEOUT,
+        )
     limpar_cache_orcamentos()
 
 
@@ -430,7 +489,9 @@ def cadastrar_conta(usuario_id, nome, saldo=0.00):
         "nome": nome,
         "saldo": float(saldo),
     }
-    res = session.post(f"{BASE_URL}/contas", json=payload, timeout=DEFAULT_TIMEOUT)
+    res = session.post(
+        f"{BASE_URL}/contas", json=payload, timeout=DEFAULT_TIMEOUT
+    )
     if res.status_code in [200, 201]:
         limpar_cache_contas()
         return True
@@ -438,7 +499,10 @@ def cadastrar_conta(usuario_id, nome, saldo=0.00):
 
 
 def excluir_conta(usuario_id, conta_id):
-    res = session.delete(f"{BASE_URL}/contas?id=eq.{conta_id}&usuario_id=eq.{usuario_id}", timeout=DEFAULT_TIMEOUT)
+    res = session.delete(
+        f"{BASE_URL}/contas?id=eq.{conta_id}&usuario_id=eq.{usuario_id}",
+        timeout=DEFAULT_TIMEOUT,
+    )
     if res.status_code in [200, 204]:
         limpar_cache_contas()
         return True
@@ -462,7 +526,11 @@ def criar_meta(usuario_id, nome_meta, valor_alvo, prazo):
 
 
 def atualizar_progresso_meta(meta_id, valor_poupado):
-    res = session.patch(f"{BASE_URL}/metas?id=eq.{meta_id}", json={"valor_poupado": valor_poupado}, timeout=DEFAULT_TIMEOUT)
+    res = session.patch(
+        f"{BASE_URL}/metas?id=eq.{meta_id}",
+        json={"valor_poupado": valor_poupado},
+        timeout=DEFAULT_TIMEOUT,
+    )
     if res.status_code in [200, 204]:
         limpar_cache_metas()
 
@@ -482,7 +550,9 @@ def _formatar_tags(tags):
     if isinstance(tags, str):
         tags = tags.split(",")
     if isinstance(tags, (list, tuple)):
-        tags_limpas = [f"#{str(t).strip().lstrip('#')}" for t in tags if str(t).strip()]
+        tags_limpas = [
+            f"#{str(t).strip().lstrip('#')}" for t in tags if str(t).strip()
+        ]
         return ", ".join(tags_limpas) if tags_limpas else None
     return None
 
@@ -502,8 +572,16 @@ def salvar_movimentacao(
     pago=False,
 ):
     url = f"{BASE_URL}/movimentacoes"
-    c_id = int(conta_id) if (conta_id is not None and str(conta_id).isdigit()) else None
-    crt_id = int(cartao_id) if (cartao_id is not None and str(cartao_id).isdigit()) else None
+    c_id = (
+        int(conta_id)
+        if (conta_id is not None and str(conta_id).isdigit())
+        else None
+    )
+    crt_id = (
+        int(cartao_id)
+        if (cartao_id is not None and str(cartao_id).isdigit())
+        else None
+    )
 
     payload = {
         "usuario_id": int(usuario_id),
@@ -515,7 +593,11 @@ def salvar_movimentacao(
         "forma_pagamento": str(forma_pagamento),
         "data": str(data_str),
         "categoria": str(categoria),
-        "mes_fatura": (mes_fatura if str(forma_pagamento).strip().lower() == "cartão de crédito" else None),
+        "mes_fatura": (
+            mes_fatura
+            if str(forma_pagamento).strip().lower() == "cartão de crédito"
+            else None
+        ),
         "tags": _formatar_tags(tags),
         "pago": pago,
     }
@@ -546,8 +628,16 @@ def salvar_movimentacao_parcelada(
     dt_base = datetime.strptime(data_base, "%Y-%m-%d")
     valor_parcela = round(float(valor) / int(parcelas), 2)
 
-    c_id = int(conta_id) if (conta_id is not None and str(conta_id).isdigit()) else None
-    crt_id = int(cartao_id) if (cartao_id is not None and str(cartao_id).isdigit()) else None
+    c_id = (
+        int(conta_id)
+        if (conta_id is not None and str(conta_id).isdigit())
+        else None
+    )
+    crt_id = (
+        int(cartao_id)
+        if (cartao_id is not None and str(cartao_id).isdigit())
+        else None
+    )
     tags_fmt = _formatar_tags(tags)
 
     payloads = []
@@ -560,8 +650,14 @@ def salvar_movimentacao_parcelada(
         desc_parcela = f"{descricao} ({i+1}/{parcelas})"
 
         mes_fatura_calc = None
-        if str(forma_pagamento).strip().lower() == "cartão de crédito" and crt_id and dia_fechamento:
-            mes_fatura_calc = calcular_mes_fatura(data_parcela_str, dia_fechamento)
+        if (
+            str(forma_pagamento).strip().lower() == "cartão de crédito"
+            and crt_id
+            and dia_fechamento
+        ):
+            mes_fatura_calc = calcular_mes_fatura(
+                data_parcela_str, dia_fechamento
+            )
 
         payloads.append({
             "usuario_id": int(usuario_id),
@@ -578,7 +674,9 @@ def salvar_movimentacao_parcelada(
             "pago": False,
         })
 
-    res = session.post(f"{BASE_URL}/movimentacoes", json=payloads, timeout=DEFAULT_TIMEOUT)
+    res = session.post(
+        f"{BASE_URL}/movimentacoes", json=payloads, timeout=DEFAULT_TIMEOUT
+    )
     if res.status_code in [200, 201]:
         limpar_cache_movimentacoes()
         return True
@@ -601,8 +699,16 @@ def salvar_movimentacao_recorrente(
     tags=None,
 ):
     dt_base = datetime.strptime(data_base, "%Y-%m-%d")
-    c_id = int(conta_id) if (conta_id is not None and str(conta_id).isdigit()) else None
-    crt_id = int(cartao_id) if (cartao_id is not None and str(cartao_id).isdigit()) else None
+    c_id = (
+        int(conta_id)
+        if (conta_id is not None and str(conta_id).isdigit())
+        else None
+    )
+    crt_id = (
+        int(cartao_id)
+        if (cartao_id is not None and str(cartao_id).isdigit())
+        else None
+    )
     tags_fmt = _formatar_tags(tags)
 
     payloads = []
@@ -614,8 +720,14 @@ def salvar_movimentacao_recorrente(
         data_recorrente_str = f"{ano}-{mes:02d}-{dia:02d}"
 
         mes_fatura_calc = None
-        if str(forma_pagamento).strip().lower() == "cartão de crédito" and crt_id and dia_fechamento:
-            mes_fatura_calc = calcular_mes_fatura(data_recorrente_str, dia_fechamento)
+        if (
+            str(forma_pagamento).strip().lower() == "cartão de crédito"
+            and crt_id
+            and dia_fechamento
+        ):
+            mes_fatura_calc = calcular_mes_fatura(
+                data_recorrente_str, dia_fechamento
+            )
 
         payloads.append({
             "usuario_id": int(usuario_id),
@@ -632,11 +744,15 @@ def salvar_movimentacao_recorrente(
             "pago": False,
         })
 
-    res = session.post(f"{BASE_URL}/movimentacoes", json=payloads, timeout=DEFAULT_TIMEOUT)
+    res = session.post(
+        f"{BASE_URL}/movimentacoes", json=payloads, timeout=DEFAULT_TIMEOUT
+    )
     if res.status_code in [200, 201]:
         limpar_cache_movimentacoes()
         return True
-    st.error(f"Erro ao salvar lançamentos recorrentes ({res.status_code}): {res.text}")
+    st.error(
+        f"Erro ao salvar lançamentos recorrentes ({res.status_code}): {res.text}"
+    )
     return False
 
 
@@ -779,7 +895,9 @@ def salvar_despesa_cartao(
         for i in range(1, int(parcelas) + 1):
             data_parcela = data_obj + relativedelta(months=i - 1)
             mes_fatura = calcular_mes_fatura(data_parcela, dia_fechamento)
-            desc_final = f"{descricao} ({i}/{parcelas})" if parcelas > 1 else descricao
+            desc_final = (
+                f"{descricao} ({i}/{parcelas})" if parcelas > 1 else descricao
+            )
 
             payloads.append({
                 "usuario_id": int(usuario_id),
@@ -794,7 +912,9 @@ def salvar_despesa_cartao(
                 "pago": False,
             })
 
-        res = session.post(f"{BASE_URL}/movimentacoes", json=payloads, timeout=DEFAULT_TIMEOUT)
+        res = session.post(
+            f"{BASE_URL}/movimentacoes", json=payloads, timeout=DEFAULT_TIMEOUT
+        )
         if res.status_code in [200, 201]:
             limpar_cache_movimentacoes()
             return True
@@ -807,6 +927,7 @@ def salvar_despesa_cartao(
 # =====================================================================
 # --- FUNÇÕES AUXILIARES E DE INTERFACE ---
 # =====================================================================
+
 
 def calcular_mes_fatura(data_transacao_str, dia_fechamento):
     dt = (
@@ -834,12 +955,12 @@ def renderizar_interface_central_downloads(usuario_id, mes, ano, ano_padrao):
     pass
 
 
-def gerar_insights_financeiros(usuario_id, mes_selecionado, ano_selecionado, movimentacoes_raw, metas_raw):
+def gerar_insights_financeiros(
+    usuario_id, mes_selecionado, ano_selecionado, movimentacoes_raw, metas_raw
+):
     insights = []
     if not movimentacoes_raw:
         return insights
-
-    df = pd.DataFrame(movimentacoes_raw)
 
     if mes_selecionado != "Todos" and ano_selecionado != "Todos":
         try:
@@ -850,41 +971,55 @@ def gerar_insights_financeiros(usuario_id, mes_selecionado, ano_selecionado, mov
                 else (f"{mes_int - 1:02d}", str(ano_int))
             )
 
-            prefixo_atual = f"{ano_selecionado}-{mes_selecionado}"
+            prefixo_atual = f"{ano_selecionado}-{mes_int:02d}"
             prefixo_anterior = f"{ano_ant_str}-{mes_ant_str}"
 
-            if "tipo" in df.columns:
-                df_despesas = df[df["tipo"].astype(str).str.lower() == "despesa"].copy()
-            else:
-                df_despesas = pd.DataFrame()
+            cat_atual = {}
+            cat_ant = {}
 
-            if not df_despesas.empty and "data" in df_despesas.columns:
-                df_atual = df_despesas[df_despesas["data"].astype(str).str.startswith(prefixo_atual)]
-                df_ant = df_despesas[df_despesas["data"].astype(str).str.startswith(prefixo_anterior)]
+            for m in movimentacoes_raw:
+                tipo = str(m.get("tipo", "")).lower()
+                data_str = str(m.get("data", ""))
+                if tipo == "despesa":
+                    categoria = m.get("categoria") or "Sem Categoria"
+                    valor = float(m.get("valor") or 0.0)
 
-                if not df_atual.empty and not df_ant.empty:
-                    cat_atual = df_atual.groupby("categoria")["valor"].sum()
-                    cat_ant = df_ant.groupby("categoria")["valor"].sum()
+                    if data_str.startswith(prefixo_atual):
+                        cat_atual[categoria] = (
+                            cat_atual.get(categoria, 0.0) + valor
+                        )
+                    elif data_str.startswith(prefixo_anterior):
+                        cat_ant[categoria] = (
+                            cat_ant.get(categoria, 0.0) + valor
+                        )
 
-                    for cat, v_atual in cat_atual.items():
-                        if cat in cat_ant and cat_ant[cat] > 0:
-                            v_ant = cat_ant[cat]
-                            variacao = ((v_atual - v_ant) / v_ant) * 100
+            for cat, v_atual in cat_atual.items():
+                if cat in cat_ant and cat_ant[cat] > 0:
+                    v_ant = cat_ant[cat]
+                    variacao = ((v_atual - v_ant) / v_ant) * 100
 
-                            if variacao >= 20:
-                                insights.append({
-                                    "tipo": "warning",
-                                    "icone": "⚠️",
-                                    "titulo": f"Aumento em {cat}",
-                                    "texto": f"Seus gastos com **{cat}** aumentaram **{variacao:.0f}%** este mês em relação ao anterior.",
-                                })
-                            elif variacao <= -20:
-                                insights.append({
-                                    "tipo": "success",
-                                    "icone": "🎉",
-                                    "titulo": f"Economia em {cat}",
-                                    "texto": f"Ótimo trabalho! Seus gastos com **{cat}** reduziram **{abs(variacao):.0f}%** este mês.",
-                                })
+                    if variacao >= 20:
+                        insights.append({
+                            "tipo": "warning",
+                            "icone": "⚠️",
+                            "titulo": f"Aumento em {cat}",
+                            "texto": (
+                                f"Seus gastos com **{cat}** aumentaram"
+                                f" **{variacao:.0f}%** este mês em relação ao"
+                                " anterior."
+                            ),
+                        })
+                    elif variacao <= -20:
+                        insights.append({
+                            "tipo": "success",
+                            "icone": "🎉",
+                            "titulo": f"Economia em {cat}",
+                            "texto": (
+                                f"Ótimo trabalho! Seus gastos com **{cat}**"
+                                f" reduziram **{abs(variacao):.0f}%** este"
+                                " mês."
+                            ),
+                        })
         except Exception:
             pass
 
@@ -898,29 +1033,45 @@ def gerar_insights_financeiros(usuario_id, mes_selecionado, ano_selecionado, mov
                         "tipo": "success",
                         "icone": "🎯",
                         "titulo": f"Meta {nome_meta}",
-                        "texto": f"Você já atingiu **{pct:.0f}%** da sua meta **'{nome_meta}'**!",
+                        "texto": (
+                            f"Você já atingiu **{pct:.0f}%** da sua meta"
+                            f" **'{nome_meta}'**!"
+                        ),
                     })
                 elif pct >= 100:
                     insights.append({
                         "tipo": "success",
                         "icone": "🏆",
                         "titulo": "Meta Concluída!",
-                        "texto": f"Parabéns! Você alcançou **100%** do seu objetivo **'{nome_meta}'**!",
+                        "texto": (
+                            "Parabéns! Você alcançou **100%** do seu objetivo"
+                            f" **'{nome_meta}'**!"
+                        ),
                     })
 
-    if "tipo" in df.columns and "valor" in df.columns:
-        tot_rec = df[df["tipo"].astype(str).str.lower() == "receita"]["valor"].sum()
-        tot_desp = df[df["tipo"].astype(str).str.lower() == "despesa"]["valor"].sum()
+    tot_rec = sum(
+        float(m.get("valor") or 0.0)
+        for m in movimentacoes_raw
+        if str(m.get("tipo", "")).lower() == "receita"
+    )
+    tot_desp = sum(
+        float(m.get("valor") or 0.0)
+        for m in movimentacoes_raw
+        if str(m.get("tipo", "")).lower() == "despesa"
+    )
 
-        if tot_rec > 0:
-            pct_comprometido = (tot_desp / tot_rec) * 100
-            if pct_comprometido >= 85:
-                insights.append({
-                    "tipo": "error",
-                    "icone": "🚨",
-                    "titulo": "Alerta de Orçamento",
-                    "texto": f"Suas despesas já comprometeram **{pct_comprometido:.0f}%** da sua receita do período.",
-                })
+    if tot_rec > 0:
+        pct_comprometido = (tot_desp / tot_rec) * 100
+        if pct_comprometido >= 85:
+            insights.append({
+                "tipo": "error",
+                "icone": "🚨",
+                "titulo": "Alerta de Orçamento",
+                "texto": (
+                    "Suas despesas já comprometeram"
+                    f" **{pct_comprometido:.0f}%** da sua receita do período."
+                ),
+            })
 
     return insights
 
@@ -928,6 +1079,7 @@ def gerar_insights_financeiros(usuario_id, mes_selecionado, ano_selecionado, mov
 # =====================================================================
 # --- FUNÇÕES PARA A TABELA 'contas_receber' ---
 # =====================================================================
+
 
 @st.cache_data(ttl=60, show_spinner=False)
 def buscar_contas_a_receber(usuario_id, status_filtro="Todos"):
@@ -965,7 +1117,9 @@ def salvar_conta_a_receber(usuario_id, descricao, valor, data_recebimento):
 def alternar_status_contas_a_receber(mov_id, recebido_atual):
     novo_status = not recebido_atual
     url = f"{BASE_URL}/contas_receber?id=eq.{mov_id}"
-    res = session.patch(url, json={"recebido": novo_status}, timeout=DEFAULT_TIMEOUT)
+    res = session.patch(
+        url, json={"recebido": novo_status}, timeout=DEFAULT_TIMEOUT
+    )
     if res.status_code in [200, 204]:
         limpar_cache_contas_receber()
         return True
@@ -981,7 +1135,9 @@ def excluir_conta_a_receber(usuario_id, mov_id):
     return False
 
 
-def atualizar_conta_a_receber(mov_id, usuario_id, nova_descricao, novo_valor, nova_data):
+def atualizar_conta_a_receber(
+    mov_id, usuario_id, nova_descricao, novo_valor, nova_data
+):
     url = f"{BASE_URL}/contas_receber?id=eq.{mov_id}&usuario_id=eq.{usuario_id}"
     payload = {
         "descricao": str(nova_descricao),

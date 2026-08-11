@@ -17,7 +17,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-bot = Bot(token=TELEGRAM_TOKEN)
+bot_global = Bot(token=TELEGRAM_TOKEN)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Fuso horário oficial do Brasil
@@ -71,6 +71,11 @@ def consultar_view(nome_view: str, filtrar_pago: bool = True):
 async def processar_e_enviar_alertas(param=None):
     """Busca dados nas views (hoje, amanhã, faturas e contas a receber) e envia mensagens."""
     chat_id_solicitante = None
+    
+    # Identifica a instância correta do bot (do contexto da aplicação ou global)
+    bot_instancia = bot_global
+    if hasattr(param, "bot") and param.bot:
+        bot_instancia = param.bot
 
     if isinstance(param, int):
         chat_id_solicitante = param
@@ -90,7 +95,7 @@ async def processar_e_enviar_alertas(param=None):
         logging.info("Nenhum boleto a vencer HOJE.")
         if chat_id_solicitante:
             try:
-                await bot.send_message(
+                await bot_instancia.send_message(
                     chat_id=chat_id_solicitante,
                     text="ℹ️ Nenhum boleto pendente para vencer hoje!"
                 )
@@ -116,7 +121,7 @@ async def processar_e_enviar_alertas(param=None):
             )
 
             try:
-                await bot.send_message(
+                await bot_instancia.send_message(
                     chat_id=telegram_id, text=mensagem, parse_mode="Markdown"
                 )
                 logging.info(
@@ -154,7 +159,7 @@ async def processar_e_enviar_alertas(param=None):
             )
 
             try:
-                await bot.send_message(
+                await bot_instancia.send_message(
                     chat_id=telegram_id, text=mensagem, parse_mode="Markdown"
                 )
                 logging.info(
@@ -189,7 +194,7 @@ async def processar_e_enviar_alertas(param=None):
             )
 
             try:
-                await bot.send_message(
+                await bot_instancia.send_message(
                     chat_id=telegram_id, text=mensagem, parse_mode="Markdown"
                 )
                 logging.info(
@@ -228,7 +233,7 @@ async def processar_e_enviar_alertas(param=None):
             )
 
             try:
-                await bot.send_message(
+                await bot_instancia.send_message(
                     chat_id=telegram_id, text=mensagem, parse_mode="Markdown"
                 )
                 logging.info(
