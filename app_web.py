@@ -1760,86 +1760,107 @@ elif opcao == "💳 Cartões & Faturas":
         else:
             st.info("Nenhum cartão cadastrado para gerenciar no momento.")
 
-# --- TELA: CONTAS A RECEBER ---
+# --- ABA: CONTAS A RECEBER ---
 elif opcao == "💰 Contas a Receber":
     st.title("💰 Contas a Receber")
     st.caption("Gerencie quem te deve e acompanhe os recebimentos previstos.")
 
-    usuario_id = st.session_state["usuario_id"]
+    usuario_atual_id = st.session_state.get("usuario_id")
 
-    # 1. FORMULÁRIO DE CADASTRO
-    with st.expander("➕ Cadastrar Nova Conta a Receber", expanded=False):
-        with st.form("form_novo_recebivel", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                descricao = st.text_input("Descrição / Pessoa que Deve (Ex: João - Empréstimo)")
-                valor = st.number_input("Valor (R$)", min_value=0.01, step=10.0, format="%.2f")
+    # EXPANDER: FORMULÁRIO DE CADASTRO
+    with st.expander("➕ Cadastrar Nova Conta a Receber"):
+        with st.form("form_conta_receber", clear_on_submit=True):
+            col_f1, col_f2 = st.columns(2)
+            devedor = col_f1.text_input("Nome / Devedor *")
+            valor = col_f2.number_input("Valor (R$) *", min_value=0.01, step=10.0, format="%.2f")
+            data_prev = st.date_input("Data de Recebimento", value=pd.to_datetime("today"))
+            btn_salvar = st.form_submit_button("Salvar Conta a Receber", type="primary")
 
-            with col2:
-                data_recebimento = st.date_input("Data Prevista do Recebimento", format="DD/MM/YYYY")
-
-            submitted = st.form_submit_button("💾 Salvar Registro")
-
-            if submitted:
-                if not descricao:
-                    st.error("Por favor, preencha a descrição/nome do devedor.")
+            if btn_salvar:
+                if not devedor.strip():
+                    st.error("Preencha o nome do devedor / descrição.")
                 else:
-                    sucesso = salvar_conta_a_receber(
-                        usuario_id=usuario_id,
-                        descricao=descricao,
-                        valor=valor,
-                        data_recebimento=data_recebimento.strftime("%Y-%m-%d")
-                    )
+                    sucesso = salvar_conta_a_receber(usuario_atual_id, devedor, valor, data_prev)
                     if sucesso:
-                        st.success("Conta a receber cadastrada com sucesso!")
+                        st.success(f"Conta de '{devedor}' salva com sucesso!")
+                        st.cache_data.clear()
                         st.rerun()
-                    else:
-                        st.error("Erro ao cadastrar a conta a receber.")
 
-    # 2. LISTAGEM DE REGISTROS
-    contas_receber = buscar_contas_a_receber(usuario_id)
+    # BUSCA REGISTROS NO SUPABASE
+    registros = buscar_contas_a_receber(usuario_atual_id)
 
-    if contas_receber:
-        df_rec = pd.DataFrame(contas_receber)
-        
-        # Métrica Geral
-        total_a_receber = df_rec[~df_rec.get('recebido', False)]['valor'].astype(float).sum() if 'recebido' in df_rec.columns else df_rec['valor'].astype(float).sum()
-        st.metric("Total Pendente a Receber", fmt_moeda(total_a_receber))
+    if not registros:
+        st.info("Nenhuma conta a receber cadastrada.")
+    else:
+        df_rec = pd.DataFrame(registros)
+
+        # Padronização de colunas
+        if "recebido" not in df_rec.columns:
+            df_rec["recebido"] = False
+        df_rec["recebido"] = df_rec["recebido"].fillna(False).astype(bool)
+
+        # Ajuste de campo de data (Supabase utiliza data_recebimento)
+        col_data = "data_recebimento" if "data_recebimento" in df_rec.columns else "data"
+
+        # CÁLCULO DAS MÉTRICAS (KPIS)
+        df_pendentes = df_rec[df_rec["recebido"] == False]
+        df_recebidos = df_rec[df_rec["recebido"] == True]
+
+        val_pendente = df_pendentes["valor"].sum() if not df_pendentes.empty else 0.0
+        val_recebido = df_recebidos["valor"].sum() if not df_recebidos.empty else 0.0
+        val_total = df_rec["valor"].sum()
+
+        col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
+        col_kpi1.metric("⏳ Total Pendente a Receber", fmt_moeda(val_pendente))
+        col_kpi2.metric("✅ Total Já Recebido", fmt_moeda(val_recebido))
+        col_kpi3.metric("📊 Total Geral", fmt_moeda(val_total))
+
         st.markdown("---")
 
-        for item in contas_receber:
-            r_id = item.get("id")
-            r_desc = item.get("descricao", "Sem Descrição")
-            r_valor = float(item.get("valor", 0.0))
-            r_data = item.get("data_recebimento") or item.get("data")
-            r_status = bool(item.get("recebido", False))
+        # RENDERIZAÇÃO DA LISTA
+        for idx, row in df_rec.iterrows():
+            rec_id = row["id"]
+            devedor_nome = row.get("descricao") or "Sem descrição"
+            valor_fmt = fmt_moeda(row["valor"])
+            
+            # Tratamento da data
+            dt_raw = row.get(col_data)
+            dt_fmt = pd.to_datetime(dt_raw).strftime("%d/%m/%Y") if pd.notna(dt_raw) else "N/A"
+            esta_recebido = row["recebido"]
 
-            try:
-                dt_fmt = pd.to_datetime(r_data).strftime("%d/%m/%Y")
-            except Exception:
-                dt_fmt = str(r_data)
+            col_info, col_status, col_acoes = st.columns([3, 2, 2])
 
-            with st.container(border=True):
-                c_info, c_status, c_acao = st.columns([3, 2, 1])
+            with col_info:
+                st.subheader(devedor_nome)
+                st.caption(f"📅 Previsão: {dt_fmt} | 💵 **Valor: {valor_fmt}**")
 
-                with c_info:
-                    st.markdown(f"**{r_desc}**")
-                    st.caption(f"📅 Previsão: {dt_fmt} | 💵 Valor: **{fmt_moeda(r_valor)}**")
+            with col_status:
+                st.write("")  # Espaçamento
+                if esta_recebido:
+                    st.success("✅ Recebido")
+                else:
+                    st.warning("⏳ Pendente")
 
-                with c_status:
-                    if r_status:
-                        st.success("✅ Recebido")
+            with col_acoes:
+                st.write("")  # Espaçamento
+                col_btn1, col_btn2 = st.columns(2)
+
+                with col_btn1:
+                    if esta_recebido:
+                        if st.button("↩️ Desfazer", key=f"undo_rec_{idx}_{rec_id}"):
+                            alternar_status_contas_a_receber(rec_id, recebido_atual=True)
+                            st.cache_data.clear()
+                            st.rerun()
                     else:
-                        st.warning("⏳ Pendente")
+                        if st.button("✅ Receber", key=f"btn_rec_{idx}_{rec_id}", type="primary"):
+                            alternar_status_contas_a_receber(rec_id, recebido_atual=False)
+                            st.cache_data.clear()
+                            st.rerun()
 
-                with c_acao:
-                    label_btn = "↩️ Desfazer" if r_status else "✅ Receber"
-                    if st.button(label_btn, key=f"status_rec_{r_id}", use_container_width=True):
-                        alternar_status_contas_a_receber(r_id, not r_status)
+                with col_btn2:
+                    if st.button("🗑️ Excluir", key=f"del_rec_{idx}_{rec_id}"):
+                        excluir_conta_a_receber(usuario_atual_id, rec_id)
+                        st.cache_data.clear()
                         st.rerun()
 
-                    if st.button("🗑️ Excluir", key=f"del_rec_{r_id}", use_container_width=True, type="secondary"):
-                        excluir_conta_a_receber(r_id)
-                        st.rerun()
-    else:
-        st.info("Nenhuma conta a receber cadastrada até o momento.")
+            st.divider()
