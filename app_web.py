@@ -1470,7 +1470,7 @@ elif opcao == "📅 Próximos Vencimentos":
 
                 def resolver_datas_fatura(row):
                     cid = normalizar_id(row.get("cartao_id"))
-                    info = mapa_cartoes_info.get(cid, {"vencimento": 13, "fechamento": 6})
+                    info = mapa_cartoes_info.get(cid, {"vencimento": 15, "fechamento": 8})
                     dia_venc, dia_fech = info["vencimento"], info["fechamento"]
 
                     m_fat, a_fat = normalizar_mes_fatura(row.get("mes_fatura"))
@@ -1480,11 +1480,14 @@ elif opcao == "📅 Próximos Vencimentos":
                         dt_compra = pd.to_datetime(row.get("data") or pd.to_datetime("today"))
                         ano, mes, dia_compra = dt_compra.year, dt_compra.month, dt_compra.day
 
-                        if dia_compra >= dia_fech:
-                            mes_fatura = mes + 1 if mes < 12 else 1
-                            ano_fatura = ano if mes < 12 else ano + 1
-                        else:
+                        # CORREÇÃO: Altere a condição conforme a sua regra de negócio.
+                        # Se compras após o dia do fechamento DEVEM ficar no mês atual:
+                        if dia_compra > dia_fech:
                             mes_fatura, ano_fatura = mes, ano
+                        else:
+                            # Caso a compra pertença ao ciclo anterior se for até o dia do fechamento
+                            mes_fatura = mes - 1 if mes > 1 else 12
+                            ano_fatura = ano if mes > 1 else ano - 1
 
                     mes_fat_str = f"{mes_fatura:02d}/{ano_fatura:04d}"
                     max_dias = calendar.monthrange(ano_fatura, mes_fatura)[1]
