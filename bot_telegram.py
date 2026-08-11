@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import urllib.request
 from datetime import datetime, time
 from dateutil.relativedelta import relativedelta
 
@@ -30,6 +31,8 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+STREAMLIT_URL = "https://financeiro-web-2-0.streamlit.app/?uid=1"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 logging.basicConfig(level=logging.INFO)
@@ -663,19 +666,35 @@ async def testar_alertas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await processar_e_enviar_alertas(context)
 
 
+async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        req = urllib.request.Request(
+            STREAMLIT_URL, 
+            headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status == 200:
+                logging.info("🟢 Ping enviado com sucesso para o Streamlit!")
+    except Exception as e:
+        logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
+
+
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    fuso_brasilia = pytz.timezone("America/Sao_Paulo")
-
-    app.job_queue.run_daily(
+    # Dispara a verificação de alertas a cada 5 horas (18000 segundos)
+    app.job_queue.run_repeating(
         processar_e_enviar_alertas,
-        time=time(hour=8, minute=0, second=0, tzinfo=fuso_brasilia),
+        interval=18000,
+        first=10
     )
-    app.job_queue.run_daily(
-        processar_e_enviar_alertas,
-        time=time(hour=14, minute=0, second=0, tzinfo=fuso_brasilia),
+
+    # Dispara o ping para não deixar o Streamlit hibernar (a cada 5 horas)
+    app.job_queue.run_repeating(
+        ping_streamlit,
+        interval=18000,
+        first=15
     )
 
     # Handlers dos comandos
