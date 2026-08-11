@@ -1794,12 +1794,10 @@ elif opcao == "💰 Contas a Receber":
     else:
         df_rec = pd.DataFrame(registros)
 
-        # Padronização de colunas
         if "recebido" not in df_rec.columns:
             df_rec["recebido"] = False
         df_rec["recebido"] = df_rec["recebido"].fillna(False).astype(bool)
 
-        # Ajuste de campo de data (Supabase utiliza data_recebimento)
         col_data = "data_recebimento" if "data_recebimento" in df_rec.columns else "data"
 
         # CÁLCULO DAS MÉTRICAS (KPIS)
@@ -1811,38 +1809,32 @@ elif opcao == "💰 Contas a Receber":
         val_total = df_rec["valor"].sum()
 
         col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
-        col_kpi1.metric("⏳ Total Pendente a Receber", fmt_moeda(val_pendente))
-        col_kpi2.metric("✅ Total Já Recebido", fmt_moeda(val_recebido))
+        col_kpi1.metric("⏳ Total Pendente", fmt_moeda(val_pendente))
+        col_kpi2.metric("✅ Total Recebido", fmt_moeda(val_recebido))
         col_kpi3.metric("📊 Total Geral", fmt_moeda(val_total))
 
         st.markdown("---")
 
-        # RENDERIZAÇÃO DA LISTA
+        # LISTA COM EXPANDER (SETA) PARA CADA ITEM
         for idx, row in df_rec.iterrows():
             rec_id = row["id"]
             devedor_nome = row.get("descricao") or "Sem descrição"
             valor_fmt = fmt_moeda(row["valor"])
             
-            # Tratamento da data
             dt_raw = row.get(col_data)
             dt_fmt = pd.to_datetime(dt_raw).strftime("%d/%m/%Y") if pd.notna(dt_raw) else "N/A"
             esta_recebido = row["recebido"]
 
-            col_info, col_status, col_acoes = st.columns([3, 2, 2])
+            # Ícone e texto do cabeçalho da seta
+            status_icone = "✅" if esta_recebido else "⏳"
+            titulo_expander = f"{status_icone} {devedor_nome} — {valor_fmt} | Previsão: {dt_fmt}"
 
-            with col_info:
-                st.subheader(devedor_nome)
-                st.caption(f"📅 Previsão: {dt_fmt} | 💵 **Valor: {valor_fmt}**")
+            # SETA/EXPANDER QUE ESCONDE AS AÇÕES
+            with st.expander(titulo_expander):
+                st.write(f"**Status:** {'✅ Recebido' if esta_recebido else '⏳ Pendente'}")
+                st.write(f"**Valor:** {valor_fmt}")
+                st.write(f"**Data:** {dt_fmt}")
 
-            with col_status:
-                st.write("")  # Espaçamento
-                if esta_recebido:
-                    st.success("✅ Recebido")
-                else:
-                    st.warning("⏳ Pendente")
-
-            with col_acoes:
-                st.write("")  # Espaçamento
                 col_btn1, col_btn2 = st.columns(2)
 
                 with col_btn1:
@@ -1862,5 +1854,3 @@ elif opcao == "💰 Contas a Receber":
                         excluir_conta_a_receber(usuario_atual_id, rec_id)
                         st.cache_data.clear()
                         st.rerun()
-
-            st.divider()
