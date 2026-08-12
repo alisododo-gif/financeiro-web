@@ -1332,31 +1332,36 @@ elif opcao == "🎯 Orçamentos por Categoria":
                     rest = f"{(limite - gasto_atual):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
                     status = f"🟢 **Dentro do Limite.** Restam R$ {rest}"
 
+                # --- MANTIDO VISÍVEL NA TELA ---
                 st.markdown(f"### 📌 {cat_nome}")
                 st.markdown(f"<p style='font-size: 1rem; margin-bottom: 4px;'><b>Gasto:</b> R$ {gasto_num} de R$ {limite_num}</p>", unsafe_allow_html=True)
                 st.progress(porcentagem)
                 st.caption(status)
 
-                col_e1, col_e2 = st.columns(2)
-                novo_teto = col_e1.number_input("Alterar Limite (R$)", min_value=10.0, value=limite, step=50.0, key=f"edit_{cat_nome}")
+                # --- SETA EXPANSÍVEL PARA ALTERAR/EXCLUIR ---
+                with st.expander("⚙️ Editar ou Excluir Orçamento"):
+                    col_e1, col_e2 = st.columns(2)
+                    novo_teto = col_e1.number_input("Alterar Limite (R$)", min_value=10.0, value=limite, step=50.0, key=f"edit_{cat_nome}")
 
-                if col_e1.button("💾 Salvar Alteração", key=f"btn_save_{cat_nome}"):
-                    if salvar_orcamento_categoria(uid, cat_nome, novo_teto):
-                        st.cache_data.clear()
-                        st.success(f"Limite de {cat_nome} atualizado com sucesso!")
-                        st.rerun()
-                    else:
-                        st.error("Erro ao alterar o limite selecionado.")
+                    if col_e1.button("💾 Salvar Alteração", key=f"btn_save_{cat_nome}"):
+                        if salvar_orcamento_categoria(uid, cat_nome, novo_teto):
+                            st.cache_data.clear()
+                            st.success(f"Limite de {cat_nome} atualizado com sucesso!")
+                            st.rerun()
+                        else:
+                            st.error("Erro ao alterar o limite selecionado.")
 
-                if col_e2.button("🗑️ Excluir Orçamento", key=f"btn_del_{cat_nome}", type="secondary"):
-                    if excluir_orcamento_categoria(uid, cat_nome):
-                        st.cache_data.clear()
-                        st.success(f"Orçamento de {cat_nome} removido com sucesso!")
-                        st.rerun()
-                    else:
-                        st.error("Erro ao excluir o orçamento selecionado.")
+                    if col_e2.button("🗑️ Excluir Orçamento", key=f"btn_del_{cat_nome}", type="secondary"):
+                        if excluir_orcamento_categoria(uid, cat_nome):
+                            st.cache_data.clear()
+                            st.success(f"Orçamento de {cat_nome} removido com sucesso!")
+                            st.rerun()
+                        else:
+                            st.error("Erro ao excluir o orçamento selecionado.")
+
                 st.markdown("---")
 
+            
 # --- ABA: PRÓXIMOS VENCIMENTOS ---
 elif opcao == "📅 Próximos Vencimentos":
     st.title("📅 Próximos Vencimentos e Faturas")
