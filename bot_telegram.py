@@ -114,8 +114,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "👋 Você já está cadastrado no FinanceiroPro!\n\n"
             "• Para lançar despesa: `50.00 Mercado`\n"
-            "• Para lançar receita: `/receita 2500 Salário`\n"
-            "• Para consultar pendentes: Digite /status ou `receber`",
+            "• Para lançar receita: `10 salario receita` ou `/receita 2500 Salário`\n"
+            "• Para consultar pendentes: Digite /status ou `receber`\n"
+            "• Para ver o resumo: Digite `resumo` ou /resumo",
             parse_mode="Markdown"
         )
         return
@@ -178,10 +179,10 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
-# LANÇAR RECEITA / ENTRADA DIRETA
+# LANÇAR RECEITA VIA COMANDO /RECEITA
 # =========================================================
 async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lança uma nova receita/entrada diretamente no Supabase via comando no Telegram."""
+    """Lança uma nova receita/entrada diretamente no Supabase via comando /receita."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -371,7 +372,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         data_final = now.strftime("%Y-%m-%d")
 
-    # 4. Extrai valor e descrição
+    # 4. Extrai valor e descrição (Ex: "10 salario receita")
     pattern = r"^(?:r\$\s*)?([\d.,]+)\s*(?:reais|reias)?\s+(.+)$"
     match = re.match(pattern, texto_sem_tags, re.IGNORECASE)
 
@@ -385,7 +386,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `50,00 Comida Pix` (Despesa via Pix)\n\n"
             "• `50,00 Comida Debíto` (Despesa via Débito)\n\n"
             "• `Pendentes` (Consultar Pendências)\n\n"
-            "• `resumo` (irar fazer um resumo geral)",
+            "• `resumo` (irá fazer um resumo geral)",
             parse_mode="Markdown"
         )
         return
@@ -401,10 +402,12 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =========================================================
     # FLUXO RECEITAS DIRETAS (EX: "10 salario receita")
     # =========================================================
-    e_receita_direta = any(kw in descricao_bruta.lower() for kw in ["receita", "salario", "salário", "prolabore"])
+    palavras_chave_receita = ["receita", "salario", "salário", "prolabore", "entrada"]
+    e_receita_direta = any(kw in descricao_bruta.lower() for kw in palavras_chave_receita)
 
     if e_receita_direta:
-        palavras_remover = r"\b(receita|salario|salário|prolabore)\b"
+        # Remove a palavra reservada (como "receita") mantendo a descrição limpa ("salario")
+        palavras_remover = r"\b(receita|salario|salário|prolabore|entrada)\b"
         descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
         descricao_limpa = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", descricao_limpa)
         
@@ -416,7 +419,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "usuario_id": usuario_id,
             "conta_id": conta_id,
             "cartao_id": None,
-            "descricao": nome_descricao,
+            "descricao": nome_descricao.title(),
             "valor": valor,
             "tipo": "Receita",
             "categoria": categoria_usuario if categoria_usuario else "Receita",
@@ -434,7 +437,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await update.message.reply_text(
                 f"🟢 *Receita Registrada!*\n\n"
-                f"📝 Descrição: {nome_descricao}\n"
+                f"📝 Descrição: {nome_descricao.title()}\n"
                 f"💰 Valor: R$ {valor:.2f}\n"
                 f"📅 Data: {data_br}\n"
                 f"🏷️ Tipo: Entrada / Receita{tag_str}",
@@ -840,6 +843,14 @@ def main():
 
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     app.add_handler(CommandHandler("resumo", enviar_resumo_mensal_telegram))
+
+    # HANDLER PARA A PALAVRA "RESUMO" (SEM BARRA)
+    app.add_handler(
+        MessageHandler(
+            filters.Regex(re.compile(r"^resumo$", re.IGNORECASE)),
+            enviar_resumo_mensal_telegram
+        )
+    )
 
     app.add_handler(MessageHandler(filters.CONTACT, receber_contato))
     app.add_handler(
