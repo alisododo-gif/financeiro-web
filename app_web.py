@@ -391,15 +391,14 @@ usuario_atual_id = st.session_state.get("usuario_id") or st.query_params.get(
     "uid"
 )
 
-# Se NÃO estiver logado, exibe a tela de login
 if not usuario_atual_id:
-    # Define as colunas com base no dispositivo (Mobile vs Desktop)
-    if st.session_state.get("is_mobile", False):
-        _, col_center, _ = st.columns([0.1, 0.8, 0.1])
-    else:
-        _, col_center, _ = st.columns([1, 1.2, 1])
+    # Mantida a sua ternária em uma linha só!
+    _, col_center, _ = (
+        st.columns([0.1, 0.8, 0.1])
+        if st.session_state.get("is_mobile", False)
+        else st.columns([1, 1.2, 1])
+    )
 
-    # Todo o formulário de login DEVE estar indentado dentro do IF
     with col_center:
         with st.container(border=True):
             caminho_logo = obter_caminho_logo()
@@ -409,13 +408,9 @@ if not usuario_atual_id:
                     st.image(caminho_logo, width="stretch")
 
             st.markdown(
-                "<p style='text-align: center; color: #94a3b8; font-size: 12px; margin-top: 5px; margin-bottom: 15px;'>"
-                "Acesse sua conta para gerenciar suas finanças"
-                "</p>",
+                "<p style='text-align: center; color: #94a3b8; font-size: 12px; margin-top: 5px; margin-bottom: 15px;'>Acesse sua conta para gerenciar suas finanças</p>",
                 unsafe_allow_html=True,
             )
-
-            # (Coloque aqui os st.text_input e st.button de login)
 
             tab_login, tab_cadastro = st.tabs(["🔑 Fazer Login", "📝 Criar Nova Conta"])
 
