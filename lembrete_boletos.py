@@ -247,7 +247,7 @@ async def processar_e_enviar_alertas(param=None):
 
 
 async def enviar_resumo_mensal_telegram(update=None, context=None):
-    """Gera e envia o relatório financeiro completo mapeado para o banco do Supabase."""
+    """Gera o relatório financeiro com total de fatura somado e filtros limpos de movimentacoes."""
     bot_instancia = bot_global
     chat_id_solicitante = None
 
@@ -280,28 +280,32 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             telegram_id = u["telegram_id"]
             nome = u.get("usuario") or "Cliente"
 
-            # 1. Consulta Movimentações do Mês (Tabela oficial do seu banco)
+            # 1. Consulta TODAS as Movimentações do Mês
             res_movs = supabase.table("movimentacoes").select("*").eq("usuario_id", uid).eq("mes_fatura", str_mes_fatura).execute()
             movs = res_movs.data or []
 
+            # Cálculos Principais
             tot_rec = sum(float(m.get("valor", 0)) for m in movs if m.get("tipo") == "Receita")
             tot_desp = sum(float(m.get("valor", 0)) for m in movs if m.get("tipo") == "Despesa")
             saldo = tot_rec - tot_desp
 
-            # --- FILTROS COM BASE NAS SUAS TABELAS REALIZADAS ---
+            # --- FILTROS DIRECTOS NA TABELA MOVIMENTACOES ---
 
-            # A) Faturas de Cartão de Crédito
-            faturas = [
+            # A) Faturas de Cartão (Soma todos os itens de cartão em um único total)
+            itens_cartao = [
                 m for m in movs 
                 if str(m.get("forma_pagamento", "")).lower() in ["cartão de crédito", "cartao de credito", "crédito", "credito"]
             ]
+            total_fatura_cartao = sum(float(m.get("valor", 0)) for m in itens_cartao)
+            
+            # Status geral da fatura (Se todos os itens estiverem pagos, marca como pago)
+            fatura_paga = all(m.get("pago", False) for m in itens_cartao) if itens_cartao else False
 
-            # B) Boletos A Pagar (Tudo que foi marcado como Pix/Boleto ou Despesa na movimentacao)
+            # B) Boletos A Pagar (Filtra por forma de pagamento ou palavras na descrição)
             boletos_pagar = [
                 m for m in movs 
                 if "boleto" in str(m.get("forma_pagamento", "")).lower() 
                 or "boleto" in str(m.get("descricao", "")).lower()
-                or "pix" in str(m.get("descricao", "")).lower()
             ]
 
             # C) Gastos Fixos / Recorrentes
@@ -310,27 +314,21 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 if m.get("recorrente") is True 
                 or m.get("fixo") is True 
                 or "recorrente" in str(m.get("descricao", "")).lower() 
-                or "(recorrente)" in str(m.get("descricao", "")).lower()
                 or "fixo" in str(m.get("descricao", "")).lower()
             ]
 
-            # D) Contas a Receber (Tabela oficial contas_receber)
+            # D) Contas a Receber (Boletos de Entrada)
             ultimo_dia = calendar.monthrange(agora_br.year, agora_br.month)[1]
             data_inicio = f"{agora_br.year}-{agora_br.month:02d}-01"
             data_fim = f"{agora_br.year}-{agora_br.month:02d}-{ultimo_dia:02d}"
 
             try:
-                res_rec = supabase.table("contas_receber").select("*").eq("usuario_id", uid).gte("data_vencimento", data_inicio).lte("data_vencimento", data_fim).execute()
+                res_rec = supabase.table("contas_receber").select("*").eq("usuario_id", uid).gte("data_recebimento", data_inicio).lte("data_recebimento", data_fim).execute()
                 boletos_rec = res_rec.data or []
             except Exception:
-                # Caso a coluna de data na tabela 'contas_receber' tenha outro nome (ex: data_recebimento)
-                try:
-                    res_rec = supabase.table("contas_receber").select("*").eq("usuario_id", uid).gte("data_recebimento", data_inicio).lte("data_recebimento", data_fim).execute()
-                    boletos_rec = res_rec.data or []
-                except Exception:
-                    boletos_rec = []
+                boletos_rec = []
 
-            # --- CORPO DA MENSAGEM ---
+            # --- CORPO DA MENSAGEM RESUMIDA ---
             msg = f"📊 *Relatório Financeiro - {str_mes_fatura}*\n"
             msg += f"👤 Cliente: *{nome}*\n\n"
             
@@ -339,17 +337,16 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             msg += f"━━━━━━━━━━━━━━━━━━\n"
             msg += f"🔵 *Saldo:* R$ {formatar_moeda(saldo)}\n\n"
 
-            # 1. Cartões
-            msg += "💳 *FATURAS DE CARTÃO:*\n"
-            if faturas:
-                for f in faturas:
-                    st = "✅ Pago" if f.get("pago") else "⏳ Pendente"
-                    msg += f"• {f.get('descricao')} (R$ {formatar_moeda(f.get('valor'))}) — {st}\n"
+            # 1. VALOR TOTAL DA FATURA (Sem listar item por item)
+            msg += "💳 *FATURA DE CARTÃO:*\n"
+            if itens_cartao:
+                st_fatura = "✅ Pago" if fatura_paga else "⏳ Pendente"
+                msg += f"• *Total da Fatura:* R$ {formatar_moeda(total_fatura_cartao)} — {st_fatura}\n"
             else:
                 msg += "• Nenhuma fatura neste mês.\n"
             msg += "\n"
 
-            # 2. Boletos e Recebimentos
+            # 2. BOLETOS & RECEBIMENTOS
             msg += "📑 *BOLETOS & RECEBIMENTOS:*\n"
             tem_item = False
 
@@ -369,7 +366,7 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 msg += "• Nenhum boleto pendente.\n"
             msg += "\n"
 
-            # 3. Recorrentes
+            # 3. GASTOS FIXOS / RECORRENTES
             msg += "🔄 *GASTOS FIXOS / RECORRENTES:*\n"
             if recorrentes:
                 for rec in recorrentes:
