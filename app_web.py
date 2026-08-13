@@ -62,7 +62,9 @@ from funcoes import (
     alternar_status_contas_a_receber,
     salvar_conta_a_receber,
     buscar_contas_a_receber,
-    atualizar_conta_a_receber
+    atualizar_conta_a_receber,
+    buscar_sessoes_usuarios_admin,
+    atualizar_sessao_usuario
 )
 
 from views import render_sidebar_footer
@@ -552,7 +554,12 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
         col_fat2.metric("⏳ Pendentes", len(df_users[df_users['status'] == 'pendente']))
 
     st.markdown("---")
-    adm_tab1, adm_tab2, adm_tab3 = st.tabs(["⏳ Liberar Cadastros", "➕ Criar Cliente Manual", "👥 Gerenciar Clientes"])
+    adm_tab1, adm_tab2, adm_tab3, adm_tab4 = st.tabs([
+        "⏳ Liberar Cadastros", 
+        "➕ Criar Cliente Manual", 
+        "👥 Gerenciar Clientes", 
+        "📡 Monitorar Acessos"
+    ])
     
     with adm_tab1:
         st.write("### 🔑 Clientes aguardando liberação")
@@ -641,6 +648,53 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                                 if excluir_usuario_admin(row['id']):
                                     st.success("Usuário deletado!")
                                     st.rerun()
+
+    with adm_tab4:
+        st.write("### 📡 Sessões e Uso em Tempo Real")
+        sessoes_raw = buscar_sessoes_usuarios_admin()
+
+        if sessoes_raw:
+            import pytz
+            fuso_br = pytz.timezone("America/Sao_Paulo")
+            agora = datetime.now(fuso_br)
+            dados_painel = []
+
+            for record in sessoes_raw:
+                user_info = record.get("usuarios") or {}
+                nome_cliente = user_info.get("usuario", "Desconhecido")
+
+                try:
+                    dt_inicio = datetime.fromisoformat(record["inicio_sessao"].replace("Z", "+00:00")).astimezone(fuso_br)
+                    dt_ultima = datetime.fromisoformat(record["ultima_atividade"].replace("Z", "+00:00")).astimezone(fuso_br)
+                    
+                    duracao_min = max(0, int((dt_ultima - dt_inicio).total_seconds() / 60))
+                    tempo_sem_interacao = (agora - dt_ultima).total_seconds() / 60
+                    
+                    is_online = "🟢 Online" if tempo_sem_interacao <= 5 else "🔴 Offline"
+
+                    dados_painel.append({
+                        "Cliente": nome_cliente,
+                        "Status": is_online,
+                        "Tempo de Uso": f"{duracao_min} min",
+                        "Última Atividade": dt_ultima.strftime("%d/%m/%Y %H:%M:%S"),
+                        "Início da Sessão": dt_inicio.strftime("%d/%m/%Y %H:%M:%S")
+                    })
+                except Exception:
+                    continue
+
+            if dados_painel:
+                df_sessoes = pd.DataFrame(dados_painel)
+                tot_online = sum(1 for d in dados_painel if "🟢" in d["Status"])
+
+                col_s1, col_s2 = st.columns(2)
+                col_s1.metric("🟢 Clientes Online Agora", tot_online)
+                col_s2.metric("📊 Total de Sessões", len(df_sessoes))
+
+                st.dataframe(df_sessoes, use_container_width=True)
+            else:
+                st.info("Nenhum dado de sessão formatado com sucesso.")
+        else:
+            st.info("Nenhuma sessão registrada no momento.")
 
 # --- ABA 1: DASHBOARD ---
 elif opcao == "📊 Dashboard":
