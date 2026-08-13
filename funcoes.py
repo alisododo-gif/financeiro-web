@@ -781,7 +781,7 @@ def excluir_usuario_admin(usuario_id):
     url = f"{BASE_URL}/usuarios?id=eq.{usuario_id}"
     res = session.delete(url, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        listar_todos_usuarios_admin.clear()
+        # ❌ Removido: listar_todos_usuarios_admin.clear()
         return True
     return False
 
@@ -794,7 +794,7 @@ def atualizar_status_e_mensalidade(usuario_id, novo_status, novo_valor_mensalida
     }
     res = session.patch(url, json=payload, timeout=DEFAULT_TIMEOUT)
     if res.status_code in [200, 204]:
-        listar_todos_usuarios_admin.clear()
+        # ❌ Removido: listar_todos_usuarios_admin.clear()
         return True
     return False
 
