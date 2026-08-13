@@ -4,6 +4,7 @@ import re
 from dateutil.relativedelta import relativedelta
 import requests
 import streamlit as st
+import calendar
 
 # =====================================================================
 # --- CONFIGURAÇÃO E CONEXÃO OTIMIZADA (SESSION POOLING) ---
@@ -31,44 +32,72 @@ DEFAULT_TIMEOUT = 5  # Timeout global para evitar travamentos
 def criar_tabelas_se_nao_existirem():
     pass
 
-def buscar_movimentacoes_paginadas(usuario_id, data_inicio, data_fim, pagina=1, itens_por_pagina=20):
-    """
-    Busca movimentações no Supabase utilizando paginação server-side via REST API.
+def buscar_movimentacoes_paginadas(
+    usuario_id, mes="Todos", ano="Todos", pagina=1, itens_por_pagina=20
+):
+    """Busca movimentações no Supabase utilizando paginação server-side via REST
+
+    API com suporte aos filtros de Mês e Ano.
     """
     offset_inicio = (pagina - 1) * itens_por_pagina
     offset_fim = offset_inicio + itens_por_pagina - 1
 
-    # Define a URL de consulta das movimentações
-    url = f"{BASE_URL}/rest/v1/movimentacoes"
-    
-    # Parâmetros de filtro e ordenação
-    params = {
-        "usuario_id": f"eq.{usuario_id}",
-        "data": f"gte.{data_inicio}",
-        "data": f"lte.{data_fim}",
-        "order": "data.desc"
-    }
+    url = f"{BASE_URL}/movimentacoes"
 
-    # Cabeçalhos com paginação e contagem total de registros
-    headers = {
-        "Range": f"{offset_inicio}-{offset_fim}",
-        "Prefer": "count=exact"
-    }
+    # Usamos lista de tuplas para evitar a sobrescrita de chaves duplicadas (ex: "data")
+    params = [
+        ("usuario_id", f"eq.{usuario_id}"),
+        ("select", "*,contas(nome)"),
+        ("order", "data.desc"),
+    ]
+
+    # --- Aplicação dos Filtros de Data ---
+    if ano != "Todos":
+        ano_int = int(ano)
+        if mes != "Todos":
+            mes_int = int(mes)
+            _, ultimo_dia = calendar.monthrange(ano_int, mes_int)
+
+            dt_inicio = f"{ano_int:04d}-{mes_int:02d}-01"
+            dt_fim = f"{ano_int:04d}-{mes_int:02d}-{ultimo_dia:02d}"
+
+            params.append(("data", f"gte.{dt_inicio}"))
+            params.append(("data", f"lte.{dt_fim}"))
+        else:
+            params.append(("data", f"gte.{ano_int:04d}-01-01"))
+            params.append(("data", f"lte.{ano_int:04d}-12-31"))
+    elif mes != "Todos":
+        # Se selecionou o mês mas deixou o ano como 'Todos', assume o ano atual
+        ano_atual = datetime.now().year
+        mes_int = int(mes)
+        _, ultimo_dia = calendar.monthrange(ano_atual, mes_int)
+
+        dt_inicio = f"{ano_atual:04d}-{mes_int:02d}-01"
+        dt_fim = f"{ano_atual:04d}-{mes_int:02d}-{ultimo_dia:02d}"
+
+        params.append(("data", f"gte.{dt_inicio}"))
+        params.append(("data", f"lte.{dt_fim}"))
+
+    # Cabeçalhos com intervalo da página e solicitação da contagem exata
+    headers = {"Range": f"{offset_inicio}-{offset_fim}", "Prefer": "count=exact"}
 
     try:
-        # Usa a sessão HTTP configurada no seu funcoes.py
-        response = session.get(url, params=params, headers=headers, timeout=DEFAULT_TIMEOUT)
-        
-        if response.status_code in [200, 206]:  # 206 Partial Content é retornado com Range
+        response = session.get(
+            url, params=params, headers=headers, timeout=DEFAULT_TIMEOUT
+        )
+
+        if response.status_code in [200, 206]:
             dados = response.json()
-            
-            # O Supabase devolve o total no cabeçalho Content-Range (Ex: "0-19/150")
+
+            # Extrai o total de registros do cabeçalho 'Content-Range' (ex: "0-19/150")
             content_range = response.headers.get("Content-Range", "")
             total_registros = 0
             if "/" in content_range:
                 total_registros = int(content_range.split("/")[1])
-            
-            total_paginas = (total_registros + itens_por_pagina - 1) // itens_por_pagina
+
+            total_paginas = (
+                total_registros + itens_por_pagina - 1
+            ) // itens_por_pagina
             return dados, total_registros, max(1, total_paginas)
         else:
             print(f"Erro na requisição: Status {response.status_code}")
