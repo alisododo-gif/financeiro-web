@@ -391,7 +391,7 @@ usuario_atual_id = st.session_state.get("usuario_id") or st.query_params.get("ui
 
 if not usuario_atual_id:
     _, col_center, _ = st.columns([0.1, 0.8, 0.1]) if st.session_state.get('is_mobile', False) else st.columns([1, 1.2, 1])
-
+col_left, col_center, col_right = st.columns([1, 2, 1])
 with col_center:
     with st.container(border=True):
         caminho_logo = obter_caminho_logo()
