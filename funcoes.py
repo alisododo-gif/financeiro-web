@@ -35,76 +35,99 @@ def criar_tabelas_se_nao_existirem():
 def buscar_movimentacoes_paginadas(
     usuario_id, mes="Todos", ano="Todos", pagina=1, itens_por_pagina=20
 ):
-    """Busca movimentações no Supabase utilizando paginação server-side via REST
-
-    API com suporte aos filtros de Mês e Ano.
-    """
+    """Busca movimentações no Supabase com paginação server-side e filtros de data."""
     offset_inicio = (pagina - 1) * itens_por_pagina
     offset_fim = offset_inicio + itens_por_pagina - 1
 
-    url = f"{BASE_URL}/movimentacoes"
+    # Rota correta do PostgREST no Supabase
+    url = f"{BASE_URL}/rest/v1/movimentacoes"
 
-    # Usamos lista de tuplas para evitar a sobrescrita de chaves duplicadas (ex: "data")
     params = [
         ("usuario_id", f"eq.{usuario_id}"),
         ("select", "*,contas(nome)"),
         ("order", "data.desc"),
     ]
 
-    # --- Aplicação dos Filtros de Data ---
-    if ano != "Todos":
-        ano_int = int(ano)
-        if mes != "Todos":
-            mes_int = int(mes)
-            _, ultimo_dia = calendar.monthrange(ano_int, mes_int)
-
-            dt_inicio = f"{ano_int:04d}-{mes_int:02d}-01"
-            dt_fim = f"{ano_int:04d}-{mes_int:02d}-{ultimo_dia:02d}"
-
-            params.append(("data", f"gte.{dt_inicio}"))
-            params.append(("data", f"lte.{dt_fim}"))
-        else:
-            params.append(("data", f"gte.{ano_int:04d}-01-01"))
-            params.append(("data", f"lte.{ano_int:04d}-12-31"))
-    elif mes != "Todos":
-        # Se selecionou o mês mas deixou o ano como 'Todos', assume o ano atual
-        ano_atual = datetime.now().year
-        mes_int = int(mes)
-        _, ultimo_dia = calendar.monthrange(ano_atual, mes_int)
-
-        dt_inicio = f"{ano_atual:04d}-{mes_int:02d}-01"
-        dt_fim = f"{ano_atual:04d}-{mes_int:02d}-{ultimo_dia:02d}"
-
-        params.append(("data", f"gte.{dt_inicio}"))
-        params.append(("data", f"lte.{dt_fim}"))
-
-    # Cabeçalhos com intervalo da página e solicitação da contagem exata
-    headers = {"Range": f"{offset_inicio}-{offset_fim}", "Prefer": "count=exact"}
+    # Mapeamento de nomes de meses para inteiros
+    mapa_meses = {
+        "Janeiro": 1,
+        "Fevereiro": 2,
+        "Março": 3,
+        "Abril": 4,
+        "Maio": 5,
+        "Junho": 6,
+        "Julho": 7,
+        "Agosto": 8,
+        "Setembro": 9,
+        "Outubro": 10,
+        "Novembro": 11,
+        "Dezembro": 12,
+    }
 
     try:
+        # Normalização do filtro de Mês
+        mes_num = None
+        if mes != "Todos":
+            if isinstance(mes, str) and mes in mapa_meses:
+                mes_num = mapa_meses[mes]
+            else:
+                mes_num = int(mes)
+
+        # Normalização do filtro de Ano
+        ano_num = None
+        if ano != "Todos":
+            ano_num = int(ano)
+
+        # Aplicação das regras de data
+        if ano_num and mes_num:
+            _, ultimo_dia = calendar.monthrange(ano_num, mes_num)
+            params.append(
+                ("data", f"gte.{ano_num:04d}-{mes_num:02d}-01")
+            )
+            params.append(
+                ("data", f"lte.{ano_num:04d}-{mes_num:02d}-{ultimo_dia:02d}")
+            )
+        elif ano_num:
+            params.append(("data", f"gte.{ano_num:04d}-01-01"))
+            params.append(("data", f"lte.{ano_num:04d}-12-31"))
+        elif mes_num:
+            ano_atual = datetime.now().year
+            _, ultimo_dia = calendar.monthrange(ano_atual, mes_num)
+            params.append(
+                ("data", f"gte.{ano_atual:04d}-{mes_num:02d}-01")
+            )
+            params.append(
+                ("data", f"lte.{ano_atual:04d}-{mes_num:02d}-{ultimo_dia:02d}")
+            )
+
+        headers = {
+            "Range": f"{offset_inicio}-{offset_fim}",
+            "Prefer": "count=exact",
+        }
+
         response = session.get(
             url, params=params, headers=headers, timeout=DEFAULT_TIMEOUT
         )
 
         if response.status_code in [200, 206]:
             dados = response.json()
-
-            # Extrai o total de registros do cabeçalho 'Content-Range' (ex: "0-19/150")
             content_range = response.headers.get("Content-Range", "")
-            total_registros = 0
-            if "/" in content_range:
-                total_registros = int(content_range.split("/")[1])
-
+            total_registros = (
+                int(content_range.split("/")[1])
+                if "/" in content_range
+                else len(dados)
+            )
             total_paginas = (
                 total_registros + itens_por_pagina - 1
             ) // itens_por_pagina
+
             return dados, total_registros, max(1, total_paginas)
-        else:
-            print(f"Erro na requisição: Status {response.status_code}")
-            return [], 0, 1
+
+        print(f"Erro Supabase: {response.status_code} - {response.text}")
+        return [], 0, 1
 
     except Exception as e:
-        print(f"Erro ao buscar movimentações paginadas: {e}")
+        print(f"Erro ao buscar movimentações: {e}")
         return [], 0, 1
 
 # =====================================================================
