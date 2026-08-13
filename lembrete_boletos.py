@@ -260,7 +260,7 @@ def formatar_data_br(data_str):
 
 
 async def enviar_resumo_mensal_telegram(update=None, context=None):
-    """Gera o relatório financeiro agrupando Pix, Débito, Faturas e Boletos via View do Supabase."""
+    """Gera o relatório financeiro agrupando corretamente Pix, Débito e Boletos."""
     bot_instancia = bot_global
     chat_id_solicitante = None
 
@@ -318,41 +318,104 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 logging.warning(f"Erro ao consultar cartões: {e_c}")
                 mapa_cartoes = {}
 
-            # 2. Busca movimentações categorizadas na View
-            res_movs = (
-                supabase.table("vw_lancamentos_categorizados")
+            # 2. Busca movimentações do mês
+            res_movs_fatura = (
+                supabase.table("movimentacoes")
                 .select("*")
                 .eq("usuario_id", uid)
-                .or_(f"mes_fatura.eq.{str_mes_fatura},data.like.{prefixo_data_mes}%")
+                .eq("mes_fatura", str_mes_fatura)
                 .execute()
             )
-            movs = sorted(res_movs.data or [], key=lambda x: str(x.get("data", "")))
+            res_movs_data = (
+                supabase.table("movimentacoes")
+                .select("*")
+                .eq("usuario_id", uid)
+                .like("data", f"{prefixo_data_mes}%")
+                .execute()
+            )
 
-            # --- SEPARAÇÃO DAS CATEGORIAS (Via View SQL) ---
+            todos_movs_dict = {
+                m["id"]: m for m in (res_movs_fatura.data or []) + (res_movs_data.data or [])
+            }
+            movs = sorted(todos_movs_dict.values(), key=lambda x: str(x.get("data", "")))
+
+            # --- IDENTIFICAÇÃO DAS CATEGORIAS ---
+
+            # A) RECEITAS / ENTRADAS
             receitas = [m for m in movs if m.get("tipo") == "Receita"]
-            despesas = [m for m in movs if m.get("tipo") != "Receita"]
+            ids_receitas = {m["id"] for m in receitas}
+
+            # B) IDENTIFICAÇÃO DE CARTÃO DE CRÉDITO
+            def eh_cartao(m):
+                desc = str(m.get("descricao", "")).lower()
+                forma = str(m.get("forma_pagamento", "")).lower()
+                return (
+                    m.get("cartao_id") is not None
+                    or "cartão" in desc
+                    or "cartao" in desc
+                    or "fatura" in desc
+                    or "anuidade" in desc
+                    or forma in ["cartão de crédito", "cartao de credito", "crédito", "credito"]
+                )
+
+            # C) RECORRENTES / GASTOS FIXOS
+            def eh_recorrente(m):
+                desc = str(m.get("descricao", "")).lower()
+                tags = str(m.get("tags", "")).lower()
+                return (
+                    "recorren" in desc
+                    or "fixo" in desc
+                    or "recorren" in tags
+                    or m.get("recorrente") is True
+                    or m.get("fixo") is True
+                )
+
+            todos_itens_cartao = [m for m in movs if m["id"] not in ids_receitas and eh_cartao(m)]
+            ids_todos_cartao = {m["id"] for m in todos_itens_cartao}
+
+            recorrentes = [
+                m for m in movs
+                if m["id"] not in ids_receitas
+                and m["id"] not in ids_todos_cartao
+                and eh_recorrente(m)
+            ]
+            ids_recorrentes = {m["id"] for m in recorrentes}
+
+            # D) PIX / DÉBITO / Á VISTA
+            def eh_pix_debito(m):
+                forma = str(m.get("forma_pagamento", "")).lower()
+                desc = str(m.get("descricao", "")).lower()
+                return (
+                    forma in ["pix", "débito", "debito", "dinheiro", "à vista", "a vista"]
+                    or "pix" in desc
+                    or "débito" in desc
+                    or "debito" in desc
+                )
 
             pix_debito = [
-                m for m in despesas 
-                if m.get("tipo_classificado") == "pix_debito" 
+                m for m in movs
+                if m["id"] not in ids_receitas
+                and m["id"] not in ids_todos_cartao
+                and m["id"] not in ids_recorrentes
+                and eh_pix_debito(m)
                 and str(m.get("data", "")).startswith(prefixo_data_mes)
             ]
-            
-            recorrentes = [
-                m for m in despesas 
-                if m.get("tipo_classificado") == "recorrente"
-            ]
-            
-            itens_cartao_mes_atual = [
-                m for m in despesas 
-                if m.get("tipo_classificado") == "cartao" 
-                and m.get("mes_fatura") == str_mes_fatura
-            ]
-            
+            ids_pix_debito = {m["id"] for m in pix_debito}
+
+            # E) BOLETOS & CONTAS A PAGAR (O restante das despesas do mês)
             boletos_pagar = [
-                m for m in despesas 
-                if m.get("tipo_classificado") == "outros" 
+                m for m in movs
+                if m["id"] not in ids_receitas
+                and m["id"] not in ids_todos_cartao
+                and m["id"] not in ids_recorrentes
+                and m["id"] not in ids_pix_debito
                 and str(m.get("data", "")).startswith(prefixo_data_mes)
+            ]
+
+            # Cartão restrito estritamente ao mês da fatura atual
+            itens_cartao_mes_atual = [
+                m for m in todos_itens_cartao
+                if m.get("mes_fatura") == str_mes_fatura
             ]
 
             # AGRUPANDO FATURAS POR CARTÃO
