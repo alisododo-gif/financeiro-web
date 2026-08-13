@@ -245,13 +245,20 @@ async def processar_e_enviar_alertas(param=None):
                 )
 
 
-if __name__ == "__main__":
-    asyncio.run(processar_e_enviar_alertas())
-async def enviar_resumo_mensal_telegram(param=None):
-    """Gera e envia o resumo completo do mês anterior para todos os usuários."""
+async def enviar_resumo_mensal_telegram(update=None, context=None):
+    """Gera e envia o resumo completo do mês anterior para os usuários."""
+    
+    # Descobre a instância do bot e quem solicitou
     bot_instancia = bot_global
-    if hasattr(param, "bot") and param.bot:
-        bot_instancia = param.bot
+    chat_id_solicitante = None
+
+    if context and hasattr(context, "bot"):
+        bot_instancia = context.bot
+    elif hasattr(update, "bot"):
+        bot_instancia = update.bot
+
+    if update and hasattr(update, "effective_chat") and update.effective_chat:
+        chat_id_solicitante = update.effective_chat.id
 
     agora_br = datetime.now(FUSO_BR)
     
@@ -264,9 +271,18 @@ async def enviar_resumo_mensal_telegram(param=None):
     str_mes_fatura = f"{mes_ref:02d}/{ano_ref}"
 
     try:
-        # Busca todos os usuários cadastrados com ID do Telegram
-        res_users = supabase.table("usuarios").select("id, usuario, telegram_id").not_.is_("telegram_id", "null").execute()
+        # Se veio de um comando no chat (/resumo), envia só para o usuário que pediu
+        if chat_id_solicitante:
+            res_users = supabase.table("usuarios").select("id, usuario, telegram_id").eq("telegram_id", chat_id_solicitante).execute()
+        else:
+            # Se for execução automática, busca todos os usuários
+            res_users = supabase.table("usuarios").select("id, usuario, telegram_id").not_.is_("telegram_id", "null").execute()
+            
         usuarios = res_users.data or []
+
+        if not usuarios and chat_id_solicitante:
+            await bot_instancia.send_message(chat_id=chat_id_solicitante, text="⚠️ Conta não encontrada no sistema.")
+            return
 
         for u in usuarios:
             uid = u["id"]
