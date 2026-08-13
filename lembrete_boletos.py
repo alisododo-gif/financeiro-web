@@ -260,7 +260,7 @@ def formatar_data_br(data_str):
 
 
 async def enviar_resumo_mensal_telegram(update=None, context=None):
-    """Gera o relatório mensal com separação estrita de cartão (apenas mês atual) e limpeza em boletos."""
+    """Gera o relatório financeiro removendo a indicação de status pendente nas receitas."""
     bot_instancia = bot_global
     chat_id_solicitante = None
 
@@ -339,13 +339,13 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             }
             movs = sorted(todos_movs_dict.values(), key=lambda x: str(x.get("data", "")))
 
-            # --- IDENTIFICAÇÃO RIGOROSA DAS CATEGORIAS ---
+            # --- IDENTIFICAÇÃO DAS CATEGORIAS ---
 
             # A) RECEITAS / ENTRADAS
             receitas = [m for m in movs if m.get("tipo") == "Receita"]
             ids_receitas = {m["id"] for m in receitas}
 
-            # B) IDENTIFICAÇÃO DE CARTÃO DE CRÉDITO (Todas as compras/faturas)
+            # B) IDENTIFICAÇÃO DE CARTÃO DE CRÉDITO
             def eh_cartao(m):
                 desc = str(m.get("descricao", "")).lower()
                 forma = str(m.get("forma_pagamento", "")).lower()
@@ -370,7 +370,6 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                     or m.get("fixo") is True
                 )
 
-            # Separa os lançamentos de Cartão e Recorrentes
             todos_itens_cartao = [m for m in movs if m["id"] not in ids_receitas and eh_cartao(m)]
             ids_todos_cartao = {m["id"] for m in todos_itens_cartao}
 
@@ -382,7 +381,7 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             ]
             ids_recorrentes = {m["id"] for m in recorrentes}
 
-            # FILTRAGEM STRICT DE CARTÃO: Somente os pertencentes EXATAMENTE a mes_fatura atual (ex: 08/2026)
+            # Cartão restrito estritamente ao mês da fatura atual
             itens_cartao_mes_atual = [
                 m for m in todos_itens_cartao
                 if m.get("mes_fatura") == str_mes_fatura
@@ -420,7 +419,7 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 if not pago:
                     faturas_agrupadas[chave]["pago"] = False
 
-            # D) BOLETOS & CONTAS A PAGAR (Apenas despesas puras do mês que NÃO sejam cartão nem recorrentes)
+            # D) BOLETOS & CONTAS A PAGAR
             boletos_pagar = [
                 m for m in movs
                 if m["id"] not in ids_receitas
@@ -447,8 +446,8 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             except Exception:
                 boletos_rec = []
 
-            # Recálculo preciso do resumo
-            tot_rec = sum(float(m.get("valor", 0)) for m in receitas)
+            # CÁLCULO DOS TOTAIS
+            tot_rec = sum(float(m.get("valor", 0)) for m in receitas) + sum(float(br.get("valor", 0)) for br in boletos_rec)
             tot_cartoes = sum(info["total"] for info in faturas_agrupadas.values())
             tot_boletos = sum(float(m.get("valor", 0)) for m in boletos_pagar)
             tot_recorrentes = sum(float(m.get("valor", 0)) for m in recorrentes)
@@ -465,17 +464,15 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             msg += f"━━━━━━━━━━━━━━━━━━\n"
             msg += f"🔵 *Saldo:* R$ {formatar_moeda(saldo)}\n\n"
 
-            # 1. RECEITAS / ENTRADAS
+            # 1. RECEITAS / ENTRADAS (Sem indicação de pendente/pago)
             msg += "💵 *RECEITAS / ENTRADAS:*\n"
             if receitas or boletos_rec:
                 for r in receitas:
                     dt = formatar_data_br(r.get("data"))
-                    st = "✅ Recebido" if r.get("pago") else "⏳ Pendente"
-                    msg += f"• `{dt}` — {r.get('descricao')} | R$ {formatar_moeda(r.get('valor'))} — {st}\n"
+                    msg += f"• `{dt}` — {r.get('descricao')} | R$ {formatar_moeda(r.get('valor'))}\n"
                 for br in boletos_rec:
                     dt = formatar_data_br(br.get("data_recebimento"))
-                    st = "✅ Recebido" if br.get("recebido") or br.get("pago") else "⏳ Pendente"
-                    msg += f"• `{dt}` — {br.get('descricao')} | R$ {formatar_moeda(br.get('valor'))} — {st}\n"
+                    msg += f"• `{dt}` — {br.get('descricao')} | R$ {formatar_moeda(br.get('valor'))}\n"
             else:
                 msg += "• Nenhuma receita neste mês.\n"
             msg += "\n"
