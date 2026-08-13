@@ -1142,6 +1142,9 @@ elif opcao == "💸 Lançar Movimentações":
 elif opcao == "📋 Extrato Detalhado":
     st.title("📋 Extrato Detalhado de Transações")
 
+    # Importa BASE_URL e session diretamente do funcoes.py
+    from funcoes import BASE_URL, session
+
     # 1. Teste de busca SEM NENHUM FILTRO DE DATA
     url_teste = f"{BASE_URL}/movimentacoes"
     params_teste = [
@@ -1151,22 +1154,27 @@ elif opcao == "📋 Extrato Detalhado":
         ("limit", "10")
     ]
     
-    res = session.get(url_teste, params=params_teste, timeout=5)
-    
-    st.write("---")
-    st.write("### 🔍 Diagnóstico da Conexão:")
-    st.write(f"**Usuario ID:** `{st.session_state.get('usuario_id')}`")
-    st.write(f"**Status da Requisição:** `{res.status_code}`")
-    
-    if res.status_code == 200:
-        dados_teste = res.json()
-        st.success(f"Conexão OK! Retornou {len(dados_teste)} registros sem filtros.")
-        if dados_teste:
-            st.json(dados_teste[:2]) # Exibe os 2 primeiros registros para ver a estrutura da data
+    try:
+        res = session.get(url_teste, params=params_teste, timeout=5)
+        
+        st.write("---")
+        st.write("### 🔍 Diagnóstico da Conexão:")
+        st.write(f"**Usuario ID na Sessão:** `{st.session_state.get('usuario_id')}`")
+        st.write(f"**Status da Requisição:** `{res.status_code}`")
+        
+        if res.status_code == 200:
+            dados_teste = res.json()
+            st.success(f"Conexão OK! Retornou {len(dados_teste)} registros sem filtros.")
+            if dados_teste:
+                st.write("#### Exemplo das duas primeiras movimentações no banco:")
+                st.json(dados_teste[:2])  # Exibe a estrutura exata do seu banco de dados
+            else:
+                st.warning("⚠️ O Supabase respondeu com sucesso, mas a lista veio VAZIA para este usuario_id!")
         else:
-            st.warning("O banco de dados não encontrou nenhuma movimentação para este usuario_id.")
-    else:
-        st.error(f"Erro ao consultar Supabase: {res.text}")
+            st.error(f"❌ Erro ao consultar Supabase: {res.status_code} - {res.text}")
+            
+    except Exception as e:
+        st.error(f"❌ Falha de conexão: {e}")
 
 # --- ABA 6: CONFIGURAÇÕES ---
 elif opcao == "⚙️ Configurações":
