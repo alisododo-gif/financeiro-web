@@ -35,12 +35,11 @@ def criar_tabelas_se_nao_existirem():
 def buscar_movimentacoes_paginadas(
     usuario_id, mes="Todos", ano="Todos", pagina=1, itens_por_pagina=20
 ):
-    """Busca movimentações no Supabase com paginação server-side e filtros de data."""
+    """Busca movimentações no Supabase com paginação server-side e suporte completo a filtros."""
     offset_inicio = (pagina - 1) * itens_por_pagina
     offset_fim = offset_inicio + itens_por_pagina - 1
 
-    # Rota correta do PostgREST no Supabase
-    url = f"{BASE_URL}/rest/v1/movimentacoes"
+    url = f"{BASE_URL}/movimentacoes"
 
     params = [
         ("usuario_id", f"eq.{usuario_id}"),
@@ -48,7 +47,6 @@ def buscar_movimentacoes_paginadas(
         ("order", "data.desc"),
     ]
 
-    # Mapeamento de nomes de meses para inteiros
     mapa_meses = {
         "Janeiro": 1,
         "Fevereiro": 2,
@@ -65,20 +63,14 @@ def buscar_movimentacoes_paginadas(
     }
 
     try:
-        # Normalização do filtro de Mês
-        mes_num = None
-        if mes != "Todos":
-            if isinstance(mes, str) and mes in mapa_meses:
-                mes_num = mapa_meses[mes]
-            else:
-                mes_num = int(mes)
+        mes_num = (
+            mapa_meses.get(mes)
+            if mes in mapa_meses
+            else (int(mes) if str(mes).isdigit() else None)
+        )
+        ano_num = int(ano) if str(ano).isdigit() else None
 
-        # Normalização do filtro de Ano
-        ano_num = None
-        if ano != "Todos":
-            ano_num = int(ano)
-
-        # Aplicação das regras de data
+        # 1. Se informou Ano e Mês (ex: 2027 e Julho)
         if ano_num and mes_num:
             _, ultimo_dia = calendar.monthrange(ano_num, mes_num)
             params.append(
@@ -87,31 +79,30 @@ def buscar_movimentacoes_paginadas(
             params.append(
                 ("data", f"lte.{ano_num:04d}-{mes_num:02d}-{ultimo_dia:02d}")
             )
+
+        # 2. Se informou apenas o Ano (ex: 2027 e Todos)
         elif ano_num:
             params.append(("data", f"gte.{ano_num:04d}-01-01"))
             params.append(("data", f"lte.{ano_num:04d}-12-31"))
+
+        # 3. Se informou apenas o Mês com Ano em 'Todos' (ex: Julho em qualquer ano)
         elif mes_num:
-            ano_atual = datetime.now().year
-            _, ultimo_dia = calendar.monthrange(ano_atual, mes_num)
-            params.append(
-                ("data", f"gte.{ano_atual:04d}-{mes_num:02d}-01")
-            )
-            params.append(
-                ("data", f"lte.{ano_atual:04d}-{mes_num:02d}-{ultimo_dia:02d}")
-            )
+            params.append(("data", f"like.*-{mes_num:02d}-*"))
+
+        # 4. Se ambos forem 'Todos', não insere filtro de data (traz tudo)
 
         headers = {
             "Range": f"{offset_inicio}-{offset_fim}",
             "Prefer": "count=exact",
         }
 
-        response = session.get(
+        res = session.get(
             url, params=params, headers=headers, timeout=DEFAULT_TIMEOUT
         )
 
-        if response.status_code in [200, 206]:
-            dados = response.json()
-            content_range = response.headers.get("Content-Range", "")
+        if res.status_code in [200, 206]:
+            dados = res.json()
+            content_range = res.headers.get("Content-Range", "")
             total_registros = (
                 int(content_range.split("/")[1])
                 if "/" in content_range
@@ -120,16 +111,12 @@ def buscar_movimentacoes_paginadas(
             total_paginas = (
                 total_registros + itens_por_pagina - 1
             ) // itens_por_pagina
-
             return dados, total_registros, max(1, total_paginas)
 
-        print(f"Erro Supabase: {response.status_code} - {response.text}")
         return [], 0, 1
-
     except Exception as e:
         print(f"Erro ao buscar movimentações: {e}")
         return [], 0, 1
-
 # =====================================================================
 # --- AJUDANTES DE LIMPEZA CIRÚRGICA DE CACHE ---
 # =====================================================================
