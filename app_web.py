@@ -1138,44 +1138,190 @@ elif opcao == "💸 Lançar Movimentações":
     else:
         st.info("Nenhuma movimentação cadastrada até o momento.")
 
-# --- ABA 5: EXTRATO DETALHADO (DIAGNÓSTICO) ---
+# --- ABA 5: EXTRATO DETALHADO ---
 elif opcao == "📋 Extrato Detalhado":
     st.title("📋 Extrato Detalhado de Transações")
 
-    # Importa BASE_URL e session diretamente do funcoes.py
-    from funcoes import BASE_URL, session
-
-    # 1. Teste de busca SEM NENHUM FILTRO DE DATA
-    url_teste = f"{BASE_URL}/movimentacoes"
-    params_teste = [
-        ("usuario_id", f"eq.{st.session_state['usuario_id']}"),
-        ("select", "*,contas(nome)"),
-        ("order", "data.desc"),
-        ("limit", "10")
+    opcoes_meses = [
+        "Todos",
+        "Janeiro",
+        "Fevereiro",
+        "Março",
+        "Abril",
+        "Maio",
+        "Junho",
+        "Julho",
+        "Agosto",
+        "Setembro",
+        "Outubro",
+        "Novembro",
+        "Dezembro",
     ]
-    
-    try:
-        res = session.get(url_teste, params=params_teste, timeout=5)
-        
-        st.write("---")
-        st.write("### 🔍 Diagnóstico da Conexão:")
-        st.write(f"**Usuario ID na Sessão:** `{st.session_state.get('usuario_id')}`")
-        st.write(f"**Status da Requisição:** `{res.status_code}`")
-        
-        if res.status_code == 200:
-            dados_teste = res.json()
-            st.success(f"Conexão OK! Retornou {len(dados_teste)} registros sem filtros.")
-            if dados_teste:
-                st.write("#### Exemplo das duas primeiras movimentações no banco:")
-                st.json(dados_teste[:2])  # Exibe a estrutura exata do seu banco de dados
-            else:
-                st.warning("⚠️ O Supabase respondeu com sucesso, mas a lista veio VAZIA para este usuario_id!")
-        else:
-            st.error(f"❌ Erro ao consultar Supabase: {res.status_code} - {res.text}")
-            
-    except Exception as e:
-        st.error(f"❌ Falha de conexão: {e}")
 
+    col_e1, col_e2 = st.columns(2)
+    with col_e1:
+        mes_nome_extrato = st.selectbox(
+            "Filtrar Mês", opcoes_meses, index=0
+        )  # Padrão em "Todos"
+
+    with col_e2:
+        ano_extrato = st.selectbox(
+            "Filtrar Ano",
+            ["Todos", "2026", "2027", "2028", "2029", "2030"],
+            index=0,
+        )  # Padrão em "Todos"
+
+    # Reseta a página se trocar o filtro
+    chave_filtro = f"{mes_nome_extrato}_{ano_extrato}"
+    if st.session_state.get("ultimo_filtro") != chave_filtro:
+        st.session_state["pagina_extrato"] = 1
+        st.session_state["ultimo_filtro"] = chave_filtro
+
+    if "pagina_extrato" not in st.session_state:
+        st.session_state["pagina_extrato"] = 1
+
+    ITENS_POR_PAGINA = 20
+
+    # Busca Paginada no Supabase
+    dados_banco, total_registros, total_paginas = (
+        buscar_movimentacoes_paginadas(
+            usuario_id=st.session_state["usuario_id"],
+            mes=mes_nome_extrato,
+            ano=ano_extrato,
+            pagina=st.session_state["pagina_extrato"],
+            itens_por_pagina=ITENS_POR_PAGINA,
+        )
+    )
+
+    if dados_banco:
+        st.write("### 📥 Exportar Relatórios")
+        c_btn1, c_btn2, _ = st.columns([1.5, 1.5, 4])
+
+        with c_btn1:
+            excel_data = gerar_excel_profissional(
+                dados_banco, mes_nome_extrato, ano_extrato
+            )
+            st.download_button(
+                "🟢 Baixar Excel (.xlsx)",
+                data=excel_data,
+                file_name=f"extrato_financeiro_{mes_nome_extrato}_{ano_extrato}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+
+        with c_btn2:
+            pdf_data = gerar_pdf_profissional(
+                dados_banco, mes_nome_extrato, ano_extrato
+            )
+            st.download_button(
+                "🔴 Baixar PDF Relatório",
+                data=pdf_data,
+                file_name=f"extrato_financeiro_{mes_nome_extrato}_{ano_extrato}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+
+        st.markdown("---")
+
+        # Processa os dados retornados
+        df = pd.DataFrame(dados_banco)
+
+        # Trata o campo relacional 'contas'
+        if "contas" in df.columns:
+            df["Conta"] = df["contas"].apply(
+                lambda c: c.get("nome") if isinstance(c, dict) else "Conta"
+            )
+        else:
+            df["Conta"] = "Conta"
+
+        # Trata tags se existirem
+        if "tags" not in df.columns:
+            df["tags"] = ""
+
+        todas_tags = set()
+        for t in df["tags"].dropna():
+            if t:
+                todas_tags.update(
+                    [x.strip() for x in str(t).split(",") if x.strip()]
+                )
+
+        if todas_tags:
+            tags_sel = st.multiselect(
+                "🏷️ Filtrar por Tag / Evento", sorted(list(todas_tags))
+            )
+            if tags_sel:
+                df = df[
+                    df["tags"]
+                    .astype(str)
+                    .apply(
+                        lambda x: any(
+                            tag.lower() in x.lower() for tag in tags_sel
+                        )
+                    )
+                ]
+
+        # Monta a tabela amigável
+        df_exibir = pd.DataFrame()
+        df_exibir["ID"] = df["id"]
+        df_exibir["Data"] = pd.to_datetime(df["data"]).dt.strftime("%d/%m/%Y")
+        df_exibir["Conta"] = df["Conta"]
+        df_exibir["Tipo"] = df.get("tipo", "")
+        df_exibir["Forma Pagto"] = df.get("forma_pagamento", "")
+        df_exibir["Descrição"] = df.get("descricao", "")
+        df_exibir["Valor"] = df["valor"].apply(lambda v: fmt_moeda(v))
+        df_exibir["Categoria"] = df.get("categoria", "")
+
+        st.caption(
+            f"Exibindo {len(df_exibir)} de {total_registros} registros salvos."
+        )
+        st.dataframe(df_exibir, use_container_width=True)
+
+        # Controles de Paginação
+        st.markdown("---")
+        c_pag1, c_pag2, c_pag3 = st.columns([1, 2, 1])
+
+        with c_pag1:
+            if st.button(
+                "⬅️ Anterior",
+                disabled=(st.session_state["pagina_extrato"] <= 1),
+            ):
+                st.session_state["pagina_extrato"] -= 1
+                st.rerun()
+
+        with c_pag2:
+            st.markdown(
+                f"<h5 style='text-align: center;'>Página {st.session_state['pagina_extrato']} de {total_paginas}</h5>",
+                unsafe_allow_html=True,
+            )
+
+        with c_pag3:
+            if st.button(
+                "Próximo ➡️",
+                disabled=(st.session_state["pagina_extrato"] >= total_paginas),
+            ):
+                st.session_state["pagina_extrato"] += 1
+                st.rerun()
+
+        st.markdown("---")
+        st.write("#### 🛠️ Operações Avançadas")
+        id_excluir = st.number_input(
+            "Deseja deletar algum lançamento? Digite o ID dele aqui:",
+            min_value=0,
+            step=1,
+        )
+        if st.button("Excluir Lançamento") and id_excluir > 0:
+            if excluir_movimentacao(st.session_state["usuario_id"], id_excluir):
+                st.success(
+                    f"Movimentação {id_excluir} excluída com sucesso!"
+                )
+                st.rerun()
+            else:
+                st.error(
+                    "Não foi possível excluir a movimentação informada."
+                )
+    else:
+        st.info("Nenhuma movimentação encontrada para o período filtrado.")
+        
 # --- ABA 6: CONFIGURAÇÕES ---
 elif opcao == "⚙️ Configurações":
     st.title("⚙️ Painel de Configurações")
