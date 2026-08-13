@@ -1030,13 +1030,8 @@ def calcular_mes_fatura(data_transacao_str, dia_fechamento):
     return f"{mes:02d}/{ano}"
 
 
-def formatar_moeda(valor: float) -> str:
-    """Formatador único para BRL mantendo o formato original do projeto."""
-    try:
-        val = float(valor)
-        return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except (ValueError, TypeError):
-        return "R$ 0,00"
+def formatar_moeda_ptbr(valor):
+    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def renderizar_interface_central_downloads(usuario_id, mes, ano, ano_padrao):

@@ -10,10 +10,10 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import urllib.parse
 import pytz
-import requests
+import re
 import os
 import base64
-import re
+import requests
 
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -38,7 +38,7 @@ from funcoes import (
     salvar_movimentacao_parcelada,
     salvar_movimentacao_recorrente,
     excluir_movimentacao,
-    formatar_moeda,
+    formatar_moeda_ptbr,
     listar_todos_usuarios_admin,
     atualizar_status_e_mensalidade,
     excluir_usuario_admin,
@@ -89,7 +89,7 @@ if st.session_state["usuario_id"] == 1:
     st.session_state["is_admin"] = True
 
 def fmt_moeda(valor):
-    return  formatar_moeda(float(valor))
+    return formatar_moeda_ptbr(float(valor))
 
 def criar_link_cobranca(telefone, nome, valor):
     if not telefone:
@@ -279,12 +279,12 @@ def gerar_pdf_profissional(dados_banco, mes, ano):
             
         table_data.append([
             str(v_id), v_data_fmt, str(v_conta), str(v_tipo), 
-            str(v_forma), str(v_desc),  formatar_moeda(v_valor_float), str(v_cat), str(v_tags)
+            str(v_forma), str(v_desc), formatar_moeda_ptbr(v_valor_float), str(v_cat), str(v_tags)
         ])
         
-    table_data.append(["", "", "", "", "", "Total Receitas:",  formatar_moeda(total_rec), "", ""])
-    table_data.append(["", "", "", "", "", "Total Despesas:",  formatar_moeda(total_des), "", ""])
-    table_data.append(["", "", "", "", "", "SALDO LÍQUIDO:",  formatar_moeda(total_rec - total_des), "", ""])
+    table_data.append(["", "", "", "", "", "Total Receitas:", formatar_moeda_ptbr(total_rec), "", ""])
+    table_data.append(["", "", "", "", "", "Total Despesas:", formatar_moeda_ptbr(total_des), "", ""])
+    table_data.append(["", "", "", "", "", "SALDO LÍQUIDO:", formatar_moeda_ptbr(total_rec - total_des), "", ""])
     
     t = Table(table_data, colWidths=[25, 60, 80, 50, 75, 130, 80, 85, 85])
     t_style = TableStyle([
@@ -967,7 +967,7 @@ elif opcao == "🏦 Gerir Contas":
 
             col_c1, col_c2, col_c3 = st.columns([3, 2, 1])
             col_c1.write(f"🔹 **{cnome}**")
-            col_c2.write(f"Saldo Inicial: { formatar_moeda(csaldo)}")
+            col_c2.write(f"Saldo Inicial: {formatar_moeda_ptbr(csaldo)}")
             
             with col_c3:
                 if st.button("Remover", key=f"del_c_{cid}", width="stretch"):
@@ -1831,9 +1831,9 @@ elif opcao == "💳 Cartões & Faturas":
             st.info(f"💡 **Informações:** Fechamento todo **dia {cartao_info['dia_fechamento']}** | Vencimento todo **dia {cartao_info['dia_vencimento']}**")
 
             m1, m2, m3 = st.columns(3)
-            m1.metric("Total da Fatura", formatar_moeda(total_fatura))
-            m2.metric("Limite Disponível",  formatar_moeda(limite_disponivel))
-            m3.metric("Limite Total",  formatar_moeda(limite_total))
+            m1.metric("Total da Fatura", formatar_moeda_ptbr(total_fatura))
+            m2.metric("Limite Disponível", formatar_moeda_ptbr(limite_disponivel))
+            m3.metric("Limite Total", formatar_moeda_ptbr(limite_total))
 
             st.write(f"### 🛒 Compras da Fatura ({fatura_ref})")
             st.warning(f"📆 **Atenção:** Esta fatura contempla as compras realizadas no período de **{periodo_str}**.\n\n💡 *Compras a partir do dia **{data_fim_fatura.day + 1:02d}/{mes_fatura}/{ano_fatura}** entram automaticamente na fatura do mês seguinte.*")
