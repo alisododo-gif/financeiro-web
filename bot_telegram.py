@@ -25,7 +25,7 @@ from telegram.ext import (
     filters,
 )
 
-from lembrete_boletos import processar_e_enviar_alertas
+from lembrete_boletos import processar_e_enviar_alertas, enviar_resumo_mensal_telegram
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -708,12 +708,20 @@ def main():
         first=18000
     )
 
+    # 1. Agendamento Automático: Envia todo dia 1º do mês às 08:00 da manhã
+    app.job_queue.run_monthly(
+        enviar_resumo_mensal_telegram,
+        when=time(hour=8, minute=0, tzinfo=fuso_br),
+        day=1
+    )
+
     # Handlers dos comandos
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", consultar_contas_receber))
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
-    
+    app.add_handler(CommandHandler("resumo", enviar_resumo_mensal_telegram))
+
     app.add_handler(MessageHandler(filters.CONTACT, receber_contato))
     app.add_handler(
         MessageHandler(filters.TEXT & (~filters.COMMAND), registrar_gastos)
