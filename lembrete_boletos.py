@@ -260,7 +260,7 @@ def formatar_data_br(data_str):
 
 
 async def enviar_resumo_mensal_telegram(update=None, context=None):
-    """Gera o relatório mensal formatado exatamente como na visualização web."""
+    """Gera o relatório financeiro agrupando faturas por cartão e separando receitas de boletos."""
     bot_instancia = bot_global
     chat_id_solicitante = None
 
@@ -305,7 +305,11 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             telegram_id = u["telegram_id"]
             nome = u.get("usuario") or "Cliente"
 
-            # Busca movimentações do mês (por mes_fatura ou pela data YYYY-MM)
+            # 1. Busca os cartões do usuário para mapear ID -> Nome do Cartão
+            res_cartoes = supabase.table("cartoes").select("id, nome").eq("usuario_id", uid).execute()
+            mapa_cartoes = {c["id"]: c["nome"] for c in (res_cartoes.data or [])}
+
+            # 2. Busca movimentações do mês (por mes_fatura ou data YYYY-MM)
             res_movs_fatura = (
                 supabase.table("movimentacoes")
                 .select("*")
@@ -324,46 +328,70 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             todos_movs_dict = {
                 m["id"]: m for m in (res_movs_fatura.data or []) + (res_movs_data.data or [])
             }
-            movs = sorted(
-                todos_movs_dict.values(), key=lambda x: str(x.get("data", ""))
-            )
+            movs = sorted(todos_movs_dict.values(), key=lambda x: str(x.get("data", "")))
 
             # Totais
             tot_rec = sum(float(m.get("valor", 0)) for m in movs if m.get("tipo") == "Receita")
             tot_desp = sum(float(m.get("valor", 0)) for m in movs if m.get("tipo") == "Despesa")
             saldo = tot_rec - tot_desp
 
-            # --- SEPARAÇÃO DOS GRUPOS CONFORME PAINEL WEB ---
+            # --- FILTRAGEM E AGRUPAMENTO ---
 
-            # 1. Recorrentes / Gastos Fixos
+            # A) RECEITAS (Entradas financeiras)
+            receitas = [m for m in movs if m.get("tipo") == "Receita"]
+            ids_receitas = {m["id"] for m in receitas}
+
+            # B) RECORRENTES / GASTOS FIXOS (Apenas Despesas)
             recorrentes = [
                 m for m in movs
-                if "recorren" in str(m.get("descricao", "")).lower()
-                or "fixo" in str(m.get("descricao", "")).lower()
-                or "recorren" in str(m.get("tags", "")).lower()
-                or m.get("recorrente") is True
-                or m.get("fixo") is True
+                if m["id"] not in ids_receitas
+                and (
+                    "recorren" in str(m.get("descricao", "")).lower()
+                    or "fixo" in str(m.get("descricao", "")).lower()
+                    or "recorren" in str(m.get("tags", "")).lower()
+                    or m.get("recorrente") is True
+                    or m.get("fixo") is True
+                )
             ]
             ids_recorrentes = {m["id"] for m in recorrentes}
 
-            # 2. Faturas de Cartão (Lançamentos com "Fatura" no nome ou cartão)
-            faturas = [
+            # C) COMPRAS DE CARTÃO (Serão agrupadas por Cartão)
+            itens_cartao = [
                 m for m in movs
-                if m["id"] not in ids_recorrentes
+                if m["id"] not in ids_receitas and m["id"] not in ids_recorrentes
                 and (
-                    "fatura" in str(m.get("descricao", "")).lower()
+                    m.get("cartao_id") is not None
                     or str(m.get("forma_pagamento", "")).lower() in ["cartão de crédito", "cartao de credito", "crédito", "credito"]
                 )
             ]
-            ids_faturas = {m["id"] for m in faturas}
+            ids_cartao = {m["id"] for m in itens_cartao}
 
-            # 3. Boletos / Impostos / Outras Despesas
+            # AGRUPANDO FATURAS POR CARTÃO:
+            # { "Nome do Cartão": {"total": 0.0, "pago": True/False} }
+            faturas_agrupadas = {}
+            for item in itens_cartao:
+                cid = item.get("cartao_id")
+                nome_cartao = mapa_cartoes.get(cid, "Cartão de Crédito") if cid else "Cartão de Crédito"
+                val = float(item.get("valor", 0))
+                pago = bool(item.get("pago", False))
+
+                if nome_cartao not in faturas_agrupadas:
+                    faturas_agrupadas[nome_cartao] = {"total": 0.0, "pago": True}
+
+                faturas_agrupadas[nome_cartao]["total"] += val
+                # Se houver pelo menos 1 lançamento pendente na fatura, a fatura fica pendente
+                if not pago:
+                    faturas_agrupadas[nome_cartao]["pago"] = False
+
+            # D) BOLETOS / OUTRAS DESPESAS A PAGAR
             boletos_pagar = [
                 m for m in movs
-                if m["id"] not in ids_recorrentes and m["id"] not in ids_faturas
+                if m["id"] not in ids_receitas 
+                and m["id"] not in ids_recorrentes 
+                and m["id"] not in ids_cartao
             ]
 
-            # Contas a receber da tabela dedicada
+            # Contas a receber (Tabela externa, se houver)
             ultimo_dia = calendar.monthrange(agora_br.year, agora_br.month)[1]
             data_inicio = f"{agora_br.year}-{agora_br.month:02d}-01"
             data_fim = f"{agora_br.year}-{agora_br.month:02d}-{ultimo_dia:02d}"
@@ -390,40 +418,43 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             msg += f"━━━━━━━━━━━━━━━━━━\n"
             msg += f"🔵 *Saldo:* R$ {formatar_moeda(saldo)}\n\n"
 
-            # FATURAS DE CARTÃO
+            # 1. RECEITAS / ENTRADAS
+            msg += "💵 *RECEITAS / ENTRADAS:*\n"
+            if receitas or boletos_rec:
+                for r in receitas:
+                    dt = formatar_data_br(r.get("data"))
+                    st = "✅ Recebido" if r.get("pago") else "⏳ Pendente"
+                    msg += f"• `{dt}` — {r.get('descricao')} | R$ {formatar_moeda(r.get('valor'))} — {st}\n"
+                for br in boletos_rec:
+                    dt = formatar_data_br(br.get("data_recebimento"))
+                    st = "✅ Recebido" if br.get("recebido") or br.get("pago") else "⏳ Pendente"
+                    msg += f"• `{dt}` — {br.get('descricao')} | R$ {formatar_moeda(br.get('valor'))} — {st}\n"
+            else:
+                msg += "• Nenhuma receita cadastrada neste mês.\n"
+            msg += "\n"
+
+            # 2. FATURAS DE CARTÃO (TOTAL SOMADO POR CARTÃO)
             msg += "💳 *FATURAS DE CARTÃO:*\n"
-            if faturas:
-                for f in faturas:
-                    dt = formatar_data_br(f.get("data"))
-                    st = "✅ Pago" if f.get("pago") else "⏳ Pendente"
-                    msg += f"• `{dt}` — {f.get('descricao')} | R$ {formatar_moeda(f.get('valor'))} — {st}\n"
+            if faturas_agrupadas:
+                for nome_c, info in faturas_agrupadas.items():
+                    st = "✅ Pago" if info["pago"] else "⏳ Pendente"
+                    msg += f"• *Fatura {nome_c}* | R$ {formatar_moeda(info['total'])} — {st}\n"
             else:
                 msg += "• Nenhuma fatura neste mês.\n"
             msg += "\n"
 
-            # BOLETOS & RECEBIMENTOS
-            msg += "📑 *BOLETOS & RECEBIMENTOS:*\n"
-            tem_boletos = False
-
+            # 3. BOLETOS & CONTAS A PAGAR
+            msg += "📑 *BOLETOS & CONTAS A PAGAR:*\n"
             if boletos_pagar:
                 for b in boletos_pagar:
                     dt = formatar_data_br(b.get("data"))
                     st = "✅ Pago" if b.get("pago") else "⏳ Pendente"
-                    msg += f"• `{dt}` — 🔴 {b.get('descricao')} | R$ {formatar_moeda(b.get('valor'))} — {st}\n"
-                tem_boletos = True
-
-            if boletos_rec:
-                for r in boletos_rec:
-                    dt = formatar_data_br(r.get("data_recebimento"))
-                    st = "✅ Recebido" if r.get("recebido") or r.get("pago") else "⏳ Pendente"
-                    msg += f"• `{dt}` — 🟢 {r.get('descricao')} | R$ {formatar_moeda(r.get('valor'))} — {st}\n"
-                tem_boletos = True
-
-            if not tem_boletos:
+                    msg += f"• `{dt}` — {b.get('descricao')} | R$ {formatar_moeda(b.get('valor'))} — {st}\n"
+            else:
                 msg += "• Nenhum boleto pendente.\n"
             msg += "\n"
 
-            # GASTOS FIXOS / RECORRENTES
+            # 4. GASTOS FIXOS / RECORRENTES
             msg += "🔄 *GASTOS FIXOS / RECORRENTES:*\n"
             if recorrentes:
                 for rec in recorrentes:
