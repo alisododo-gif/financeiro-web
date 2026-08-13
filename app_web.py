@@ -1142,6 +1142,11 @@ elif opcao == "💸 Lançar Movimentações":
 elif opcao == "📋 Extrato Detalhado":
     st.title("📋 Extrato Detalhado de Transações")
 
+    # 1. Obtém o mês e ano atuais dinamicamente
+    hoje = datetime.now()
+    mes_atual_num = hoje.month  # Retorna de 1 a 12
+    ano_atual_str = str(hoje.year)  # Retorna ex: "2026"
+
     opcoes_meses = [
         "Todos",
         "Janeiro",
@@ -1158,18 +1163,24 @@ elif opcao == "📋 Extrato Detalhado":
         "Dezembro",
     ]
 
+    opcoes_anos = ["Todos", "2025", "2026", "2027", "2028", "2029", "2030"]
+
+    # Localiza o índice do ano atual (se não encontrar na lista, usa 0 = 'Todos')
+    idx_ano_padrao = (
+        opcoes_anos.index(ano_atual_str) if ano_atual_str in opcoes_anos else 0
+    )
+
     col_e1, col_e2 = st.columns(2)
     with col_e1:
+        # Como "Todos" é index 0, o índice mes_atual_num bate exatamente com a posição do mês!
         mes_nome_extrato = st.selectbox(
-            "Filtrar Mês", opcoes_meses, index=0
-        )  # Padrão: Todos
+            "Filtrar Mês", opcoes_meses, index=mes_atual_num
+        )
 
     with col_e2:
         ano_extrato = st.selectbox(
-            "Filtrar Ano",
-            ["Todos", "2026", "2027", "2028", "2029", "2030"],
-            index=0,
-        )  # Padrão: Todos
+            "Filtrar Ano", opcoes_anos, index=idx_ano_padrao
+        )
 
     # Reseta a página ao mudar filtros
     chave_filtro = f"{mes_nome_extrato}_{ano_extrato}"
@@ -1179,167 +1190,6 @@ elif opcao == "📋 Extrato Detalhado":
 
     if "pagina_extrato" not in st.session_state:
         st.session_state["pagina_extrato"] = 1
-
-    ITENS_POR_PAGINA = 20
-
-    dados_banco, total_registros, total_paginas = (
-        buscar_movimentacoes_paginadas(
-            usuario_id=st.session_state["usuario_id"],
-            mes=mes_nome_extrato,
-            ano=ano_extrato,
-            pagina=st.session_state["pagina_extrato"],
-            itens_por_pagina=ITENS_POR_PAGINA,
-        )
-    )
-
-    if dados_banco:
-        # CONVERSÃO: Transforma a lista de dicionários em tuplas para o Excel/PDF
-        dados_tuplas = []
-        for item in dados_banco:
-            # Extrai o nome da conta se vier do relacionamento
-            conta_nome = "Conta"
-            if isinstance(item.get("contas"), dict):
-                conta_nome = item["contas"].get("nome", "Conta")
-
-            dados_tuplas.append(
-                (
-                    item.get("id"),
-                    item.get("data"),
-                    conta_nome,
-                    item.get("tipo", ""),
-                    item.get("forma_pagamento", ""),
-                    item.get("descricao", ""),
-                    item.get("valor", 0.0),
-                    item.get("categoria", ""),
-                )
-            )
-
-        st.write("### 📥 Exportar Relatórios")
-        c_btn1, c_btn2, _ = st.columns([1.5, 1.5, 4])
-
-        with c_btn1:
-            # Passamos 'dados_tuplas' em vez de 'dados_banco'
-            excel_data = gerar_excel_profissional(
-                dados_tuplas, mes_nome_extrato, ano_extrato
-            )
-            st.download_button(
-                "🟢 Baixar Excel (.xlsx)",
-                data=excel_data,
-                file_name=f"extrato_financeiro_{mes_nome_extrato}_{ano_extrato}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
-
-        with c_btn2:
-            # Passamos 'dados_tuplas' em vez de 'dados_banco'
-            pdf_data = gerar_pdf_profissional(
-                dados_tuplas, mes_nome_extrato, ano_extrato
-            )
-            st.download_button(
-                "🔴 Baixar PDF Relatório",
-                data=pdf_data,
-                file_name=f"extrato_financeiro_{mes_nome_extrato}_{ano_extrato}.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-            )
-
-        st.markdown("---")
-
-        # Exibição na tabela do Streamlit
-        df = pd.DataFrame(dados_banco)
-
-        if "contas" in df.columns:
-            df["Conta"] = df["contas"].apply(
-                lambda c: c.get("nome") if isinstance(c, dict) else "Conta"
-            )
-        else:
-            df["Conta"] = "Conta"
-
-        if "tags" not in df.columns:
-            df["tags"] = ""
-
-        todas_tags = set()
-        for t in df["tags"].dropna():
-            if t:
-                todas_tags.update(
-                    [x.strip() for x in str(t).split(",") if x.strip()]
-                )
-
-        if todas_tags:
-            tags_sel = st.multiselect(
-                "🏷️ Filtrar por Tag / Evento", sorted(list(todas_tags))
-            )
-            if tags_sel:
-                df = df[
-                    df["tags"]
-                    .astype(str)
-                    .apply(
-                        lambda x: any(
-                            tag.lower() in x.lower() for tag in tags_sel
-                        )
-                    )
-                ]
-
-        df_exibir = pd.DataFrame()
-        df_exibir["ID"] = df["id"]
-        df_exibir["Data"] = pd.to_datetime(df["data"]).dt.strftime("%d/%m/%Y")
-        df_exibir["Conta"] = df["Conta"]
-        df_exibir["Tipo"] = df.get("tipo", "")
-        df_exibir["Forma Pagto"] = df.get("forma_pagamento", "")
-        df_exibir["Descrição"] = df.get("descricao", "")
-        df_exibir["Valor"] = df["valor"].apply(lambda v: fmt_moeda(v))
-        df_exibir["Categoria"] = df.get("categoria", "")
-
-        st.caption(
-            f"Exibindo {len(df_exibir)} de {total_registros} registros salvos."
-        )
-        st.dataframe(df_exibir, use_container_width=True)
-
-        # Controles de Paginação
-        st.markdown("---")
-        c_pag1, c_pag2, c_pag3 = st.columns([1, 2, 1])
-
-        with c_pag1:
-            if st.button(
-                "⬅️ Anterior",
-                disabled=(st.session_state["pagina_extrato"] <= 1),
-            ):
-                st.session_state["pagina_extrato"] -= 1
-                st.rerun()
-
-        with c_pag2:
-            st.markdown(
-                f"<h5 style='text-align: center;'>Página {st.session_state['pagina_extrato']} de {total_paginas}</h5>",
-                unsafe_allow_html=True,
-            )
-
-        with c_pag3:
-            if st.button(
-                "Próximo ➡️",
-                disabled=(st.session_state["pagina_extrato"] >= total_paginas),
-            ):
-                st.session_state["pagina_extrato"] += 1
-                st.rerun()
-
-        st.markdown("---")
-        st.write("#### 🛠️ Operações Avançadas")
-        id_excluir = st.number_input(
-            "Deseja deletar algum lançamento? Digite o ID dele aqui:",
-            min_value=0,
-            step=1,
-        )
-        if st.button("Excluir Lançamento") and id_excluir > 0:
-            if excluir_movimentacao(st.session_state["usuario_id"], id_excluir):
-                st.success(
-                    f"Movimentação {id_excluir} excluída com sucesso!"
-                )
-                st.rerun()
-            else:
-                st.error(
-                    "Não foi possível excluir a movimentação informada."
-                )
-    else:
-        st.info("Nenhuma movimentação encontrada para o período filtrado.")
 
 # --- ABA 6: CONFIGURAÇÕES ---
 elif opcao == "⚙️ Configurações":
