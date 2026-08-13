@@ -1249,11 +1249,8 @@ def atualizar_conta_a_receber(
     st.error(f"Erro ao atualizar: {res.text}")
     return False
 
-import requests
-import streamlit as st
-
 # Garante a sessão HTTP e timeout padrão
-session = requests.Session()
+telegram_session = requests.Session()
 DEFAULT_TIMEOUT = 10
 
 
