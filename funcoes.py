@@ -4,7 +4,7 @@ import re
 from dateutil.relativedelta import relativedelta
 import requests
 import streamlit as st
-import pytz
+
 
 # =====================================================================
 # --- CONFIGURAÇÃO E CONEXÃO OTIMIZADA (SESSION POOLING) ---
@@ -1157,9 +1157,7 @@ def atualizar_conta_a_receber(
 # =====================================================================
 
 def atualizar_sessao_usuario(usuario_id):
-    """
-    Registra ou atualiza a sessão ativa do usuário no Supabase para monitoramento em tempo real.
-    """
+    """Registra ou atualiza a sessão ativa do usuário no Supabase."""
     from datetime import datetime
     import pytz
 
@@ -1169,7 +1167,6 @@ def atualizar_sessao_usuario(usuario_id):
     sessao_atual = st.session_state.get("sessao_id")
 
     if not sessao_atual:
-        # Cria uma nova sessão ao entrar no app
         url = f"{BASE_URL}/sessoes_usuarios"
         payload = {
             "usuario_id": int(usuario_id),
@@ -1181,31 +1178,34 @@ def atualizar_sessao_usuario(usuario_id):
             res = session.post(url, json=payload, timeout=DEFAULT_TIMEOUT)
             if res.status_code in [200, 201] and res.json():
                 st.session_state["sessao_id"] = res.json()[0]["id"]
+            else:
+                print(f"⚠️ Erro ao criar sessão ({res.status_code}): {res.text}")
         except Exception as e:
             print(f"Erro ao registrar início de sessão: {e}")
     else:
-        # Atualiza a última atividade e garante status online
         url = f"{BASE_URL}/sessoes_usuarios?id=eq.{sessao_atual}"
         payload = {
             "ultima_atividade": agora,
             "online": True
         }
         try:
-            session.patch(url, json=payload, timeout=DEFAULT_TIMEOUT)
+            res = session.patch(url, json=payload, timeout=DEFAULT_TIMEOUT)
+            if res.status_code not in [200, 204]:
+                print(f"⚠️ Erro ao atualizar sessão ({res.status_code}): {res.text}")
         except Exception as e:
             print(f"Erro ao atualizar sessão: {e}")
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=5, show_spinner=False)
 def buscar_sessoes_usuarios_admin():
-    """
-    Busca todas as sessões cadastradas junto aos dados dos usuários para exibir na Aba Admin.
-    """
+    """Busca todas as sessões cadastradas junto aos dados dos usuários."""
     url = f"{BASE_URL}/sessoes_usuarios?select=*,usuarios(usuario,telefone)&order=ultima_atividade.desc"
     try:
         res = session.get(url, timeout=DEFAULT_TIMEOUT)
         if res.status_code == 200:
             return res.json()
+        else:
+            print(f"⚠️ Erro ao buscar sessões no Admin ({res.status_code}): {res.text}")
     except Exception as e:
-        print(f"Erro ao buscar sessões para admin: {e}")
+        print(f"Erro de conexão ao buscar sessões: {e}")
     return []
