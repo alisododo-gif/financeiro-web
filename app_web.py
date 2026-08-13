@@ -1108,7 +1108,7 @@ elif opcao == "💸 Lançar Movimentações":
     if dados_recentes:
         df_recentes = pd.DataFrame(dados_recentes, columns=["ID", "Data", "Conta", "Tipo", "Forma Pagto", "Descrição", "Valor", "Categoria"])
         df_recentes["ID"] = pd.to_numeric(df_recentes["ID"])
-        df_recentes = df_recentes.sort_values(by="ID", ascending=False)
+        df_recentes = df_recentes.sort_values(by="ID", ascending=False).head(20)
         
         df_exibicao = df_recentes.copy()
         df_exibicao["Valor"] = df_exibicao["Valor"].apply(lambda v: fmt_moeda(v))
