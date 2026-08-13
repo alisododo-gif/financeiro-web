@@ -27,10 +27,8 @@ def obter_sessao_http():
 
 session = obter_sessao_http()
 DEFAULT_TIMEOUT = 5  # Timeout global para evitar travamentos
+HTTP_TIMEOUT_LONGO = 10  # Para envios/webhooks como Telegram
 
-
-def criar_tabelas_se_nao_existirem():
-    pass
 
 def buscar_movimentacoes_paginadas(
     usuario_id, mes="Todos", ano="Todos", pagina=1, itens_por_pagina=100
@@ -1032,8 +1030,13 @@ def calcular_mes_fatura(data_transacao_str, dia_fechamento):
     return f"{mes:02d}/{ano}"
 
 
-def formatar_moeda_ptbr(valor):
-    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+def formatar_moeda(valor: float) -> str:
+    """Formatador único para BRL mantendo o formato original do projeto."""
+    try:
+        val = float(valor)
+        return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (ValueError, TypeError):
+        return "R$ 0,00"
 
 
 def renderizar_interface_central_downloads(usuario_id, mes, ano, ano_padrao):
@@ -1235,11 +1238,6 @@ def atualizar_conta_a_receber(
         return True
     st.error(f"Erro ao atualizar: {res.text}")
     return False
-
-# Garante a sessão HTTP e timeout padrão
-telegram_session = requests.Session()
-DEFAULT_TIMEOUT = 10
-
 
 def enviar_resumo_completo_telegram(
     chat_id,
