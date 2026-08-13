@@ -386,7 +386,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `290 Alison receber 15/08` (Cria Conta a Receber)\n\n"
             "• `50 Comida Pix` (Despesa via Pix)\n\n"
             "• `50 Comida Débito` (Despesa via Débito)\n\n"
-            "• `Pendentes` (Pendências Do Conta a Receber)\n\n"
+            "• `Pendentes` (Listar Contas a Receber)\n\n"
             "• `resumo` (Irá Fazer um Resumo Geral)",
             parse_mode="Markdown"
         )
