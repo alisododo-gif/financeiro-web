@@ -378,7 +378,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not match:
         await update.message.reply_text(
-            "⚠️ Formato inválido!\n\n"
+            "⚠️ Formatos Aceitos!\n\n"
             "Exemplos aceitos:\n\n"
             "• `10 salario receita` (Lança uma Receita)\n\n"
             "• `120 Internet fixo e a data de Vencimento`\n\n"
