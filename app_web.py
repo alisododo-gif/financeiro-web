@@ -62,7 +62,8 @@ from funcoes import (
     alternar_status_contas_a_receber,
     salvar_conta_a_receber,
     buscar_contas_a_receber,
-    atualizar_conta_a_receber
+    atualizar_conta_a_receber,
+    buscar_movimentacoes_paginadas
 )
 
 from views import render_sidebar_footer
@@ -1151,7 +1152,20 @@ elif opcao == "📋 Extrato Detalhado":
     with col_e2: 
         ano_extrato = st.selectbox("Filtrar Ano", ["Todos", "2026", "2027", "2028", "2029", "2030"], index=1)
         
-    dados_banco = buscar_todas_movimentacoes(st.session_state["usuario_id"], mes_extrato, ano_extrato)
+    # Controle de Estado da Paginação
+    if "pagina_extrato" not in st.session_state:
+        st.session_state["pagina_extrato"] = 1
+
+    ITENS_POR_PAGINA = 20
+
+    # Chamada Paginada
+    dados_banco, total_registros, total_paginas = buscar_movimentacoes_paginadas(
+        usuario_id=st.session_state["usuario_id"],
+        mes=mes_extrato,
+        ano=ano_extrato,
+        pagina=st.session_state["pagina_extrato"],
+        itens_por_pagina=ITENS_POR_PAGINA
+    )
     
     if dados_banco:
         st.write("### 📥 Exportar Relatórios")
@@ -1188,7 +1202,26 @@ elif opcao == "📋 Extrato Detalhado":
         df["Valor"] = df["Valor"].apply(lambda v: fmt_moeda(v))
         df["Data"] = pd.to_datetime(df["Data"]).dt.strftime('%d/%m/%Y')
 
+        st.caption(f"Exibindo {len(df)} de {total_registros} registros salvos no banco.")
         st.dataframe(df, width="stretch")
+
+        # Controles de Paginação (Anterior / Próximo)
+        st.markdown("---")
+        c_pag1, c_pag2, c_pag3 = st.columns([1, 2, 1])
+        
+        with c_pag1:
+            if st.button("⬅️ Anterior", disabled=(st.session_state["pagina_extrato"] <= 1)):
+                st.session_state["pagina_extrato"] -= 1
+                st.rerun()
+
+        with c_pag2:
+            st.markdown(f"<h5 style='text-align: center;'>Página {st.session_state['pagina_extrato']} de {total_paginas}</h5>", unsafe_allow_html=True)
+
+        with c_pag3:
+            if st.button("Próximo ➡️", disabled=(st.session_state["pagina_extrato"] >= total_paginas)):
+                st.session_state["pagina_extrato"] += 1
+                st.rerun()
+
         st.markdown("---")
         st.write("#### 🛠️ Operações Avançadas")
         id_excluir = st.number_input("Deseja deletar algum lançamento? Digite o ID dele aqui:", min_value=0, step=1)

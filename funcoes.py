@@ -31,6 +31,52 @@ DEFAULT_TIMEOUT = 5  # Timeout global para evitar travamentos
 def criar_tabelas_se_nao_existirem():
     pass
 
+def buscar_movimentacoes_paginadas(usuario_id, data_inicio, data_fim, pagina=1, itens_por_pagina=20):
+    """
+    Busca movimentações no Supabase utilizando paginação server-side via REST API.
+    """
+    offset_inicio = (pagina - 1) * itens_por_pagina
+    offset_fim = offset_inicio + itens_por_pagina - 1
+
+    # Define a URL de consulta das movimentações
+    url = f"{BASE_URL}/rest/v1/movimentacoes"
+    
+    # Parâmetros de filtro e ordenação
+    params = {
+        "usuario_id": f"eq.{usuario_id}",
+        "data": f"gte.{data_inicio}",
+        "data": f"lte.{data_fim}",
+        "order": "data.desc"
+    }
+
+    # Cabeçalhos com paginação e contagem total de registros
+    headers = {
+        "Range": f"{offset_inicio}-{offset_fim}",
+        "Prefer": "count=exact"
+    }
+
+    try:
+        # Usa a sessão HTTP configurada no seu funcoes.py
+        response = session.get(url, params=params, headers=headers, timeout=DEFAULT_TIMEOUT)
+        
+        if response.status_code in [200, 206]:  # 206 Partial Content é retornado com Range
+            dados = response.json()
+            
+            # O Supabase devolve o total no cabeçalho Content-Range (Ex: "0-19/150")
+            content_range = response.headers.get("Content-Range", "")
+            total_registros = 0
+            if "/" in content_range:
+                total_registros = int(content_range.split("/")[1])
+            
+            total_paginas = (total_registros + itens_por_pagina - 1) // itens_por_pagina
+            return dados, total_registros, max(1, total_paginas)
+        else:
+            print(f"Erro na requisição: Status {response.status_code}")
+            return [], 0, 1
+
+    except Exception as e:
+        print(f"Erro ao buscar movimentações paginadas: {e}")
+        return [], 0, 1
 
 # =====================================================================
 # --- AJUDANTES DE LIMPEZA CIRÚRGICA DE CACHE ---
