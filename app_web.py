@@ -64,7 +64,8 @@ from funcoes import (
     salvar_conta_a_receber,
     buscar_contas_a_receber,
     atualizar_conta_a_receber,
-    buscar_movimentacoes_paginadas
+    buscar_movimentacoes_paginadas,
+    obter_caminho_logo
 )
 
 from views import render_sidebar_footer
@@ -82,12 +83,7 @@ url_uid = st.query_params.get("uid")
 if "usuario_id" not in st.session_state:
     st.session_state["usuario_id"] = int(url_uid) if url_uid else None
 
-if "is_admin" not in st.session_state:
-    st.session_state["is_admin"] = True if st.session_state["usuario_id"] == 1 else False
-
-if st.session_state["usuario_id"] == 1:
-    st.session_state["is_admin"] = True
-
+st.session_state["is_admin"] = st.session_state.get("usuario_id") == 1
 def fmt_moeda(valor):
     return formatar_moeda_ptbr(float(valor))
 
@@ -396,22 +392,13 @@ usuario_atual_id = st.session_state.get("usuario_id") or st.query_params.get("ui
 if not usuario_atual_id:
     _, col_center, _ = st.columns([0.1, 0.8, 0.1]) if st.session_state.get('is_mobile', False) else st.columns([1, 1.2, 1])
 
-    with col_center:
-        with st.container(border=True):
-            pasta_assets = "assets"
-            extensoes_logo = ["logo"]
-            caminho_logo = None
-
-            for ext in extensoes_logo:
-                p = os.path.join(pasta_assets, ext)
-                if os.path.exists(p):
-                    caminho_logo = p
-                    break
-
-            if caminho_logo:
-                _, col_img, _ = st.columns([1, 2, 1])
-                with col_img:
-                    st.image(caminho_logo, width="stretch")
+with col_center:
+    with st.container(border=True):
+        caminho_logo = obter_caminho_logo()
+        if caminho_logo:
+            _, col_img, _ = st.columns([1, 2, 1])
+            with col_img:
+                st.image(caminho_logo, width="stretch")
 
             st.markdown(
                 "<p style='text-align: center; color: #94a3b8; font-size: 12px; margin-top: 5px; margin-bottom: 15px;'>Acesse sua conta para gerenciar suas finanças</p>",
@@ -502,10 +489,9 @@ if st.session_state.get("is_admin", False):
     opcoes_menu.append("👑 Painel Admin SaaS")
 
 with st.sidebar:
-    if os.path.exists(os.path.join("assets", "logo")):
-        st.image(os.path.join("assets", "logo"), width="stretch")
-    else:
-        st.image("assets/logo", width="stretch")
+    caminho_logo = obter_caminho_logo()
+    if caminho_logo:
+        st.image(caminho_logo, width="stretch")
         
     st.write(f"👤 Usuário: **{st.session_state.get('usuario_id', '')}** {'(👑 Admin)' if st.session_state.get('is_admin') else ''}")
     st.markdown("---")

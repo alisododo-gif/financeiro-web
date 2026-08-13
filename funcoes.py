@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-import re
+import os
 from dateutil.relativedelta import relativedelta
 import requests
 import streamlit as st
@@ -1329,3 +1329,21 @@ def enviar_resumo_completo_telegram(
     except Exception as e:
         print(f"Erro ao enviar no Telegram: {e}")
         return False
+
+
+def obter_caminho_logo(
+    pasta_assets: str = "assets", nome_base: str = "logo"
+) -> str | None:
+    """Procura pelo arquivo de logo na pasta de assets (com ou sem extensão)
+
+    e retorna o caminho correto, ou None se não encontrar.
+    """
+    extensoes = ["", ".png", ".jpeg", ".jpg", ".svg", ".webp"]
+
+    for ext in extensoes:
+        caminho_teste = os.path.join(pasta_assets, f"{nome_base}{ext}")
+        if os.path.exists(caminho_teste):
+            return caminho_teste
+
+    return None
+    
