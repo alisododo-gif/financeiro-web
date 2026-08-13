@@ -260,17 +260,15 @@ def formatar_data_br(data_str):
 
 
 async def enviar_resumo_mensal_telegram(update=None, context=None):
-    """Gera e envia o relatório financeiro mensal (acionado manualmente por 'resumo' ou via JobQueue)."""
+    """Gera o relatório financeiro mensal ignorando a tabela contas_receber."""
     bot_instancia = bot_global
     chat_id_solicitante = None
 
-    # Tenta obter o bot a partir do context ou update
     if context and hasattr(context, "bot"):
         bot_instancia = context.bot
-    elif update and hasattr(update, "bot"):
+    elif hasattr(update, "bot"):
         bot_instancia = update.bot
 
-    # Identifica se foi uma solicitação direta do chat
     if update and hasattr(update, "effective_chat") and update.effective_chat:
         chat_id_solicitante = update.effective_chat.id
 
@@ -279,7 +277,6 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
     prefixo_data_mes = agora_br.strftime("%Y-%m")
 
     try:
-        # Se veio de um comando/texto no chat, filtra só o usuário solicitante
         if chat_id_solicitante:
             res_users = (
                 supabase.table("usuarios")
@@ -288,7 +285,6 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 .execute()
             )
         else:
-            # Se for o agendamento do Dia 1º, busca todos
             res_users = (
                 supabase.table("usuarios")
                 .select("id, usuario, telegram_id")
@@ -345,7 +341,7 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
 
             # --- IDENTIFICAÇÃO DAS CATEGORIAS ---
 
-            # A) RECEITAS / ENTRADAS
+            # A) RECEITAS / ENTRADAS (Apenas da tabela movimentacoes)
             receitas = [m for m in movs if m.get("tipo") == "Receita"]
             ids_receitas = {m["id"] for m in receitas}
 
@@ -432,7 +428,7 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 and str(m.get("data", "")).startswith(prefixo_data_mes)
             ]
 
-            # CÁLCULO DOS TOTAIS
+            # CÁLCULO DOS TOTAIS (Sem contas_receber)
             tot_rec = sum(float(m.get("valor", 0)) for m in receitas)
             tot_cartoes = sum(info["total"] for info in faturas_agrupadas.values())
             tot_boletos = sum(float(m.get("valor", 0)) for m in boletos_pagar)
@@ -450,7 +446,7 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             msg += f"━━━━━━━━━━━━━━━━━━\n"
             msg += f"🔵 *Saldo:* R$ {formatar_moeda(saldo)}\n\n"
 
-            # 1. RECEITAS / ENTRADAS
+            # 1. RECEITAS / ENTRADAS (Apenas lançamentos da tabela movimentacoes, sem status)
             msg += "💵 *RECEITAS / ENTRADAS:*\n"
             if receitas:
                 for r in receitas:
@@ -492,18 +488,14 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             else:
                 msg += "• Nenhum gasto recorrente cadastrado.\n"
 
-            # Envio da mensagem com fallback para erros de markdown
+            # Envio
             try:
                 await bot_instancia.send_message(
                     chat_id=telegram_id, text=msg, parse_mode="Markdown"
                 )
-            except Exception as e_md:
-                logging.warning(f"Falha no Parse Markdown, enviando como texto simples: {e_md}")
-                await bot_instancia.send_message(
-                    chat_id=telegram_id, text=msg
-                )
-                
-            logging.info(f"Relatório enviado com sucesso para {nome} ({telegram_id})")
+                logging.info(f"Relatório enviado com sucesso para {nome} ({telegram_id})")
+            except Exception as e:
+                logging.error(f"Erro no envio para {telegram_id}: {e}")
 
     except Exception as e:
         logging.error(f"Erro ao gerar relatório mensal: {e}")
