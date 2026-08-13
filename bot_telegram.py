@@ -822,11 +822,11 @@ def main():
         first=18000
     )
 
-    # Agendamento Semanal: Toda Segunda-feira às 08:00
-    app.job_queue.run_daily(
+    # Agendamento Automático do Resumo Mensal: Todo dia 1º às 08:00
+    app.job_queue.run_monthly(
         enviar_resumo_mensal_telegram,
-        time=time(hour=8, minute=0, tzinfo=fuso_br),
-        days=(0,)
+        when=time(hour=8, minute=0, tzinfo=fuso_br),
+        day=1
     )
 
     # --- HANDLERS DE COMANDOS ---
@@ -834,20 +834,12 @@ def main():
     app.add_handler(CommandHandler("status", consultar_contas_receber))
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
     
-    # COMANDOS DE RECEITA
+    # NOVOS COMANDOS DE RECEITA
     app.add_handler(CommandHandler("receita", lancar_receita))
     app.add_handler(CommandHandler("entrada", lancar_receita))
 
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     app.add_handler(CommandHandler("resumo", enviar_resumo_mensal_telegram))
-
-    # HANDLER PARA A PALAVRA "RESUMO" (sem a barra /)
-    app.add_handler(
-        MessageHandler(
-            filters.Regex(re.compile(r"^resumo$", re.IGNORECASE)),
-            enviar_resumo_mensal_telegram
-        )
-    )
 
     app.add_handler(MessageHandler(filters.CONTACT, receber_contato))
     app.add_handler(
@@ -856,3 +848,7 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_geral))
 
     app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
