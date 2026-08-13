@@ -381,12 +381,13 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚠️ Formato inválido!\n\n"
             "Exemplos aceitos:\n\n"
             "• `10 salario receita` (Lança uma Receita)\n\n"
-            "• `120.00 Internet fixo` (Despesa na Data de Hoje)\n\n"
-            "• `290.00 Alison receber 15/08` (Cria Lembrete a Receber)\n\n"
+            "• `120.00 Internet fixo e a data de Vencimento`\n\n"
+            "• `50,00 Comida Crédito` (Despesa via Crédito)\n\n"
+            "• `290.00 Alison receber 15/08` (Cria Conta a Receber)\n\n"
             "• `50,00 Comida Pix` (Despesa via Pix)\n\n"
-            "• `50,00 Comida Debíto` (Despesa via Débito)\n\n"
+            "• `50,00 Comida Débito` (Despesa via Débito)\n\n"
             "• `Pendentes` (Consultar Pendências)\n\n"
-            "• `resumo` (irá fazer um resumo geral)",
+            "• `resumo` (Irá Fazer um Resumo Geral)",
             parse_mode="Markdown"
         )
         return
