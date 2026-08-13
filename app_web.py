@@ -1142,6 +1142,11 @@ elif opcao == "💸 Lançar Movimentações":
 elif opcao == "📋 Extrato Detalhado":
     st.title("📋 Extrato Detalhado de Transações")
 
+    # Mês e Ano atuais automáticos
+    hoje = datetime.now()
+    mes_atual_idx = hoje.month  # 1 para Jan, 2 para Fev, ..., 8 para Ago, etc.
+    ano_atual_str = str(hoje.year)
+
     opcoes_meses = [
         "Todos",
         "Janeiro",
@@ -1158,18 +1163,23 @@ elif opcao == "📋 Extrato Detalhado":
         "Dezembro",
     ]
 
+    opcoes_anos = ["Todos", "2026", "2027", "2028", "2029", "2030"]
+    idx_ano_atual = (
+        opcoes_anos.index(ano_atual_str) if ano_atual_str in opcoes_anos else 0
+    )
+
     col_e1, col_e2 = st.columns(2)
     with col_e1:
         mes_nome_extrato = st.selectbox(
-            "Filtrar Mês", opcoes_meses, index=0
-        )  # Padrão: Todos
+            "Filtrar Mês", opcoes_meses, index=mes_atual_idx
+        )  # Padrão: Mês Atual
 
     with col_e2:
         ano_extrato = st.selectbox(
             "Filtrar Ano",
-            ["Todos", "2026", "2027", "2028", "2029", "2030"],
-            index=0,
-        )  # Padrão: Todos
+            opcoes_anos,
+            index=idx_ano_atual,
+        )  # Padrão: Ano Atual
 
     # Reseta a página ao mudar filtros
     chave_filtro = f"{mes_nome_extrato}_{ano_extrato}"
