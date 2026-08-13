@@ -340,7 +340,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tags_final = " ".join([f"#{t.lower()}" for t in tags_encontradas]) if tags_encontradas else None
     texto_sem_tags = re.sub(r"#\w+", "", texto).strip()
 
-    # 2. Extrai Categoria personalizada (@categoria) primeiro
+    # 2. Extrai Categoria personalizada (@categoria)
     match_categoria = re.search(r'@(?:"([^"]+)"|([\wÀ-ÿ]+))', texto_sem_tags)
     if match_categoria:
         categoria_bruta = match_categoria.group(1) or match_categoria.group(2)
@@ -379,13 +379,13 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "⚠️ Formato inválido!\n\n"
             "Exemplos aceitos:\n\n"
-            "• `120.00 Internet fixo` (Usa a Data de Hoje)\n\n"
-            "• `/receita 2500 Salário` (Para registrar uma Receita)\n\n"
-            "• `290.00 Alison receber 15/08` (Lançamento para Lembrete no Dia 15/08)\n\n"
-            "• `50,00 Comida Pix` (Lançamento Pix)\n\n"
-            "• `50,00 Comida Crédito` (Lançamento Crédito)\n\n"    
-            "• `Pendentes` (Para consultar contas a receber)\n\n"
-            "• `\resumo` (irar fazer um resumo geral)",
+            "• `10 salario receita` (Lança uma Receita)\n\n"
+            "• `120.00 Internet fixo` (Despesa na Data de Hoje)\n\n"
+            "• `290.00 Alison receber 15/08` (Cria Lembrete a Receber)\n\n"
+            "• `50,00 Comida Pix` (Despesa via Pix)\n\n"
+            "• `50,00 Comida Debíto` (Despesa via Débito)\n\n"
+            "• `Pendentes` (Consultar Pendências)\n\n"
+            "• `resumo` (irar fazer um resumo geral)",
             parse_mode="Markdown"
         )
         return
@@ -398,26 +398,53 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Valor numérico inválido.")
         return
 
-    # 5. Verifica se é RECORRENTE / FIXO
-    texto_analise = descricao_bruta.lower()
-    e_recorrente = bool(re.search(r"\b(fixo|fixa|recorrente)\b", texto_analise))
+    # =========================================================
+    # FLUXO RECEITAS DIRETAS (EX: "10 salario receita")
+    # =========================================================
+    e_receita_direta = any(kw in descricao_bruta.lower() for kw in ["receita", "salario", "salário", "prolabore"])
 
-    # Identifica Forma de Pagamento e Categoria Padrão baseada na mensagem
-    e_credito = bool(re.search(r"\b(credito|crédito)\b", texto_analise))
-    e_debito = bool(re.search(r"\b(debito|débito)\b", texto_analise))
+    if e_receita_direta:
+        palavras_remover = r"\b(receita|salario|salário|prolabore)\b"
+        descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
+        descricao_limpa = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", descricao_limpa)
+        
+        nome_descricao = descricao_limpa if descricao_limpa else "Receita"
+        mes_fatura_calc = datetime.strptime(data_final, "%Y-%m-%d").strftime("%m/%Y")
+        conta_id = lista_contas[0]["id"] if lista_contas else None
 
-    if e_credito:
-        forma_pagamento = "Cartão de Crédito"
-        categoria_padrao = "Cartão de Crédito"
-    elif e_debito:
-        forma_pagamento = "Cartão de Débito"
-        categoria_padrao = "Débito"
-    else:
-        forma_pagamento = "Pix"
-        categoria_padrao = "Pix"
+        payload_receita = {
+            "usuario_id": usuario_id,
+            "conta_id": conta_id,
+            "cartao_id": None,
+            "descricao": nome_descricao,
+            "valor": valor,
+            "tipo": "Receita",
+            "categoria": categoria_usuario if categoria_usuario else "Receita",
+            "forma_pagamento": "Pix" if "pix" in descricao_bruta.lower() else "Outros",
+            "data": data_final,
+            "mes_fatura": mes_fatura_calc,
+            "pago": True,
+            "tags": tags_final,
+        }
 
-    # Define categoria final (Personalizada ou Padrão)
-    categoria_final = categoria_usuario if categoria_usuario else categoria_padrao
+        try:
+            supabase.table("movimentacoes").insert(payload_receita).execute()
+            tag_str = f"\n🏷️ Tags: {tags_final}" if tags_final else ""
+            data_br = datetime.strptime(data_final, "%Y-%m-%d").strftime("%d/%m/%Y")
+            
+            await update.message.reply_text(
+                f"🟢 *Receita Registrada!*\n\n"
+                f"📝 Descrição: {nome_descricao}\n"
+                f"💰 Valor: R$ {valor:.2f}\n"
+                f"📅 Data: {data_br}\n"
+                f"🏷️ Tipo: Entrada / Receita{tag_str}",
+                parse_mode="Markdown"
+            )
+            return
+        except Exception as e:
+            logging.error(f"Erro ao salvar receita direta: {e}")
+            await update.message.reply_text(f"⚠️ Erro ao salvar receita no Supabase: {e}")
+            return
 
     # =========================================================
     # FLUXO CONTAS A RECEBER (LEMBRETES DE COBRANÇA EXTERNA)
@@ -456,6 +483,24 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =========================================================
     # FLUXO DESPESAS
     # =========================================================
+    texto_analise = descricao_bruta.lower()
+    e_recorrente = bool(re.search(r"\b(fixo|fixa|recorrente)\b", texto_analise))
+
+    e_credito = bool(re.search(r"\b(credito|crédito)\b", texto_analise))
+    e_debito = bool(re.search(r"\b(debito|débito)\b", texto_analise))
+
+    if e_credito:
+        forma_pagamento = "Cartão de Crédito"
+        categoria_padrao = "Cartão de Crédito"
+    elif e_debito:
+        forma_pagamento = "Cartão de Débito"
+        categoria_padrao = "Débito"
+    else:
+        forma_pagamento = "Pix"
+        categoria_padrao = "Pix"
+
+    categoria_final = categoria_usuario if categoria_usuario else categoria_padrao
+
     descricao_limpa = re.sub(
         r"\b(pix|debito|débito|credito|crédito|fixo|fixa|recorrente)\b",
         "",
