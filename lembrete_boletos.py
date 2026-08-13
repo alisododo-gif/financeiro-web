@@ -260,7 +260,7 @@ def formatar_data_br(data_str):
 
 
 async def enviar_resumo_mensal_telegram(update=None, context=None):
-    """Gera o relatório financeiro removendo a indicação de status pendente nas receitas."""
+    """Gera o relatório financeiro agrupando corretamente Pix, Débito e Boletos."""
     bot_instancia = bot_global
     chat_id_solicitante = None
 
@@ -381,6 +381,37 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             ]
             ids_recorrentes = {m["id"] for m in recorrentes}
 
+            # D) PIX / DÉBITO / Á VISTA
+            def eh_pix_debito(m):
+                forma = str(m.get("forma_pagamento", "")).lower()
+                desc = str(m.get("descricao", "")).lower()
+                return (
+                    forma in ["pix", "débito", "debito", "dinheiro", "à vista", "a vista"]
+                    or "pix" in desc
+                    or "débito" in desc
+                    or "debito" in desc
+                )
+
+            pix_debito = [
+                m for m in movs
+                if m["id"] not in ids_receitas
+                and m["id"] not in ids_todos_cartao
+                and m["id"] not in ids_recorrentes
+                and eh_pix_debito(m)
+                and str(m.get("data", "")).startswith(prefixo_data_mes)
+            ]
+            ids_pix_debito = {m["id"] for m in pix_debito}
+
+            # E) BOLETOS & CONTAS A PAGAR (O restante das despesas do mês)
+            boletos_pagar = [
+                m for m in movs
+                if m["id"] not in ids_receitas
+                and m["id"] not in ids_todos_cartao
+                and m["id"] not in ids_recorrentes
+                and m["id"] not in ids_pix_debito
+                and str(m.get("data", "")).startswith(prefixo_data_mes)
+            ]
+
             # Cartão restrito estritamente ao mês da fatura atual
             itens_cartao_mes_atual = [
                 m for m in todos_itens_cartao
@@ -419,15 +450,6 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 if not pago:
                     faturas_agrupadas[chave]["pago"] = False
 
-            # D) BOLETOS & CONTAS A PAGAR
-            boletos_pagar = [
-                m for m in movs
-                if m["id"] not in ids_receitas
-                and m["id"] not in ids_todos_cartao
-                and m["id"] not in ids_recorrentes
-                and str(m.get("data", "")).startswith(prefixo_data_mes)
-            ]
-
             # Contas a receber (Tabela externa)
             ultimo_dia = calendar.monthrange(agora_br.year, agora_br.month)[1]
             data_inicio = f"{agora_br.year}-{agora_br.month:02d}-01"
@@ -449,10 +471,11 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             # CÁLCULO DOS TOTAIS
             tot_rec = sum(float(m.get("valor", 0)) for m in receitas) + sum(float(br.get("valor", 0)) for br in boletos_rec)
             tot_cartoes = sum(info["total"] for info in faturas_agrupadas.values())
+            tot_pix = sum(float(m.get("valor", 0)) for m in pix_debito)
             tot_boletos = sum(float(m.get("valor", 0)) for m in boletos_pagar)
             tot_recorrentes = sum(float(m.get("valor", 0)) for m in recorrentes)
 
-            tot_desp = tot_cartoes + tot_boletos + tot_recorrentes
+            tot_desp = tot_cartoes + tot_pix + tot_boletos + tot_recorrentes
             saldo = tot_rec - tot_desp
 
             # --- MONTAGEM DA MENSAGEM FINAL ---
@@ -464,7 +487,7 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             msg += f"━━━━━━━━━━━━━━━━━━\n"
             msg += f"🔵 *Saldo:* R$ {formatar_moeda(saldo)}\n\n"
 
-            # 1. RECEITAS / ENTRADAS (Sem indicação de pendente/pago)
+            # 1. RECEITAS / ENTRADAS
             msg += "💵 *RECEITAS / ENTRADAS:*\n"
             if receitas or boletos_rec:
                 for r in receitas:
@@ -477,7 +500,17 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 msg += "• Nenhuma receita neste mês.\n"
             msg += "\n"
 
-            # 2. FATURAS DE CARTÃO DE CRÉDITO
+            # 2. PIX / DÉBITO / Á VISTA
+            msg += "💸 *PIX / DÉBITO / Á VISTA:*\n"
+            if pix_debito:
+                for p in pix_debito:
+                    dt = formatar_data_br(p.get("data"))
+                    msg += f"• `{dt}` — {p.get('descricao')} | R$ {formatar_moeda(p.get('valor'))}\n"
+            else:
+                msg += "• Nenhum lançamento Pix/Débito neste mês.\n"
+            msg += "\n"
+
+            # 3. FATURAS DE CARTÃO DE CRÉDITO
             msg += "💳 *FATURAS DE CARTÃO:*\n"
             if faturas_agrupadas:
                 for (nome_c, dt_venc), info in faturas_agrupadas.items():
@@ -488,7 +521,7 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 msg += "• Nenhuma fatura neste mês.\n"
             msg += "\n"
 
-            # 3. BOLETOS & CONTAS A PAGAR
+            # 4. BOLETOS & CONTAS A PAGAR
             msg += "📑 *BOLETOS & CONTAS A PAGAR:*\n"
             if boletos_pagar:
                 for b in boletos_pagar:
@@ -499,7 +532,7 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 msg += "• Nenhum boleto pendente.\n"
             msg += "\n"
 
-            # 4. GASTOS FIXOS / RECORRENTES
+            # 5. GASTOS FIXOS / RECORRENTES
             msg += "🔄 *GASTOS FIXOS / RECORRENTES:*\n"
             if recorrentes:
                 for rec in recorrentes:
