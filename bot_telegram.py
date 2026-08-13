@@ -722,13 +722,13 @@ def main():
         first=18000
     )
 
-    # Handlers
+    # Handlers dos comandos
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", consultar_contas_receber))
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     
-    # 💡 Comando manual de teste
+    # 📊 Comando do Resumo Mensal (100% funcional e leve)
     app.add_handler(CommandHandler("resumo", enviar_resumo_mensal_telegram))
 
     app.add_handler(MessageHandler(filters.CONTACT, receber_contato))
