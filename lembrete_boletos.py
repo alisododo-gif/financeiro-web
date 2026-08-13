@@ -251,7 +251,6 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
     bot_instancia = bot_global
     chat_id_solicitante = None
 
-    # Identifica se foi chamado por comando manual ou agendamento automático
     if context and hasattr(context, "bot"):
         bot_instancia = context.bot
     elif hasattr(update, "bot"):
@@ -264,7 +263,6 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
     str_mes_fatura = agora_br.strftime("%m/%Y")
 
     try:
-        # Se veio do comando /resumo, envia para quem pediu. Senão, para todos do banco.
         if chat_id_solicitante:
             res_users = supabase.table("usuarios").select("id, usuario, telegram_id").eq("telegram_id", chat_id_solicitante).execute()
         else:
@@ -289,18 +287,34 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             tot_desp = sum(float(m.get("valor", 0)) for m in movs if m.get("tipo") == "Despesa")
             saldo = tot_rec - tot_desp
 
-            # Filtros Específicos
+            # --- CORREÇÃO DOS FILTROS ---
+            
+            # A) Faturas de Cartão de Crédito
             faturas = [m for m in movs if m.get("forma_pagamento") == "Cartão de Crédito"]
-            recorrentes = [m for m in movs if "recorrente" in str(m.get("descricao", "")).lower() or "(recorrente)" in str(m.get("descricao", "")).lower()]
 
-            # 2. Contas a Receber (Boletos)
+            # B) Gastos Fixos / Recorrentes
+            # Checa se existe campo 'recorrente'/'fixo' no banco OU termo na descrição
+            recorrentes = [
+                m for m in movs if m.get("recorrente") is True 
+                or m.get("fixo") is True 
+                or "recorrente" in str(m.get("descricao", "")).lower() 
+                or "fixo" in str(m.get("descricao", "")).lower()
+            ]
+
+            # C) Boletos & Contas (Busca em contas_pagar e contas_receber)
             ultimo_dia = calendar.monthrange(agora_br.year, agora_br.month)[1]
             data_inicio = f"{agora_br.year}-{agora_br.month:02d}-01"
             data_fim = f"{agora_br.year}-{agora_br.month:02d}-{ultimo_dia:02d}"
-            res_rec = supabase.table("contas_receber").select("*").eq("usuario_id", uid).gte("data_recebimento", data_inicio).lte("data_recebimento", data_fim).execute()
+
+            # Contas a Pagar (Boletos)
+            res_pagar = supabase.table("contas_pagar").select("*").eq("usuario_id", uid).gte("data_vencimento", data_inicio).lte("data_vencimento", data_fim).execute()
+            boletos_pagar = res_pagar.data or []
+
+            # Contas a Receber
+            res_rec = supabase.table("contas_receber").select("*").eq("usuario_id", uid).gte("data_vencimento", data_inicio).lte("data_vencimento", data_fim).execute()
             boletos_rec = res_rec.data or []
 
-            # --- MONTAGEM DA MENSAGEM LEVE ---
+            # --- MONTAGEM DA MENSAGEM ---
             msg = f"📊 *Relatório Financeiro - {str_mes_fatura}*\n"
             msg += f"👤 Cliente: *{nome}*\n\n"
             
@@ -319,13 +333,22 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 msg += "• Nenhuma fatura neste mês.\n"
             msg += "\n"
 
-            # Boletos / Recebimentos
+            # Boletos & Recebimentos
             msg += "📑 *BOLETOS & RECEBIMENTOS:*\n"
+            tem_boletos = False
+            if boletos_pagar:
+                for b in boletos_pagar:
+                    st = "✅ Pago" if b.get("pago") else "⏳ Pendente"
+                    msg += f"• 🔴 [Pagar] {b.get('descricao')} (R$ {formatar_moeda(b.get('valor'))}) — {st}\n"
+                tem_boletos = True
+
             if boletos_rec:
                 for b in boletos_rec:
                     st = "✅ Recebido" if b.get("recebido") else "⏳ Pendente"
-                    msg += f"• {b.get('descricao')} (R$ {formatar_moeda(b.get('valor'))}) — {st}\n"
-            else:
+                    msg += f"• 🟢 [Receber] {b.get('descricao')} (R$ {formatar_moeda(b.get('valor'))}) — {st}\n"
+                tem_boletos = True
+
+            if not tem_boletos:
                 msg += "• Nenhum boleto pendente.\n"
             msg += "\n"
 
@@ -347,7 +370,3 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
 
     except Exception as e:
         logging.error(f"Erro ao gerar relatório mensal: {e}")
-
-
-if __name__ == "__main__":
-    asyncio.run(processar_e_enviar_alertas())
