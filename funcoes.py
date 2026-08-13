@@ -1157,7 +1157,12 @@ def atualizar_conta_a_receber(
 # =====================================================================
 
 def atualizar_sessao_usuario(usuario_id):
-    """Registra ou atualiza a sessão ativa do usuário no Supabase."""
+    """
+    Registra ou atualiza a sessão ativa do usuário no Supabase.
+    """
+    if not usuario_id:
+        return
+
     from datetime import datetime
     import pytz
 
@@ -1166,7 +1171,13 @@ def atualizar_sessao_usuario(usuario_id):
     
     sessao_atual = st.session_state.get("sessao_id")
 
+    # Adicionamos o Prefer no header para o Supabase retornar o ID gerado
+    headers = {
+        "Prefer": "return=representation"
+    }
+
     if not sessao_atual:
+        # Tenta criar a sessão inicial
         url = f"{BASE_URL}/sessoes_usuarios"
         payload = {
             "usuario_id": int(usuario_id),
@@ -1175,14 +1186,18 @@ def atualizar_sessao_usuario(usuario_id):
             "online": True
         }
         try:
-            res = session.post(url, json=payload, timeout=DEFAULT_TIMEOUT)
+            # Nota: session.post precisa mesclar com os headers existentes
+            res = session.post(url, json=payload, headers=headers, timeout=DEFAULT_TIMEOUT)
             if res.status_code in [200, 201] and res.json():
+                # Salva o id retornado pelo Supabase no session_state
                 st.session_state["sessao_id"] = res.json()[0]["id"]
+                print(f"✅ Sessão iniciada no Supabase! ID: {st.session_state['sessao_id']}")
             else:
-                print(f"⚠️ Erro ao criar sessão ({res.status_code}): {res.text}")
+                print(f"❌ Erro ao criar sessão no Supabase ({res.status_code}): {res.text}")
         except Exception as e:
-            print(f"Erro ao registrar início de sessão: {e}")
+            print(f"❌ Exceção ao registrar início de sessão: {e}")
     else:
+        # Atualiza o heartbeat (última atividade)
         url = f"{BASE_URL}/sessoes_usuarios?id=eq.{sessao_atual}"
         payload = {
             "ultima_atividade": agora,
@@ -1191,21 +1206,21 @@ def atualizar_sessao_usuario(usuario_id):
         try:
             res = session.patch(url, json=payload, timeout=DEFAULT_TIMEOUT)
             if res.status_code not in [200, 204]:
-                print(f"⚠️ Erro ao atualizar sessão ({res.status_code}): {res.text}")
+                print(f"⚠️ Erro ao atualizar heartbeat ({res.status_code}): {res.text}")
         except Exception as e:
-            print(f"Erro ao atualizar sessão: {e}")
+            print(f"❌ Exceção ao atualizar sessão: {e}")
 
 
-@st.cache_data(ttl=5, show_spinner=False)
+@st.cache_data(ttl=15, show_spinner=False)
 def buscar_sessoes_usuarios_admin():
-    """Busca todas as sessões cadastradas junto aos dados dos usuários."""
+    """
+    Busca todas as sessões cadastradas junto aos dados dos usuários para exibir na Aba Admin.
+    """
     url = f"{BASE_URL}/sessoes_usuarios?select=*,usuarios(usuario,telefone)&order=ultima_atividade.desc"
     try:
         res = session.get(url, timeout=DEFAULT_TIMEOUT)
         if res.status_code == 200:
             return res.json()
-        else:
-            print(f"⚠️ Erro ao buscar sessões no Admin ({res.status_code}): {res.text}")
     except Exception as e:
-        print(f"Erro de conexão ao buscar sessões: {e}")
+        print(f"Erro ao buscar sessões para admin: {e}")
     return []

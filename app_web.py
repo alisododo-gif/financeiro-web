@@ -650,7 +650,11 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                                     st.rerun()
 
     with adm_tab4:
-        st.write("### 📡 Sessões e Uso em Tempo Real")
+        col_tit1, col_tit2 = st.columns([3, 1])
+        col_tit1.write("### 📡 Sessões e Uso em Tempo Real")
+        if col_tit2.button("🔄 Atualizar Sessões", use_container_width=True):
+            st.rerun()
+
         sessoes_raw = buscar_sessoes_usuarios_admin()
 
         if sessoes_raw:
@@ -660,16 +664,29 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
             dados_painel = []
 
             for record in sessoes_raw:
-                user_info = record.get("usuarios") or {}
-                nome_cliente = user_info.get("usuario", "Desconhecido")
+                # Trata retorno da relação com a tabela usuarios
+                user_info = record.get("usuarios")
+                
+                # Se 'usuarios' retornar uma lista, pega o primeiro item
+                if isinstance(user_info, list) and len(user_info) > 0:
+                    user_info = user_info[0]
+                elif not isinstance(user_info, dict):
+                    user_info = {}
+
+                nome_cliente = user_info.get("usuario", f"ID {record.get('usuario_id', '???')}")
 
                 try:
-                    dt_inicio = datetime.fromisoformat(record["inicio_sessao"].replace("Z", "+00:00")).astimezone(fuso_br)
-                    dt_ultima = datetime.fromisoformat(record["ultima_atividade"].replace("Z", "+00:00")).astimezone(fuso_br)
+                    # Faz o parse com segurança das datas UTC para São Paulo
+                    str_inicio = str(record.get("inicio_sessao", "")).replace("Z", "+00:00")
+                    str_ultima = str(record.get("ultima_atividade", "")).replace("Z", "+00:00")
+
+                    dt_inicio = datetime.fromisoformat(str_inicio).astimezone(fuso_br)
+                    dt_ultima = datetime.fromisoformat(str_ultima).astimezone(fuso_br)
                     
                     duracao_min = max(0, int((dt_ultima - dt_inicio).total_seconds() / 60))
                     tempo_sem_interacao = (agora - dt_ultima).total_seconds() / 60
                     
+                    # Considera online se interagiu nos últimos 5 minutos
                     is_online = "🟢 Online" if tempo_sem_interacao <= 5 else "🔴 Offline"
 
                     dados_painel.append({
@@ -679,7 +696,9 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                         "Última Atividade": dt_ultima.strftime("%d/%m/%Y %H:%M:%S"),
                         "Início da Sessão": dt_inicio.strftime("%d/%m/%Y %H:%M:%S")
                     })
-                except Exception:
+                except Exception as e:
+                    # Imprime no console se houver falha de parse na data
+                    print(f"Erro ao formatar linha de sessão: {e}")
                     continue
 
             if dados_painel:
@@ -688,11 +707,12 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
 
                 col_s1, col_s2 = st.columns(2)
                 col_s1.metric("🟢 Clientes Online Agora", tot_online)
-                col_s2.metric("📊 Total de Sessões", len(df_sessoes))
+                col_s2.metric("📊 Total de Sessões Registradas", len(df_sessoes))
 
+                st.markdown("---")
                 st.dataframe(df_sessoes, use_container_width=True)
             else:
-                st.info("Nenhum dado de sessão formatado com sucesso.")
+                st.warning("Existem sessões registradas no banco, mas não foi possível formatar os dados de data/usuário.")
         else:
             st.info("Nenhuma sessão registrada no momento.")
 
