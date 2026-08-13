@@ -683,6 +683,14 @@ async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
 
 
+async def checar_e_enviar_resumo_mensal(context: ContextTypes.DEFAULT_TYPE):
+    """Executa diariamente, mas só envia o resumo se for o dia 1º do mês às 08h."""
+    hoje = datetime.now()
+    if hoje.day == 1:
+        logging.info("🗓️ Hoje é dia 1º! Disparando resumo mensal...")
+        await enviar_resumo_mensal_telegram(context)
+
+
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -701,29 +709,28 @@ def main():
         time=time(hour=15, minute=0, tzinfo=fuso_br)
     )
 
-    # 📅 NOVO: Envio do Resumo Mensal no dia 1º de cada mês às 08:00
-    app.job_queue.run_monthly(
-        enviar_resumo_mensal_telegram,
-        time=time(hour=8, minute=0, tzinfo=fuso_br),
-        day=1
+    # 📅 Checa todo dia às 08:00 se é dia 1º para mandar o resumo mensal
+    app.job_queue.run_daily(
+        checar_e_enviar_resumo_mensal,
+        time=time(hour=8, minute=0, tzinfo=fuso_br)
     )
 
-    # Ping do Streamlit (a cada 5 horas para manter ativo)
+    # Ping do Streamlit (a cada 5 horas)
     app.job_queue.run_repeating(
         ping_streamlit,
         interval=18000,
         first=18000
     )
 
-    # Handlers dos comandos
+    # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", consultar_contas_receber))
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     
-    # 💡 NOVO: Comando manual para você testar ou pedir o resumo a qualquer hora
+    # 💡 Comando manual de teste
     app.add_handler(CommandHandler("resumo", enviar_resumo_mensal_telegram))
-    
+
     app.add_handler(MessageHandler(filters.CONTACT, receber_contato))
     app.add_handler(
         MessageHandler(filters.TEXT & (~filters.COMMAND), registrar_gastos)
