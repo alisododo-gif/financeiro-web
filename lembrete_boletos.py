@@ -1,227 +1,352 @@
 import asyncio
 import calendar
-from datetime import date, datetime, time, timedelta
-from dotenv import load_dotenv
+from datetime import datetime, timedelta
+import logging
 import os
+from dotenv import load_dotenv
 import pytz
-from supabase import create_client, Client
+from supabase import Client, create_client
 from telegram import Bot
 
+# 1. Carrega as variáveis de ambiente
 load_dotenv()
 
-# Configurações do Supabase e Telegram
+# Configuração de logs
+logging.basicConfig(level=logging.INFO)
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+bot_global = Bot(token=TELEGRAM_TOKEN)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-# Fuso horário do Brasil
-fuso_br = pytz.timezone("America/Sao_Paulo")
-
-
-async def buscar_alertas_vencimento():
-    """Busca contas a pagar/receber e investimentos com vencimento/resgate próximo ou hoje."""
-    agora_br = datetime.now(fuso_br).date()
-
-    # 1. Alertas de Contas a Pagar / Boletos
-    resposta_boletos = (
-        supabase.table("contas_pagar")
-        .select("*")
-        .filter("pago", "eq", False)
-        .gte("data_vencimento", agora_br.strftime("%Y-%m-%d"))
-        .lte("data_vencimento", (agora_br + timedelta(days=3)).strftime("%Y-%m-%d"))
-        .execute()
-    )
-
-    alertas_boletos = []
-    for item in resposta_boletos.data:
-        data_venc = datetime.strptime(item["data_vencimento"], "%Y-%m-%d").date()
-        dias_restantes = (data_venc - agora_br).days
-
-        if dias_restantes == 0:
-            msg_tempo = "⚠️ *VENCE HOJE!*"
-        elif dias_restantes == 1:
-            msg_tempo = "⏳ Vence *amanhã*"
-        else:
-            msg_tempo = f"📅 Vence em *{dias_restantes} dias*"
-
-        alertas_boletos.append(
-            f"• *{item['descricao']}*\n"
-            f"  💸 Valor: R$ {item['valor']:.2f}\n"
-            f"  📆 Vencimento: {data_venc.strftime('%d/%m/%Y')} ({msg_tempo})"
-        )
-
-    # 2. Alertas de Contas a Receber
-    resposta_receber = (
-        supabase.table("contas_receber")
-        .select("*")
-        .filter("recebido", "eq", False)
-        .gte("data_vencimento", agora_br.strftime("%Y-%m-%d"))
-        .lte("data_vencimento", (agora_br + timedelta(days=3)).strftime("%Y-%m-%d"))
-        .execute()
-    )
-
-    alertas_receber = []
-    for item in resposta_receber.data:
-        data_venc = datetime.strptime(item["data_vencimento"], "%Y-%m-%d").date()
-        dias_restantes = (data_venc - agora_br).days
-
-        if dias_restantes == 0:
-            msg_tempo = "💰 *RECEBER HOJE!*"
-        elif dias_restantes == 1:
-            msg_tempo = "⏳ Receber *amanhã*"
-        else:
-            msg_tempo = f"📅 Receber em *{dias_restantes} dias*"
-
-        alertas_receber.append(
-            f"• *{item['descricao']}*\n"
-            f"  💵 Valor: R$ {item['valor']:.2f}\n"
-            f"  📆 Vencimento: {data_venc.strftime('%d/%m/%Y')} ({msg_tempo})"
-        )
-
-    # 3. Alertas de Resgate de Investimentos
-    resposta_invest = (
-        supabase.table("investimentos")
-        .select("*")
-        .gte("data_vencimento", agora_br.strftime("%Y-%m-%d"))
-        .lte("data_vencimento", (agora_br + timedelta(days=5)).strftime("%Y-%m-%d"))
-        .execute()
-    )
-
-    alertas_invest = []
-    for item in resposta_invest.data:
-        data_venc = datetime.strptime(item["data_vencimento"], "%Y-%m-%d").date()
-        dias_restantes = (data_venc - agora_br).days
-
-        if dias_restantes == 0:
-            msg_tempo = "📈 *RESGATE HOJE!*"
-        else:
-            msg_tempo = f"📅 Resgate em *{dias_restantes} dias*"
-
-        alertas_invest.append(
-            f"• *{item['nome']}* ({item['tipo']})\n"
-            f"  🏦 Corretora: {item.get('corretora', 'N/A')}\n"
-            f"  💰 Valor Aplicado: R$ {item['valor_aplicado']:.2f}\n"
-            f"  📆 Vencimento: {data_venc.strftime('%d/%m/%Y')} ({msg_tempo})"
-        )
-
-    return alertas_boletos, alertas_receber, alertas_invest
+# Fuso horário oficial do Brasil
+FUSO_BR = pytz.timezone("America/Sao_Paulo")
 
 
-async def processar_e_enviar_alertas():
-    """Formata a mensagem e envia via Telegram."""
-    alertas_boletos, alertas_receber, alertas_invest = await buscar_alertas_vencimento()
-
-    if not alertas_boletos and not alertas_receber and not alertas_invest:
-        print("Nenhum alerta para enviar hoje.")
-        return
-
-    mensagem = "🔔 *LEMBRETE FINANCEIRO DA SEMANA*\n\n"
-
-    if alertas_boletos:
-        mensagem += "🔴 *CONTAS A PAGAR*\n" + "\n\n".join(alertas_boletos) + "\n\n"
-
-    if alertas_receber:
-        mensagem += "🟢 *CONTAS A RECEBER*\n" + "\n\n".join(alertas_receber) + "\n\n"
-
-    if alertas_invest:
-        mensagem += "📈 *INVESTIMENTOS A VENCER*\n" + "\n\n".join(alertas_invest) + "\n\n"
-
-    mensagem += "💡 _Acesse a plataforma para atualizar seus status!_"
-
-    if TELEGRAM_CHAT_ID:
-        await bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=mensagem,
-            parse_mode="Markdown"
-        )
-        print("Alertas enviados com sucesso via Telegram!")
+def formatar_moeda(valor) -> str:
+    """Auxiliar para formatar valores no padrão R$ 0.000,00."""
+    try:
+        valor_num = float(valor)
+        return f"{valor_num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (ValueError, TypeError):
+        return str(valor)
 
 
-async def enviar_resumo_mensal_telegram(param1=None, param2=None):
-    """
-    Gera o resumo de receitas x despesas e pendências do mês.
-    Trata argumentos tanto do comando /resumo quanto do agendamento mensal da JobQueue.
-    """
-    # Identifica a origem da chamada
-    context = param1 if hasattr(param1, "bot") else param2
-    update = param1 if hasattr(param1, "effective_chat") else None
+def extrair_nome_usuario(dados: dict) -> str:
+    """Extrai o nome do usuário das views ou busca na tabela usuarios pelo usuario_id."""
+    # 1. Tenta pegar do próprio resultado da view
+    nome = dados.get("usuario") or dados.get("nome_usuario") or dados.get("nome")
+    if nome:
+        return nome
 
-    # Chat ID seguro
-    chat_id = TELEGRAM_CHAT_ID
-    if update and update.effective_chat:
-        chat_id = update.effective_chat.id
+    # 2. Se a view só trouxe o usuario_id, busca o nome diretamente no Supabase
+    usuario_id = dados.get("usuario_id")
+    if usuario_id:
+        try:
+            res = supabase.table("usuarios").select("usuario").eq("id", usuario_id).execute()
+            if res.data and len(res.data) > 0:
+                nome_db = res.data[0].get("usuario")
+                if nome_db:
+                    return nome_db
+        except Exception as e:
+            logging.error(f"Erro ao buscar nome para usuario_id {usuario_id}: {e}")
 
-    agora_br = datetime.now(fuso_br).date()
+    return "Cliente"
+
+
+def consultar_view(nome_view: str, filtrar_pago: bool = True):
+    """Consulta lançamentos na view informada."""
+    try:
+        query = supabase.table(nome_view).select("*")
+        if filtrar_pago:
+            query = query.eq("pago", False)
+        resposta = query.execute()
+        return resposta.data or []
+    except Exception as e:
+        logging.error(f"Erro ao consultar {nome_view}: {e}")
+        return []
+
+
+async def processar_e_enviar_alertas(param=None):
+    """Busca dados nas views (hoje, amanhã, faturas e contas a receber) e envia mensagens."""
+    chat_id_solicitante = None
     
-    # FIX: Ajustado cálculo do último dia do mês para evitar erros de sintaxe (ex: 31 de fev/abr)
-    ultimo_dia = calendar.monthrange(agora_br.year, agora_br.month)[1]
-    data_inicio = f"{agora_br.year}-{agora_br.month:02d}-01"
-    data_fim = f"{agora_br.year}-{agora_br.month:02d}-{ultimo_dia:02d}"
+    # Identifica a instância correta do bot (do contexto da aplicação ou global)
+    bot_instancia = bot_global
+    if hasattr(param, "bot") and param.bot:
+        bot_instancia = param.bot
 
-    # 1. Movimentações registradas no mês
-    resp_mov = (
-        supabase.table("movimentacoes")
-        .select("*")
-        .gte("data", data_inicio)
-        .lte("data", data_fim)
-        .execute()
-    )
+    if isinstance(param, int):
+        chat_id_solicitante = param
+    elif hasattr(param, "effective_chat") and param.effective_chat:
+        chat_id_solicitante = param.effective_chat.id
 
-    total_receitas = sum(item["valor"] for item in resp_mov.data if item["tipo"] == "receita")
-    total_despesas = sum(item["valor"] for item in resp_mov.data if item["tipo"] == "despesa")
-    saldo_mes = total_receitas - total_despesas
+    agora_br = datetime.now(FUSO_BR)
+    hoje_str = agora_br.strftime("%d/%m/%Y")
+    amanha_str = (agora_br + timedelta(days=1)).strftime("%d/%m/%Y")
 
-    # 2. Contas a Pagar pendentes do mês
-    resp_pagar = (
-        supabase.table("contas_pagar")
-        .select("*")
-        .filter("pago", "eq", False)
-        .gte("data_vencimento", data_inicio)
-        .lte("data_vencimento", data_fim)
-        .execute()
-    )
-    pendente_pagar = sum(item["valor"] for item in resp_pagar.data)
+    # =========================================================
+    # 1. LEITURA E ENVIO DOS LANÇAMENTOS DE HOJE
+    # =========================================================
+    boletos_hoje = consultar_view("lancamentos_hoje")
+    
+    if not boletos_hoje:
+        logging.info("Nenhum boleto a vencer HOJE.")
+        if chat_id_solicitante:
+            try:
+                await bot_instancia.send_message(
+                    chat_id=chat_id_solicitante,
+                    text="ℹ️ Nenhum boleto pendente para vencer hoje!"
+                )
+            except Exception as e:
+                logging.error(f"Erro ao enviar aviso de lista vazia: {e}")
 
-    # 3. Contas a Receber pendentes do mês
-    resp_receber = (
-        supabase.table("contas_receber")
-        .select("*")
-        .filter("recebido", "eq", False)
-        .gte("data_vencimento", data_inicio)
-        .lte("data_vencimento", data_fim)
-        .execute()
-    )
-    pendente_receber = sum(item["valor"] for item in resp_receber.data)
+    for boleto in boletos_hoje:
+        telegram_id = boleto.get("telegram_id")
+        nome_usuario = extrair_nome_usuario(boleto)
 
-    nome_mes = agora_br.strftime("%B/%Y")
+        if telegram_id:
+            descricao = boleto.get("descricao", "Sem descrição")
+            valor_formatado = formatar_moeda(boleto.get("valor", 0.0))
 
-    msg = (
-        f"📊 *RESUMO FINANCEIRO DE {nome_mes.upper()}*\n\n"
-        f"🟢 *Entradas:* R$ {total_receitas:,.2f}\n"
-        f"🔴 *Saídas:* R$ {total_despesas:,.2f}\n"
-        f"💰 *Saldo do Mês:* R$ {saldo_mes:,.2f}\n\n"
-        f"📌 *PENDÊNCIAS DO MÊS:*\n"
-        f"• Contas a Pagar: R$ {pendente_pagar:,.2f} ({len(resp_pagar.data)} conta(s))\n"
-        f"• Contas a Receber: R$ {pendente_receber:,.2f} ({len(resp_receber.data)} conta(s))\n\n"
-        f"💡 _Monitore seu orçamento no painel Web!_"
-    )
+            mensagem = (
+                f"Olá! *{nome_usuario}* Espero que esteja tendo um ótimo dia. 😊\n\n"
+                f"Lembrete rápido sobre o seu boleto que vence na data de hoje!\n\n"
+                f"*📆 Data: {hoje_str}*\n"
+                f"*📄 Descrição: {descricao}*\n"
+                f"*💰 Valor: R$ {valor_formatado}*\n\n"
+                f"Se já realizou o pagamento, pode desconsiderar esta mensagem.\n\n"
+                f"*FinanceiroPro Web Agradece a Parceria 🫡*"
+            )
 
-    if context and chat_id:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=msg,
-            parse_mode="Markdown"
-        )
-    elif TELEGRAM_CHAT_ID:
-        await bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=msg,
-            parse_mode="Markdown"
-        )
+            try:
+                await bot_instancia.send_message(
+                    chat_id=telegram_id, text=mensagem, parse_mode="Markdown"
+                )
+                logging.info(
+                    f"Aviso de HOJE enviado com sucesso para {nome_usuario} ({telegram_id})"
+                )
+            except Exception as e:
+                logging.error(
+                    f"Falha ao enviar mensagem de HOJE para {telegram_id}: {e}"
+                )
+
+    # =========================================================
+    # 2. LEITURA E ENVIO DOS LANÇAMENTOS DE AMANHÃ
+    # =========================================================
+    boletos_amanha = consultar_view("lancamentos_amanha")
+
+    if not boletos_amanha:
+        logging.info("Nenhum boleto a vencer AMANHÃ.")
+
+    for boleto in boletos_amanha:
+        telegram_id = boleto.get("telegram_id")
+        nome_usuario = extrair_nome_usuario(boleto)
+
+        if telegram_id:
+            descricao = boleto.get("descricao", "Sem descrição")
+            valor_formatado = formatar_moeda(boleto.get("valor", 0.0))
+
+            mensagem = (
+                f"Olá! *{nome_usuario}* Espero que esteja tendo um ótimo dia. 😊\n\n"
+                f"Lembrete rápido sobre o seu boleto que vence amanhã!\n\n"
+                f"*📆 Data: {amanha_str}*\n"
+                f"*📄 Descrição: {descricao}*\n"
+                f"*💰 Valor: R$ {valor_formatado}*\n\n"
+                f"Se já realizou o pagamento, pode desconsiderar esta mensagem.\n\n"
+                f"*FinanceiroPro Web Agradece a Parceria 🫡*"
+            )
+
+            try:
+                await bot_instancia.send_message(
+                    chat_id=telegram_id, text=mensagem, parse_mode="Markdown"
+                )
+                logging.info(
+                    f"Aviso de AMANHÃ enviado com sucesso para {nome_usuario} ({telegram_id})"
+                )
+            except Exception as e:
+                logging.error(
+                    f"Falha ao enviar mensagem de AMANHÃ para {telegram_id}: {e}"
+                )
+
+    # =========================================================
+    # 3. LEITURA E ENVIO DAS FATURAS DE CARTÃO DE CRÉDITO VENCENDO HOJE
+    # =========================================================
+    faturas_cartao = consultar_view("faturas_vencendo_hoje", filtrar_pago=False)
+
+    if not faturas_cartao:
+        logging.info("Nenhuma fatura de cartão vencendo HOJE.")
+
+    for fatura in faturas_cartao:
+        telegram_id = fatura.get("telegram_id")
+        nome_usuario = extrair_nome_usuario(fatura)
+        nome_cartao = fatura.get("nome_cartao", "Cartão de Crédito")
+
+        if telegram_id:
+            mensagem = (
+                f"Olá! *{nome_usuario}* Espero que esteja tendo um ótimo dia. 😊\n\n"
+                f"💳 *Lembrete de Fatura de Cartão de Crédito*\n\n"
+                f"A fatura do seu cartão *{nome_cartao}* vence na data de hoje!\n\n"
+                f"*📆 Data de Vencimento: {hoje_str}*\n\n"
+                f"Não se esqueça de checar o aplicativo do cartão e efetuar o pagamento.\n\n"
+                f"*FinanceiroPro Web Agradece a Parceria 🫡*"
+            )
+
+            try:
+                await bot_instancia.send_message(
+                    chat_id=telegram_id, text=mensagem, parse_mode="Markdown"
+                )
+                logging.info(
+                    f"Aviso de Fatura enviado para {nome_usuario} ({telegram_id}) - Cartão: {nome_cartao}"
+                )
+            except Exception as e:
+                logging.error(
+                    f"Falha ao enviar aviso de Fatura para {telegram_id}: {e}"
+                )
+
+    # =========================================================
+    # 4. LEITURA E ENVIO DOS RECEBIMENTOS DE HOJE
+    # =========================================================
+    recebimentos_hoje = consultar_view("recebimentos_hoje", filtrar_pago=False)
+
+    if not recebimentos_hoje:
+        logging.info("Nenhum valor a receber HOJE.")
+
+    for rec in recebimentos_hoje:
+        telegram_id = rec.get("telegram_id")
+        nome_usuario = extrair_nome_usuario(rec)
+
+        if telegram_id:
+            descricao = rec.get("descricao", "Sem descrição")
+            valor_formatado = formatar_moeda(rec.get("valor", 0.0))
+
+            mensagem = (
+                f"Olá! *{nome_usuario}* Espero que esteja tendo um ótimo dia. 😊\n\n"
+                f"🤑 *Lembrete de Conta a Receber!*\n\n"
+                f"Você tem um valor previsto para receber na data de hoje:\n\n"
+                f"*📆 Data: {hoje_str}*\n"
+                f"*📄 Descrição: {descricao}*\n"
+                f"*💰 Valor: R$ {valor_formatado}*\n\n"
+                f"Não se esqueça de checar sua conta bancária!\n\n"
+                f"*FinanceiroPro Web Agradece a Parceria 🫡*"
+            )
+
+            try:
+                await bot_instancia.send_message(
+                    chat_id=telegram_id, text=mensagem, parse_mode="Markdown"
+                )
+                logging.info(
+                    f"Alerta de recebimento enviado para {nome_usuario} ({telegram_id})"
+                )
+            except Exception as e:
+                logging.error(
+                    f"Falha ao enviar alerta de recebimento para {telegram_id}: {e}"
+                )
+
+
+async def enviar_resumo_mensal_telegram(update=None, context=None):
+    """Gera e envia o relatório financeiro completo para todos os usuários cadastrados."""
+    bot_instancia = bot_global
+    chat_id_solicitante = None
+
+    # Identifica se foi chamado por comando manual ou agendamento automático
+    if context and hasattr(context, "bot"):
+        bot_instancia = context.bot
+    elif hasattr(update, "bot"):
+        bot_instancia = update.bot
+
+    if update and hasattr(update, "effective_chat") and update.effective_chat:
+        chat_id_solicitante = update.effective_chat.id
+
+    agora_br = datetime.now(FUSO_BR)
+    str_mes_fatura = agora_br.strftime("%m/%Y")
+
+    try:
+        # Se veio do comando /resumo, envia para quem pediu. Senão, para todos do banco.
+        if chat_id_solicitante:
+            res_users = supabase.table("usuarios").select("id, usuario, telegram_id").eq("telegram_id", chat_id_solicitante).execute()
+        else:
+            res_users = supabase.table("usuarios").select("id, usuario, telegram_id").not_.is_("telegram_id", "null").execute()
+            
+        usuarios = res_users.data or []
+
+        if not usuarios and chat_id_solicitante:
+            await bot_instancia.send_message(chat_id=chat_id_solicitante, text="⚠️ Usuário não localizado no sistema.")
+            return
+
+        for u in usuarios:
+            uid = u["id"]
+            telegram_id = u["telegram_id"]
+            nome = u.get("usuario") or "Cliente"
+
+            # 1. Movimentações do Mês
+            res_movs = supabase.table("movimentacoes").select("*").eq("usuario_id", uid).eq("mes_fatura", str_mes_fatura).execute()
+            movs = res_movs.data or []
+
+            tot_rec = sum(float(m.get("valor", 0)) for m in movs if m.get("tipo") == "Receita")
+            tot_desp = sum(float(m.get("valor", 0)) for m in movs if m.get("tipo") == "Despesa")
+            saldo = tot_rec - tot_desp
+
+            # Filtros Específicos
+            faturas = [m for m in movs if m.get("forma_pagamento") == "Cartão de Crédito"]
+            recorrentes = [m for m in movs if "recorrente" in str(m.get("descricao", "")).lower() or "(recorrente)" in str(m.get("descricao", "")).lower()]
+
+            # 2. Contas a Receber (Boletos)
+            ultimo_dia = calendar.monthrange(agora_br.year, agora_br.month)[1]
+            data_inicio = f"{agora_br.year}-{agora_br.month:02d}-01"
+            data_fim = f"{agora_br.year}-{agora_br.month:02d}-{ultimo_dia:02d}"
+            res_rec = supabase.table("contas_receber").select("*").eq("usuario_id", uid).gte("data_recebimento", data_inicio).lte("data_recebimento", data_fim).execute()
+            boletos_rec = res_rec.data or []
+
+            # --- MONTAGEM DA MENSAGEM LEVE ---
+            msg = f"📊 *Relatório Financeiro - {str_mes_fatura}*\n"
+            msg += f"👤 Cliente: *{nome}*\n\n"
+            
+            msg += f"🟢 *Receitas:* R$ {formatar_moeda(tot_rec)}\n"
+            msg += f"🔴 *Despesas:* R$ {formatar_moeda(tot_desp)}\n"
+            msg += f"━━━━━━━━━━━━━━━━━━\n"
+            msg += f"🔵 *Saldo:* R$ {formatar_moeda(saldo)}\n\n"
+
+            # Faturas de Cartão
+            msg += "💳 *FATURAS DE CARTÃO:*\n"
+            if faturas:
+                for f in faturas:
+                    st = "✅ Pago" if f.get("pago") else "⏳ Pendente"
+                    msg += f"• {f.get('descricao')} (R$ {formatar_moeda(f.get('valor'))}) — {st}\n"
+            else:
+                msg += "• Nenhuma fatura neste mês.\n"
+            msg += "\n"
+
+            # Boletos / Recebimentos
+            msg += "📑 *BOLETOS & RECEBIMENTOS:*\n"
+            if boletos_rec:
+                for b in boletos_rec:
+                    st = "✅ Recebido" if b.get("recebido") else "⏳ Pendente"
+                    msg += f"• {b.get('descricao')} (R$ {formatar_moeda(b.get('valor'))}) — {st}\n"
+            else:
+                msg += "• Nenhum boleto pendente.\n"
+            msg += "\n"
+
+            # Gastos Fixos / Recorrentes
+            msg += "🔄 *GASTOS FIXOS / RECORRENTES:*\n"
+            if recorrentes:
+                for r in recorrentes:
+                    st = "✅ Pago" if r.get("pago") else "⏳ Pendente"
+                    msg += f"• {r.get('descricao')} (R$ {formatar_moeda(r.get('valor'))}) — {st}\n"
+            else:
+                msg += "• Nenhum gasto recorrente cadastrado.\n"
+
+            # Envio
+            try:
+                await bot_instancia.send_message(chat_id=telegram_id, text=msg, parse_mode="Markdown")
+                logging.info(f"Relatório enviado com sucesso para {nome} ({telegram_id})")
+            except Exception as e:
+                logging.error(f"Erro no envio para {telegram_id}: {e}")
+
+    except Exception as e:
+        logging.error(f"Erro ao gerar relatório mensal: {e}")
 
 
 if __name__ == "__main__":
