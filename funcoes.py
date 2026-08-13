@@ -1150,3 +1150,72 @@ def atualizar_conta_a_receber(
         return True
     st.error(f"Erro ao atualizar: {res.text}")
     return False
+
+def enviar_resumo_completo_telegram(
+    chat_id, nome_usuario, mes_ref, ano_ref, total_rec, total_desp, saldo, faturas_cartao, boletos_receber, recorrentes
+):
+    """Envia o resumo financeiro completo e leve (sem arquivos) para o Telegram."""
+    bot_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
+    if not bot_token:
+        print("Erro: TELEGRAM_BOT_TOKEN não configurado nos secrets.")
+        return False
+
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+
+    rec_fmt = f"R$ {total_rec:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    desp_fmt = f"R$ {total_desp:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    saldo_fmt = f"R$ {saldo:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    msg = f"📊 *Resumo Geral - FinanceiroPro*\n"
+    msg += f"👤 Cliente: *{nome_usuario}* | Mês: *{mes_ref:02d}/{ano_ref}*\n\n"
+    
+    # 💰 RESUMO
+    msg += f"🟢 *Receitas:* {rec_fmt}\n"
+    msg += f"🔴 *Despesas:* {desp_fmt}\n"
+    msg += f"━━━━━━━━━━━━━━━━━━\n"
+    msg += f"🔵 *Saldo:* {saldo_fmt}\n\n"
+
+    # 💳 FATURAS DE CARTÃO
+    msg += f"💳 *FATURAS DE CARTÃO:*\n"
+    if faturas_cartao:
+        for f in faturas_cartao:
+            status = "✅ Pago" if f.get("pago") else "⏳ Pendente"
+            val = f"R$ {float(f.get('valor', 0)):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            msg += f"• {f.get('descricao', 'Cartão')} ({val}) — {status}\n"
+    else:
+        msg += "• Nenhuma fatura lançada.\n"
+    msg += "\n"
+
+    # 📑 BOLETOS / CONTAS A RECEBER
+    msg += f"📑 *BOLETOS & RECEBIMENTOS:*\n"
+    if boletos_receber:
+        for b in boletos_receber:
+            status = "✅ Recebido" if b.get("recebido") else "⏳ Pendente"
+            val = f"R$ {float(b.get('valor', 0)):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            msg += f"• {b.get('descricao')} ({val}) — {status}\n"
+    else:
+        msg += "• Nenhum boleto a receber.\n"
+    msg += "\n"
+
+    # 🔄 FIXOS & RECORRENTES
+    msg += f"🔄 *GASTOS FIXOS / RECORRENTES:*\n"
+    if recorrentes:
+        for r in recorrentes:
+            status = "✅ Pago" if r.get("pago") else "⏳ Pendente"
+            val = f"R$ {float(r.get('valor', 0)):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            msg += f"• {r.get('descricao')} ({val}) — {status}\n"
+    else:
+        msg += "• Nenhum lançamento recorrente.\n"
+
+    payload = {
+        "chat_id": str(chat_id),
+        "text": msg,
+        "parse_mode": "Markdown"
+    }
+
+    try:
+        res = session.post(url, json=payload, timeout=DEFAULT_TIMEOUT)
+        return res.status_code == 200
+    except Exception as e:
+        print(f"Erro ao enviar no Telegram: {e}")
+        return False

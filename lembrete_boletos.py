@@ -247,3 +247,92 @@ async def processar_e_enviar_alertas(param=None):
 
 if __name__ == "__main__":
     asyncio.run(processar_e_enviar_alertas())
+async def enviar_resumo_mensal_telegram(param=None):
+    """Gera e envia o resumo completo do mês anterior para todos os usuários."""
+    bot_instancia = bot_global
+    if hasattr(param, "bot") and param.bot:
+        bot_instancia = param.bot
+
+    agora_br = datetime.now(FUSO_BR)
+    
+    # Define o mês e ano passados (ex: se estamos em Agosto, pega Julho)
+    if agora_br.month == 1:
+        mes_ref, ano_ref = 12, agora_br.year - 1
+    else:
+        mes_ref, ano_ref = agora_br.month - 1, agora_br.year
+
+    str_mes_fatura = f"{mes_ref:02d}/{ano_ref}"
+
+    try:
+        # Busca todos os usuários cadastrados com ID do Telegram
+        res_users = supabase.table("usuarios").select("id, usuario, telegram_id").not_.is_("telegram_id", "null").execute()
+        usuarios = res_users.data or []
+
+        for u in usuarios:
+            uid = u["id"]
+            telegram_id = u["telegram_id"]
+            nome = u.get("usuario") or "Cliente"
+
+            # 1. Movimentações do Mês (Receitas e Despesas)
+            res_movs = supabase.table("movimentacoes").select("*").eq("usuario_id", uid).eq("mes_fatura", str_mes_fatura).execute()
+            movs = res_movs.data or []
+
+            tot_rec = sum(float(m.get("valor", 0)) for m in movs if m.get("tipo") == "Receita")
+            tot_desp = sum(float(m.get("valor", 0)) for m in movs if m.get("tipo") == "Despesa")
+            saldo = tot_rec - tot_desp
+
+            faturas = [m for m in movs if m.get("forma_pagamento") == "Cartão de Crédito"]
+            recorrentes = [m for m in movs if "recorrente" in str(m.get("descricao", "")).lower() or "(recorrente)" in str(m.get("descricao", "")).lower()]
+
+            # 2. Contas a Receber
+            data_inicio = f"{ano_ref}-{mes_ref:02d}-01"
+            data_fim = f"{ano_ref}-{mes_ref:02d}-31"
+            res_rec = supabase.table("contas_receber").select("*").eq("usuario_id", uid).gte("data_recebimento", data_inicio).lte("data_recebimento", data_fim).execute()
+            boletos_rec = res_rec.data or []
+
+            # Montagem da Mensagem
+            msg = f"📊 *Resumo Mensal - FinanceiroPro*\n"
+            msg += f"👤 *{nome}* | Referência: *{str_mes_fatura}*\n\n"
+            msg += f"🟢 *Receitas:* R$ {formatar_moeda(tot_rec)}\n"
+            msg += f"🔴 *Despesas:* R$ {formatar_moeda(tot_desp)}\n"
+            msg += f"━━━━━━━━━━━━━━━━━━\n"
+            msg += f"🔵 *Saldo Final:* R$ {formatar_moeda(saldo)}\n\n"
+
+            # Faturas
+            msg += "💳 *FATURAS DE CARTÃO:*\n"
+            if faturas:
+                for f in faturas:
+                    st = "✅ Pago" if f.get("pago") else "⏳ Pendente"
+                    msg += f"• {f.get('descricao')} (R$ {formatar_moeda(f.get('valor'))}) — {st}\n"
+            else:
+                msg += "• Nenhuma fatura no mês.\n"
+            msg += "\n"
+
+            # Boletos / Recebimentos
+            msg += "📑 *BOLETOS & RECEBIMENTOS:*\n"
+            if boletos_rec:
+                for b in boletos_rec:
+                    st = "✅ Recebido" if b.get("recebido") else "⏳ Pendente"
+                    msg += f"• {b.get('descricao')} (R$ {formatar_moeda(b.get('valor'))}) — {st}\n"
+            else:
+                msg += "• Nenhum lançamento a receber.\n"
+            msg += "\n"
+
+            # Fixos / Recorrentes
+            msg += "🔄 *GASTOS FIXOS / RECORRENTES:*\n"
+            if recorrentes:
+                for r in recorrentes:
+                    st = "✅ Pago" if r.get("pago") else "⏳ Pendente"
+                    msg += f"• {r.get('descricao')} (R$ {formatar_moeda(r.get('valor'))}) — {st}\n"
+            else:
+                msg += "• Nenhum gasto fixo/recorrente.\n"
+
+            # Envia a mensagem
+            try:
+                await bot_instancia.send_message(chat_id=telegram_id, text=msg, parse_mode="Markdown")
+                logging.info(f"Resumo mensal enviado para {nome} ({telegram_id})")
+            except Exception as e:
+                logging.error(f"Erro ao enviar resumo para {telegram_id}: {e}")
+
+    except Exception as e:
+        logging.error(f"Erro ao processar resumo mensal: {e}")
