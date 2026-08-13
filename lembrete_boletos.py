@@ -260,7 +260,7 @@ def formatar_data_br(data_str):
 
 
 async def enviar_resumo_mensal_telegram(update=None, context=None):
-    """Gera o relatório financeiro removendo a indicação de status pendente nas receitas."""
+    """Gera o relatório financeiro mensal ignorando a tabela contas_receber."""
     bot_instancia = bot_global
     chat_id_solicitante = None
 
@@ -341,7 +341,7 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
 
             # --- IDENTIFICAÇÃO DAS CATEGORIAS ---
 
-            # A) RECEITAS / ENTRADAS
+            # A) RECEITAS / ENTRADAS (Apenas da tabela movimentacoes)
             receitas = [m for m in movs if m.get("tipo") == "Receita"]
             ids_receitas = {m["id"] for m in receitas}
 
@@ -428,26 +428,8 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 and str(m.get("data", "")).startswith(prefixo_data_mes)
             ]
 
-            # Contas a receber (Tabela externa)
-            ultimo_dia = calendar.monthrange(agora_br.year, agora_br.month)[1]
-            data_inicio = f"{agora_br.year}-{agora_br.month:02d}-01"
-            data_fim = f"{agora_br.year}-{agora_br.month:02d}-{ultimo_dia:02d}"
-
-            try:
-                res_rec = (
-                    supabase.table("contas_receber")
-                    .select("*")
-                    .eq("usuario_id", uid)
-                    .gte("data_recebimento", data_inicio)
-                    .lte("data_recebimento", data_fim)
-                    .execute()
-                )
-                boletos_rec = res_rec.data or []
-            except Exception:
-                boletos_rec = []
-
-            # CÁLCULO DOS TOTAIS
-            tot_rec = sum(float(m.get("valor", 0)) for m in receitas) + sum(float(br.get("valor", 0)) for br in boletos_rec)
+            # CÁLCULO DOS TOTAIS (Sem contas_receber)
+            tot_rec = sum(float(m.get("valor", 0)) for m in receitas)
             tot_cartoes = sum(info["total"] for info in faturas_agrupadas.values())
             tot_boletos = sum(float(m.get("valor", 0)) for m in boletos_pagar)
             tot_recorrentes = sum(float(m.get("valor", 0)) for m in recorrentes)
@@ -464,15 +446,12 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             msg += f"━━━━━━━━━━━━━━━━━━\n"
             msg += f"🔵 *Saldo:* R$ {formatar_moeda(saldo)}\n\n"
 
-            # 1. RECEITAS / ENTRADAS (Sem indicação de pendente/pago)
+            # 1. RECEITAS / ENTRADAS (Apenas lançamentos da tabela movimentacoes, sem status)
             msg += "💵 *RECEITAS / ENTRADAS:*\n"
-            if receitas or boletos_rec:
+            if receitas:
                 for r in receitas:
                     dt = formatar_data_br(r.get("data"))
                     msg += f"• `{dt}` — {r.get('descricao')} | R$ {formatar_moeda(r.get('valor'))}\n"
-                for br in boletos_rec:
-                    dt = formatar_data_br(br.get("data_recebimento"))
-                    msg += f"• `{dt}` — {br.get('descricao')} | R$ {formatar_moeda(br.get('valor'))}\n"
             else:
                 msg += "• Nenhuma receita neste mês.\n"
             msg += "\n"
