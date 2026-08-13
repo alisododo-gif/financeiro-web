@@ -1162,16 +1162,16 @@ elif opcao == "📋 Extrato Detalhado":
     with col_e1:
         mes_nome_extrato = st.selectbox(
             "Filtrar Mês", opcoes_meses, index=0
-        )  # Padrão em "Todos"
+        )  # Padrão: Todos
 
     with col_e2:
         ano_extrato = st.selectbox(
             "Filtrar Ano",
             ["Todos", "2026", "2027", "2028", "2029", "2030"],
             index=0,
-        )  # Padrão em "Todos"
+        )  # Padrão: Todos
 
-    # Reseta a página se trocar o filtro
+    # Reseta a página ao mudar filtros
     chave_filtro = f"{mes_nome_extrato}_{ano_extrato}"
     if st.session_state.get("ultimo_filtro") != chave_filtro:
         st.session_state["pagina_extrato"] = 1
@@ -1182,7 +1182,6 @@ elif opcao == "📋 Extrato Detalhado":
 
     ITENS_POR_PAGINA = 20
 
-    # Busca Paginada no Supabase
     dados_banco, total_registros, total_paginas = (
         buscar_movimentacoes_paginadas(
             usuario_id=st.session_state["usuario_id"],
@@ -1194,12 +1193,34 @@ elif opcao == "📋 Extrato Detalhado":
     )
 
     if dados_banco:
+        # CONVERSÃO: Transforma a lista de dicionários em tuplas para o Excel/PDF
+        dados_tuplas = []
+        for item in dados_banco:
+            # Extrai o nome da conta se vier do relacionamento
+            conta_nome = "Conta"
+            if isinstance(item.get("contas"), dict):
+                conta_nome = item["contas"].get("nome", "Conta")
+
+            dados_tuplas.append(
+                (
+                    item.get("id"),
+                    item.get("data"),
+                    conta_nome,
+                    item.get("tipo", ""),
+                    item.get("forma_pagamento", ""),
+                    item.get("descricao", ""),
+                    item.get("valor", 0.0),
+                    item.get("categoria", ""),
+                )
+            )
+
         st.write("### 📥 Exportar Relatórios")
         c_btn1, c_btn2, _ = st.columns([1.5, 1.5, 4])
 
         with c_btn1:
+            # Passamos 'dados_tuplas' em vez de 'dados_banco'
             excel_data = gerar_excel_profissional(
-                dados_banco, mes_nome_extrato, ano_extrato
+                dados_tuplas, mes_nome_extrato, ano_extrato
             )
             st.download_button(
                 "🟢 Baixar Excel (.xlsx)",
@@ -1210,8 +1231,9 @@ elif opcao == "📋 Extrato Detalhado":
             )
 
         with c_btn2:
+            # Passamos 'dados_tuplas' em vez de 'dados_banco'
             pdf_data = gerar_pdf_profissional(
-                dados_banco, mes_nome_extrato, ano_extrato
+                dados_tuplas, mes_nome_extrato, ano_extrato
             )
             st.download_button(
                 "🔴 Baixar PDF Relatório",
@@ -1223,10 +1245,9 @@ elif opcao == "📋 Extrato Detalhado":
 
         st.markdown("---")
 
-        # Processa os dados retornados
+        # Exibição na tabela do Streamlit
         df = pd.DataFrame(dados_banco)
 
-        # Trata o campo relacional 'contas'
         if "contas" in df.columns:
             df["Conta"] = df["contas"].apply(
                 lambda c: c.get("nome") if isinstance(c, dict) else "Conta"
@@ -1234,7 +1255,6 @@ elif opcao == "📋 Extrato Detalhado":
         else:
             df["Conta"] = "Conta"
 
-        # Trata tags se existirem
         if "tags" not in df.columns:
             df["tags"] = ""
 
@@ -1260,7 +1280,6 @@ elif opcao == "📋 Extrato Detalhado":
                     )
                 ]
 
-        # Monta a tabela amigável
         df_exibir = pd.DataFrame()
         df_exibir["ID"] = df["id"]
         df_exibir["Data"] = pd.to_datetime(df["data"]).dt.strftime("%d/%m/%Y")
@@ -1321,7 +1340,7 @@ elif opcao == "📋 Extrato Detalhado":
                 )
     else:
         st.info("Nenhuma movimentação encontrada para o período filtrado.")
-        
+
 # --- ABA 6: CONFIGURAÇÕES ---
 elif opcao == "⚙️ Configurações":
     st.title("⚙️ Painel de Configurações")
