@@ -5,7 +5,6 @@ from dateutil.relativedelta import relativedelta
 import requests
 import streamlit as st
 
-
 # =====================================================================
 # --- CONFIGURAÇÃO E CONEXÃO OTIMIZADA (SESSION POOLING) ---
 # =====================================================================
@@ -1151,76 +1150,3 @@ def atualizar_conta_a_receber(
         return True
     st.error(f"Erro ao atualizar: {res.text}")
     return False
-
-# =====================================================================
-# --- FUNÇÕES PARA MONITORAMENTO DE SESSÕES (ONLINE / ADMIN) ---
-# =====================================================================
-
-def atualizar_sessao_usuario(usuario_id):
-    """
-    Registra ou atualiza a sessão ativa do usuário no Supabase.
-    """
-    if not usuario_id:
-        return
-
-    from datetime import datetime
-    import pytz
-
-    fuso_br = pytz.timezone("America/Sao_Paulo")
-    agora = datetime.now(fuso_br).isoformat()
-    
-    sessao_atual = st.session_state.get("sessao_id")
-
-    # Adicionamos o Prefer no header para o Supabase retornar o ID gerado
-    headers = {
-        "Prefer": "return=representation"
-    }
-
-    if not sessao_atual:
-        # Tenta criar a sessão inicial
-        url = f"{BASE_URL}/sessoes_usuarios"
-        payload = {
-            "usuario_id": int(usuario_id),
-            "inicio_sessao": agora,
-            "ultima_atividade": agora,
-            "online": True
-        }
-        try:
-            # Nota: session.post precisa mesclar com os headers existentes
-            res = session.post(url, json=payload, headers=headers, timeout=DEFAULT_TIMEOUT)
-            if res.status_code in [200, 201] and res.json():
-                # Salva o id retornado pelo Supabase no session_state
-                st.session_state["sessao_id"] = res.json()[0]["id"]
-                print(f"✅ Sessão iniciada no Supabase! ID: {st.session_state['sessao_id']}")
-            else:
-                print(f"❌ Erro ao criar sessão no Supabase ({res.status_code}): {res.text}")
-        except Exception as e:
-            print(f"❌ Exceção ao registrar início de sessão: {e}")
-    else:
-        # Atualiza o heartbeat (última atividade)
-        url = f"{BASE_URL}/sessoes_usuarios?id=eq.{sessao_atual}"
-        payload = {
-            "ultima_atividade": agora,
-            "online": True
-        }
-        try:
-            res = session.patch(url, json=payload, timeout=DEFAULT_TIMEOUT)
-            if res.status_code not in [200, 204]:
-                print(f"⚠️ Erro ao atualizar heartbeat ({res.status_code}): {res.text}")
-        except Exception as e:
-            print(f"❌ Exceção ao atualizar sessão: {e}")
-
-
-@st.cache_data(ttl=15, show_spinner=False)
-def buscar_sessoes_usuarios_admin():
-    """
-    Busca todas as sessões cadastradas junto aos dados dos usuários para exibir na Aba Admin.
-    """
-    url = f"{BASE_URL}/sessoes_usuarios?select=*,usuarios(usuario,telefone)&order=ultima_atividade.desc"
-    try:
-        res = session.get(url, timeout=DEFAULT_TIMEOUT)
-        if res.status_code == 200:
-            return res.json()
-    except Exception as e:
-        print(f"Erro ao buscar sessões para admin: {e}")
-    return []
