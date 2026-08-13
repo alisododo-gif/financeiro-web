@@ -33,7 +33,7 @@ def criar_tabelas_se_nao_existirem():
     pass
 
 def buscar_movimentacoes_paginadas(
-    usuario_id, mes="Todos", ano="Todos", pagina=1, itens_por_pagina=20
+    usuario_id, mes="Todos", ano="Todos", pagina=1, itens_por_pagina=100
 ):
     """Busca movimentações no Supabase com paginação server-side e suporte completo a filtros."""
     offset_inicio = (pagina - 1) * itens_por_pagina

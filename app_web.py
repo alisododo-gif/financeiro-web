@@ -1142,11 +1142,6 @@ elif opcao == "💸 Lançar Movimentações":
 elif opcao == "📋 Extrato Detalhado":
     st.title("📋 Extrato Detalhado de Transações")
 
-    # 1. Obtém o mês e ano atuais dinamicamente
-    hoje = datetime.now()
-    mes_atual_num = hoje.month  # Retorna de 1 a 12
-    ano_atual_str = str(hoje.year)  # Retorna ex: "2026"
-
     opcoes_meses = [
         "Todos",
         "Janeiro",
@@ -1163,24 +1158,18 @@ elif opcao == "📋 Extrato Detalhado":
         "Dezembro",
     ]
 
-    opcoes_anos = ["Todos", "2025", "2026", "2027", "2028", "2029", "2030"]
-
-    # Localiza o índice do ano atual (se não encontrar na lista, usa 0 = 'Todos')
-    idx_ano_padrao = (
-        opcoes_anos.index(ano_atual_str) if ano_atual_str in opcoes_anos else 0
-    )
-
     col_e1, col_e2 = st.columns(2)
     with col_e1:
-        # Como "Todos" é index 0, o índice mes_atual_num bate exatamente com a posição do mês!
         mes_nome_extrato = st.selectbox(
-            "Filtrar Mês", opcoes_meses, index=mes_atual_num
-        )
+            "Filtrar Mês", opcoes_meses, index=0
+        )  # Padrão: Todos
 
     with col_e2:
         ano_extrato = st.selectbox(
-            "Filtrar Ano", opcoes_anos, index=idx_ano_padrao
-        )
+            "Filtrar Ano",
+            ["Todos", "2026", "2027", "2028", "2029", "2030"],
+            index=0,
+        )  # Padrão: Todos
 
     # Reseta a página ao mudar filtros
     chave_filtro = f"{mes_nome_extrato}_{ano_extrato}"
@@ -1191,7 +1180,7 @@ elif opcao == "📋 Extrato Detalhado":
     if "pagina_extrato" not in st.session_state:
         st.session_state["pagina_extrato"] = 1
 
-    ITENS_POR_PAGINA = 50
+    ITENS_POR_PAGINA = 100
 
     dados_banco, total_registros, total_paginas = (
         buscar_movimentacoes_paginadas(
