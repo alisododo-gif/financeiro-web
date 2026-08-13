@@ -260,7 +260,7 @@ def formatar_data_br(data_str):
 
 
 async def enviar_resumo_mensal_telegram(update=None, context=None):
-    """Gera o relatório financeiro agrupando faturas por cartão e separando receitas de boletos."""
+    """Gera o relatório financeiro agrupando valores por cartão e separando receitas de despesas."""
     bot_instancia = bot_global
     chat_id_solicitante = None
 
@@ -305,11 +305,20 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             telegram_id = u["telegram_id"]
             nome = u.get("usuario") or "Cliente"
 
-            # 1. Busca os cartões do usuário para mapear ID -> Nome do Cartão
-            res_cartoes = supabase.table("cartoes").select("id, nome").eq("usuario_id", uid).execute()
-            mapa_cartoes = {c["id"]: c["nome"] for c in (res_cartoes.data or [])}
+            # 1. Busca os cartões do usuário (mapeia id -> nome_cartao)
+            try:
+                res_cartoes = (
+                    supabase.table("cartoes")
+                    .select("id, nome_cartao")
+                    .eq("usuario_id", uid)
+                    .execute()
+                )
+                mapa_cartoes = {c["id"]: c["nome_cartao"] for c in (res_cartoes.data or [])}
+            except Exception as e_c:
+                logging.warning(f"Erro ao consultar cartões: {e_c}")
+                mapa_cartoes = {}
 
-            # 2. Busca movimentações do mês (por mes_fatura ou data YYYY-MM)
+            # 2. Busca movimentações do mês (por mes_fatura ou pela data YYYY-MM)
             res_movs_fatura = (
                 supabase.table("movimentacoes")
                 .select("*")
@@ -330,14 +339,14 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             }
             movs = sorted(todos_movs_dict.values(), key=lambda x: str(x.get("data", "")))
 
-            # Totais
+            # Totais Gerais
             tot_rec = sum(float(m.get("valor", 0)) for m in movs if m.get("tipo") == "Receita")
             tot_desp = sum(float(m.get("valor", 0)) for m in movs if m.get("tipo") == "Despesa")
             saldo = tot_rec - tot_desp
 
-            # --- FILTRAGEM E AGRUPAMENTO ---
+            # --- SEPARAÇÃO DAS SEÇÕES ---
 
-            # A) RECEITAS (Entradas financeiras)
+            # A) RECEITAS / ENTRADAS
             receitas = [m for m in movs if m.get("tipo") == "Receita"]
             ids_receitas = {m["id"] for m in receitas}
 
@@ -355,23 +364,33 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             ]
             ids_recorrentes = {m["id"] for m in recorrentes}
 
-            # C) COMPRAS DE CARTÃO (Serão agrupadas por Cartão)
+            # C) COMPRAS / FATURAS DE CARTÃO DE CRÉDITO
             itens_cartao = [
                 m for m in movs
                 if m["id"] not in ids_receitas and m["id"] not in ids_recorrentes
                 and (
                     m.get("cartao_id") is not None
+                    or "fatura" in str(m.get("descricao", "")).lower()
                     or str(m.get("forma_pagamento", "")).lower() in ["cartão de crédito", "cartao de credito", "crédito", "credito"]
                 )
             ]
             ids_cartao = {m["id"] for m in itens_cartao}
 
-            # AGRUPANDO FATURAS POR CARTÃO:
-            # { "Nome do Cartão": {"total": 0.0, "pago": True/False} }
+            # AGRUPAMENTO POR CARTÃO (Soma o valor total e verifica se tudo está pago)
             faturas_agrupadas = {}
             for item in itens_cartao:
                 cid = item.get("cartao_id")
-                nome_cartao = mapa_cartoes.get(cid, "Cartão de Crédito") if cid else "Cartão de Crédito"
+                desc = str(item.get("descricao", ""))
+
+                # Identifica o nome do cartão
+                if cid and cid in mapa_cartoes:
+                    nome_cartao = mapa_cartoes[cid]
+                elif " - " in desc:
+                    # Tenta pegar ex: "Fatura 260 - Nubank" -> "Nubank"
+                    nome_cartao = desc.split(" - ")[-1].split("(")[0].strip()
+                else:
+                    nome_cartao = desc if desc else "Cartão de Crédito"
+
                 val = float(item.get("valor", 0))
                 pago = bool(item.get("pago", False))
 
@@ -379,11 +398,10 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                     faturas_agrupadas[nome_cartao] = {"total": 0.0, "pago": True}
 
                 faturas_agrupadas[nome_cartao]["total"] += val
-                # Se houver pelo menos 1 lançamento pendente na fatura, a fatura fica pendente
                 if not pago:
                     faturas_agrupadas[nome_cartao]["pago"] = False
 
-            # D) BOLETOS / OUTRAS DESPESAS A PAGAR
+            # D) BOLETOS & OUTRAS DESPESAS
             boletos_pagar = [
                 m for m in movs
                 if m["id"] not in ids_receitas 
@@ -391,7 +409,7 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 and m["id"] not in ids_cartao
             ]
 
-            # Contas a receber (Tabela externa, se houver)
+            # Contas a receber (Tabela externa)
             ultimo_dia = calendar.monthrange(agora_br.year, agora_br.month)[1]
             data_inicio = f"{agora_br.year}-{agora_br.month:02d}-01"
             data_fim = f"{agora_br.year}-{agora_br.month:02d}-{ultimo_dia:02d}"
@@ -409,7 +427,7 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
             except Exception:
                 boletos_rec = []
 
-            # --- MONTAGEM DA MENSAGEM ---
+            # --- MONTAGEM DA MENSAGEM FINAL ---
             msg = f"📊 *Relatório Financeiro - {str_mes_fatura}*\n"
             msg += f"👤 Cliente: *{nome}*\n\n"
 
@@ -430,15 +448,15 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                     st = "✅ Recebido" if br.get("recebido") or br.get("pago") else "⏳ Pendente"
                     msg += f"• `{dt}` — {br.get('descricao')} | R$ {formatar_moeda(br.get('valor'))} — {st}\n"
             else:
-                msg += "• Nenhuma receita cadastrada neste mês.\n"
+                msg += "• Nenhuma receita neste mês.\n"
             msg += "\n"
 
-            # 2. FATURAS DE CARTÃO (TOTAL SOMADO POR CARTÃO)
+            # 2. FATURAS DE CARTÃO DE CRÉDITO (Exibe 1 linha por cartão com o valor total)
             msg += "💳 *FATURAS DE CARTÃO:*\n"
             if faturas_agrupadas:
                 for nome_c, info in faturas_agrupadas.items():
                     st = "✅ Pago" if info["pago"] else "⏳ Pendente"
-                    msg += f"• *Fatura {nome_c}* | R$ {formatar_moeda(info['total'])} — {st}\n"
+                    msg += f"• *{nome_c}* | R$ {formatar_moeda(info['total'])} — {st}\n"
             else:
                 msg += "• Nenhuma fatura neste mês.\n"
             msg += "\n"
