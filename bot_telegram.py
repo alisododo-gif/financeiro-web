@@ -402,12 +402,12 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =========================================================
     # FLUXO RECEITAS DIRETAS (EX: "10 salario receita")
     # =========================================================
-    palavras_chave_receita = ["receita", "salario", "salário", "prolabore", "entrada"]
+    palavras_chave_receita = ["receita", "prolabore", "entrada"]
     e_receita_direta = any(kw in descricao_bruta.lower() for kw in palavras_chave_receita)
 
     if e_receita_direta:
         # Regex aprimorada: limpa a palavra-chave e ignora maiúsculas/minúsculas
-        palavras_remover = r"\b(receita|salario|salário|prolabore|entrada)\b"
+        palavras_remover = r"\b(receita|prolabore|entrada)\b"
         descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
         
         # Remove caracteres ou espaços extras que sobram nas pontas
