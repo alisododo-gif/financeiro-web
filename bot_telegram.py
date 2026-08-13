@@ -25,7 +25,7 @@ from telegram.ext import (
     filters,
 )
 
-from lembrete_boletos import processar_e_enviar_alertas, enviar_resumo_mensal_telegram
+from lembrete_boletos import processar_e_enviar_alertas
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -683,14 +683,6 @@ async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
 
 
-async def checar_e_enviar_resumo_mensal(context: ContextTypes.DEFAULT_TYPE):
-    """Executa diariamente, mas só envia o resumo se for o dia 1º do mês às 08h."""
-    hoje = datetime.now()
-    if hoje.day == 1:
-        logging.info("🗓️ Hoje é dia 1º! Disparando resumo mensal...")
-        await enviar_resumo_mensal_telegram(context)
-
-
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -709,13 +701,7 @@ def main():
         time=time(hour=15, minute=0, tzinfo=fuso_br)
     )
 
-    # 📅 Checa todo dia às 08:00 se é dia 1º para mandar o resumo mensal
-    app.job_queue.run_daily(
-        checar_e_enviar_resumo_mensal,
-        time=time(hour=8, minute=0, tzinfo=fuso_br)
-    )
-
-    # Ping do Streamlit (a cada 5 horas)
+    # Ping do Streamlit (a cada 5 horas para manter ativo)
     app.job_queue.run_repeating(
         ping_streamlit,
         interval=18000,
@@ -728,9 +714,6 @@ def main():
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     
-    # 📊 Comando do Resumo Mensal (100% funcional e leve)
-    app.add_handler(CommandHandler("resumo", enviar_resumo_mensal_telegram))
-
     app.add_handler(MessageHandler(filters.CONTACT, receber_contato))
     app.add_handler(
         MessageHandler(filters.TEXT & (~filters.COMMAND), registrar_gastos)
@@ -738,3 +721,7 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_geral))
 
     app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
