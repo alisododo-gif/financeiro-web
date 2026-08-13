@@ -555,7 +555,13 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
     adm_tab1, adm_tab2, adm_tab3 = st.tabs(["⏳ Liberar Cadastros", "➕ Criar Cliente Manual", "👥 Gerenciar Clientes"])
     
     with adm_tab1:
-        st.write("### 🔑 Clientes aguardando liberação")
+        col_t1, col_t2 = st.columns([4, 1])
+        with col_t1:
+            st.write("### 🔑 Clientes aguardando liberação")
+        with col_t2:
+            if st.button("🔄 Atualizar", key="btn_ref_pend"):
+                st.rerun()
+
         if not df_users.empty and 'status' in df_users.columns:
             df_pendentes = df_users[df_users['status'] == 'pendente']
             if df_pendentes.empty:
@@ -565,7 +571,7 @@ if opcao == "👑 Painel Admin SaaS" and st.session_state.get("is_admin"):
                     with st.container(border=True):
                         st.markdown(f"👤 **Cliente:** {row['usuario']}")
                         v_mensal = st.number_input("Definir Mensalidade (R$):", min_value=0.0, value=49.90, key=f"v_pend_{row['id']}")
-                        if st.button("✅ Ativar Conta", key=f"btn_lib_{row['id']}", width="stretch", type="primary"):
+                        if st.button("✅ Ativar Conta", key=f"btn_lib_{row['id']}", use_container_width=True, type="primary"):
                             if atualizar_status_e_mensalidade(row['id'], 'ativo', v_mensal):
                                 st.success(f"Acesso liberado para {row['usuario']}!")
                                 st.rerun()

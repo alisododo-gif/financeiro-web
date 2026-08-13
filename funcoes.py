@@ -315,13 +315,13 @@ def nomes_contas(usuario_id):
     return [c[1] for c in listar_contas(usuario_id)]
 
 
-@st.cache_data(ttl=300, show_spinner=False)
 def listar_todos_usuarios_admin():
     try:
         url = f"{BASE_URL}/usuarios?select=id,usuario,role,status,valor_mensalidade,telefone"
         res = session.get(url, timeout=DEFAULT_TIMEOUT)
         return res.json() if res.status_code == 200 else []
-    except Exception:
+    except Exception as e:
+        print(f"Erro ao listar usuários admin: {e}")
         return []
 
 
