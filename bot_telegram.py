@@ -406,12 +406,17 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     e_receita_direta = any(kw in descricao_bruta.lower() for kw in palavras_chave_receita)
 
     if e_receita_direta:
-        # Remove a palavra reservada (como "receita") mantendo a descrição limpa ("salario")
+        # Regex aprimorada: limpa a palavra-chave e ignora maiúsculas/minúsculas
         palavras_remover = r"\b(receita|salario|salário|prolabore|entrada)\b"
         descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
-        descricao_limpa = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", descricao_limpa)
         
+        # Remove caracteres ou espaços extras que sobram nas pontas
+        descricao_limpa = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", descricao_limpa)
+        descricao_limpa = " ".join(descricao_limpa.split())
+        
+        # Se após a limpeza a descrição ficar vazia, usa o padrão "Receita"
         nome_descricao = descricao_limpa if descricao_limpa else "Receita"
+        
         mes_fatura_calc = datetime.strptime(data_final, "%Y-%m-%d").strftime("%m/%Y")
         conta_id = lista_contas[0]["id"] if lista_contas else None
 
@@ -419,7 +424,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "usuario_id": usuario_id,
             "conta_id": conta_id,
             "cartao_id": None,
-            "descricao": nome_descricao.title(),
+            "descricao": nome_descricao.title(), # Salva com Inicial Maiúscula
             "valor": valor,
             "tipo": "Receita",
             "categoria": categoria_usuario if categoria_usuario else "Receita",
