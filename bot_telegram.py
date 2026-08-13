@@ -38,6 +38,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 logging.basicConfig(level=logging.INFO)
 
 CACHE_USUARIOS = {}
+FUSO_BR = pytz.timezone("America/Sao_Paulo")
 
 
 def buscar_dados_usuario(telegram_id):
@@ -112,7 +113,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if dados_usuario:
         await update.message.reply_text(
             "👋 Você já está cadastrado no FinanceiroPro!\n\n"
-            "• Para lançar: `290.00 teste receber 15/08`\n"
+            "• Para lançar despesa: `50.00 Mercado`\n"
+            "• Para lançar receita: `/receita 2500 Salário`\n"
             "• Para consultar pendentes: Digite /status ou `receber`",
             parse_mode="Markdown"
         )
@@ -173,6 +175,85 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"Erro na vinculação de contato: {e}")
         await update.message.reply_text(f"⚠️ Erro no servidor: {e}")
+
+
+# =========================================================
+# LANÇAR RECEITA / ENTRADA DIRETA
+# =========================================================
+async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lança uma nova receita/entrada diretamente no Supabase via comando no Telegram."""
+    telegram_id = update.effective_user.id
+    dados_usuario = buscar_dados_usuario(telegram_id)
+
+    if not dados_usuario:
+        await update.message.reply_text("🚫 Acesso não autorizado! Digite /start para vincular.")
+        return
+
+    usuario_id = dados_usuario["usuario_id"]
+    texto = " ".join(context.args).strip()
+
+    if not texto:
+        await update.message.reply_text(
+            "⚠️ *Formato incorreto!*\n\n"
+            "Use o comando assim:\n"
+            "`/receita [VALOR] [DESCRIÇÃO]`\n\n"
+            "*Exemplos:*\n"
+            "• `/receita 2800 Pagamento de Salário`\n"
+            "• `/receita 1000.00 Pix Recebido`",
+            parse_mode="Markdown"
+        )
+        return
+
+    try:
+        partes = texto.split(" ", 1)
+        valor_raw = partes[0].replace(".", "").replace(",", ".")
+        descricao = partes[1] if len(partes) > 1 else "Receita"
+
+        try:
+            valor = float(valor_raw)
+            if valor <= 0:
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text(
+                "⚠️ Valor inválido! Exemplo correto: `/receita 1500 Salário`", 
+                parse_mode="Markdown"
+            )
+            return
+
+        agora_br = datetime.now(FUSO_BR)
+        data_hoje = agora_br.strftime("%Y-%m-%d")
+        mes_fatura = agora_br.strftime("%m/%Y")
+
+        payload_receita = {
+            "usuario_id": usuario_id,
+            "tipo": "Receita",
+            "descricao": descricao,
+            "valor": valor,
+            "categoria": "Receita",
+            "data": data_hoje,
+            "mes_fatura": mes_fatura,
+            "pago": True,
+            "forma_pagamento": "Outros"
+        }
+
+        res_insert = supabase.table("movimentacoes").insert(payload_receita).execute()
+
+        if res_insert.data:
+            data_br = agora_br.strftime("%d/%m/%Y")
+            await update.message.reply_text(
+                f"🟢 *Receita Cadastrada com Sucesso!*\n\n"
+                f"📝 *Descrição:* {descricao}\n"
+                f"💰 *Valor:* R$ {valor:.2f}\n"
+                f"📅 *Data:* {data_br}\n"
+                f"🏷️ *Tipo:* Entrada",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text("❌ Erro ao salvar receita no banco de dados.")
+
+    except Exception as e:
+        logging.error(f"Erro ao lançar receita: {e}")
+        await update.message.reply_text(f"⚠️ Erro ao processar o lançamento: {e}")
 
 
 # =========================================================
@@ -299,12 +380,12 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚠️ Formato inválido!\n\n"
             "Exemplos aceitos:\n\n"
             "• `120.00 Internet fixo` (Usa a Data de Hoje)\n\n"
-            "• `120.00 Internet fixo 15/08` (Usa a Data 15/08)\n\n"
-            "• `290.00 Alison receber 15/08` (Lançamento Para Notificar no Dia 15/08)\n\n"
-            "• `50,00 Comida Pix` (Lançamento de Pix)\n\n"
-            "• `50,00 Comida Crédito` (Lançamento de Crédito)\n\n"
-            "• `50,00 Comida Débito` (Lançamento de Débito)\n\n"    
-            "• `Status, Receber ou Pendentes` (Para Consultar os Lançamentos que tem a receber)",
+            "• `/receita 2500 Salário` (Para registrar uma Receita)\n\n"
+            "• `290.00 Alison receber 15/08` (Lançamento para Lembrete no Dia 15/08)\n\n"
+            "• `50,00 Comida Pix` (Lançamento Pix)\n\n"
+            "• `50,00 Comida Crédito` (Lançamento Crédito)\n\n"    
+            "• `Pendentes` (Para consultar contas a receber)\n\n"
+            "• `\resumo` (irar fazer um resumo geral)",
             parse_mode="Markdown"
         )
         return
@@ -339,12 +420,12 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     categoria_final = categoria_usuario if categoria_usuario else categoria_padrao
 
     # =========================================================
-    # FLUXO 0: CONTAS A RECEBER
+    # FLUXO CONTAS A RECEBER (LEMBRETES DE COBRANÇA EXTERNA)
     # =========================================================
-    e_recebimento = any(kw in descricao_bruta.lower() for kw in ["receber", "ganho", "receita", "salario", "salário", "venda"])
+    e_recebimento = any(kw in descricao_bruta.lower() for kw in ["receber", "ganho", "venda"])
 
     if e_recebimento:
-        palavras_remover = r"\b(receber|ganho|receita|salario|salário|venda)\b"
+        palavras_remover = r"\b(receber|ganho|venda)\b"
         descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
         descricao_limpa = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", descricao_limpa)
 
@@ -375,7 +456,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =========================================================
     # FLUXO DESPESAS
     # =========================================================
-    # Remove termos de pagamento e de recorrência para limpar a base da descrição
     descricao_limpa = re.sub(
         r"\b(pix|debito|débito|credito|crédito|fixo|fixa|recorrente)\b",
         "",
@@ -389,7 +469,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not descricao_limpa:
         descricao_limpa = "Despesa"
 
-    # Se for recorrente, adiciona " (Recorrente)" no final da descrição
     if e_recorrente:
         descricao_limpa = f"{descricao_limpa} (Recorrente)"
 
@@ -404,7 +483,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "data": data_final,
         "mes_fatura": mes_fatura_calc,
         "tags": tags_final,
-        "pago": not e_recorrente # Se for recorrente, pago vira False
+        "pago": not e_recorrente
     }
 
     # FLUXO CRÉDITO
@@ -450,8 +529,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             conta_id = lista_contas[0]["id"]
-            
-            # Define o status 'pago' (False se recorrente, True se normal)
             status_pago = False if e_recorrente else True
 
             payload = {
@@ -494,9 +571,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     action = query.data
 
-    # =========================================================
-    # MARCAR CONTA A RECEBER COMO PAGO
-    # =========================================================
     if action.startswith("pagar_rec_"):
         receber_id = int(action.replace("pagar_rec_", ""))
         try:
@@ -523,7 +597,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados_usuario = buscar_dados_usuario(query.from_user.id)
     lista_cartoes = dados_usuario["cartoes"] if dados_usuario else []
 
-    # 1. Escolheu 'Parcelado'
     if action == "c_parcelado_menu":
         botoes = []
         for i in range(2, 13, 2):
@@ -541,13 +614,11 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # 2. Definiu número de parcelas
     if action.startswith("parc_"):
         num_parcelas = int(action.replace("parc_", ""))
         dados_temp["parcelas"] = num_parcelas
         action = "c_avista"
 
-    # 3. Seleção de Cartão
     if action == "c_avista":
         num_parc = dados_temp.get("parcelas", 1)
         if len(lista_cartoes) > 1:
@@ -568,7 +639,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cartao_id = lista_cartoes[0]["id"] if lista_cartoes else None
             action = f"crt_{cartao_id}"
 
-    # 4. SALVAR PIX / DÉBITO
     if action.startswith("cnt_"):
         conta_id = int(action.replace("cnt_", ""))
         mes_fatura_calc = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%m/%Y")
@@ -603,7 +673,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: {e}")
 
-    # 5. SALVAR CRÉDITO
     elif action.startswith("crt_"):
         cartao_id = int(action.replace("crt_", ""))
         num_parcelas = dados_temp.get("parcelas", 1)
@@ -708,17 +777,22 @@ def main():
         first=18000
     )
 
-    # 1. Agendamento Automático: Envia todo dia 1º do mês às 08:00 da manhã
+    # Agendamento Automático do Resumo Mensal: Todo dia 1º às 08:00
     app.job_queue.run_monthly(
         enviar_resumo_mensal_telegram,
         when=time(hour=8, minute=0, tzinfo=fuso_br),
         day=1
     )
 
-    # Handlers dos comandos
+    # --- HANDLERS DE COMANDOS ---
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", consultar_contas_receber))
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
+    
+    # NOVOS COMANDOS DE RECEITA
+    app.add_handler(CommandHandler("receita", lancar_receita))
+    app.add_handler(CommandHandler("entrada", lancar_receita))
+
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     app.add_handler(CommandHandler("resumo", enviar_resumo_mensal_telegram))
 
