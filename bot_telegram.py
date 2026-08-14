@@ -554,7 +554,8 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `290 Alison receber 15/08` (Cria Conta a Receber)\n\n"
             "• `50 Comida Pix` (Despesa via Pix)\n\n"
             "• `/listar` (Visualizar, Editar ou Excluir Lançamentos)\n\n"
-            "• `resumo` (Exibe o Resumo Geral)",
+            "• `resumo` (Exibe o Resumo Geral)\n\n"
+            "• `/cancelar` (Cancela Qualquer Operação em Andamento)",
             parse_mode="Markdown"
         )
         return
