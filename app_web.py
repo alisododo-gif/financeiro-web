@@ -14,6 +14,7 @@ import re
 import os
 import base64
 import requests
+import calendar
 
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
