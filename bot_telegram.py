@@ -265,7 +265,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lista todos os lançamentos e parcelas criados HOJE para facilitar edição/exclusão."""
+    """Lista os últimos 10 lançamentos cadastrados para você editar ou excluir qualquer parcela."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -276,46 +276,26 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     usuario_id = dados_usuario["usuario_id"]
 
     try:
-        # Busca os últimos 50 lançamentos no banco para garantir que pegamos as parcelas geradas
+        # Pega as 10 últimas movimentações criadas (independente da data de vencimento)
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
             .eq("usuario_id", usuario_id)
             .order("id", desc=True)
-            .limit(50)
+            .limit(10)
             .execute()
         )
 
-        movs_brutas = res_movs.data or []
-
-        if not movs_brutas:
-            await update.message.reply_text("📂 Nenhum lançamento encontrado.")
-            return
-
-        # Pega a data de HOJE no fuso do Brasil
-        hoje_br_str = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
-
-        movs = []
-        for m in movs_brutas:
-            created_at = m.get("created_at")
-            if created_at:
-                # Extrai apenas a data (YYYY-MM-DD) do momento do lançamento (created_at)
-                data_criacao = str(created_at).split("T")[0]
-                if data_criacao == hoje_br_str:
-                    movs.append(m)
-            else:
-                # Fallback caso não tenha o campo created_at
-                if m.get("data") == hoje_br_str:
-                    movs.append(m)
+        movs = res_movs.data or []
 
         if not movs:
-            await update.message.reply_text("📂 Nenhum lançamento foi registrado hoje.")
+            await update.message.reply_text("📂 Nenhum lançamento encontrado no banco.")
             return
 
-        await update.message.reply_text("📋 *Lançamentos e parcelas geradas hoje:*", parse_mode="Markdown")
+        await update.message.reply_text("📋 *Últimos lançamentos e parcelas cadastradas:*", parse_mode="Markdown")
 
-        # Ordena por ID em ordem crescente para mostrar (1/2, 2/2...) na sequência correta
-        movs.sort(key=lambda x: x.get("id"))
+        # Inverte a lista para mostrar na ordem correta de criação (1/2 depois 2/2)
+        movs.reverse()
 
         for m in movs:
             mov_id = m["id"]
@@ -323,8 +303,12 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             valor = m.get("valor", 0.0)
             tipo = m.get("tipo", "Despesa")
             
-            # Formata a data específica do vencimento desta parcela
-            data_br = datetime.strptime(m.get("data"), "%Y-%m-%d").strftime("%d/%m/%Y")
+            # Formata a data de vencimento desta parcela
+            data_raw = m.get("data")
+            if data_raw:
+                data_br = datetime.strptime(data_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
+            else:
+                data_br = "N/I"
 
             emoji_tipo = "🟢" if tipo == "Receita" else "🔴"
             texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Vencimento: `{data_br}`"
@@ -345,7 +329,7 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logging.error(f"Erro ao listar lançamentos: {e}")
         await update.message.reply_text("❌ Erro ao buscar os lançamentos no banco.")
-
+        
 async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Trata o clique nos botões Inline de Excluir e Editar."""
     query = update.callback_query
