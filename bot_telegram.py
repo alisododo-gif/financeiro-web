@@ -264,7 +264,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Traz as movimentações realizadas/lançadas no dia de hoje sem quebrar a consulta."""
+    """Traz todos os lançamentos cadastrados/inseridos no dia de HOJE (incluindo todas as parcelas)."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -275,36 +275,23 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     usuario_id = dados_usuario["usuario_id"]
 
     try:
-        # Data de hoje no fuso do Brasil
-        hoje_str = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
+        # Pega a data de hoje (YYYY-MM-DD)
+        data_hoje = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
 
-        # Busca os últimos lançamentos do banco
+        # Filtra na tabela pelo momento em que a linha foi CRIADA (created_at)
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
             .eq("usuario_id", usuario_id)
+            .gte("created_at", data_hoje)  # 👈 Pega tudo criado no banco de hoje em diante
             .order("id", desc=True)
-            .limit(50)
             .execute()
         )
 
-        movs_todos = res_movs.data or []
-
-        # Filtra no Python o que foi cadastrado/criado hoje
-        movs = []
-        for m in movs_todos:
-            created_at = m.get("created_at")
-            data_mov = m.get("data")
-            
-            # Se existir a coluna created_at, compara o dia
-            if created_at and str(created_at).startswith(hoje_str):
-                movs.append(m)
-            # Ou se a data do lançamento for hoje
-            elif data_mov == hoje_str:
-                movs.append(m)
+        movs = res_movs.data or []
 
         if not movs:
-            await update.message.reply_text("📂 Nenhum lançamento realizado no dia de hoje.")
+            await update.message.reply_text("📂 Nenhum lançamento cadastrado no dia de hoje.")
             return
 
         await update.message.reply_text("📋 *Lançamentos cadastrados HOJE:*", parse_mode="Markdown")
