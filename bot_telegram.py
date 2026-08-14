@@ -190,6 +190,8 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
+    await limpar_botoes_anteriores(update, context)
+
     if not dados_usuario:
         await update.message.reply_text("🚫 Acesso não autorizado! Digite /start para vincular.")
         return
@@ -390,6 +392,8 @@ async def cancelar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
+
+    await limpar_botoes_anteriores(update, context)
 
     if not dados_usuario:
         await update.message.reply_text("🚫 Acesso não autorizado! Digite /start para vincular.")
@@ -818,6 +822,8 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    await limpar_botoes_anteriores(update, context)
+
     action = query.data
 
     if action == "venc_hoje":
@@ -1092,6 +1098,8 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def testar_alertas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔎 Verificando e enviando alertas de boletos do dia...")
     await processar_e_enviar_alertas(context)
+
+    await limpar_botoes_anteriores(update, context)
 
 
 async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
