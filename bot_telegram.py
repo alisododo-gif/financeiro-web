@@ -32,6 +32,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
+STREAMLIT_URL = "https://financeiro-web-2-0.streamlit.app/?uid=1"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 logging.basicConfig(level=logging.INFO)
@@ -264,7 +265,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Traz os lançamentos de HOJE, incluindo todas as parcelas geradas juntas no parcelamento."""
+    """Lista os últimos 10 lançamentos cadastrados para você editar ou excluir qualquer parcela."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -275,66 +276,42 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     usuario_id = dados_usuario["usuario_id"]
 
     try:
-        data_hoje = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
-
-        # 1. Busca os últimos lançamentos por ID (sem consultar colunas inexistentes)
+        # Pega as 10 últimas movimentações criadas (independente da data de vencimento)
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
             .eq("usuario_id", usuario_id)
             .order("id", desc=True)
-            .limit(30)
+            .limit(10)
             .execute()
         )
 
-        todos = res_movs.data or []
-
-        if not todos:
-            await update.message.reply_text("📂 Nenhum lançamento encontrado.")
-            return
-
-        # 2. Identifica os nomes das compras feitas hoje (ex: extrai "Mercado" de "Mercado (1/2)")
-        bases_hoje = set()
-        ids_hoje = set()
-
-        for item in todos:
-            if item.get("data") == data_hoje:
-                ids_hoje.add(item["id"])
-                desc = item.get("descricao", "")
-                if re.search(r"\s*\(\d+/\d+\)$", desc):
-                    base_desc = re.sub(r"\s*\(\d+/\d+\)$", "", desc)
-                    bases_hoje.add(base_desc)
-
-        # 3. Agrupa o que foi feito hoje + todas as parcelas vinculadas geradas na mesma compra
-        movs = []
-        for item in todos:
-            desc = item.get("descricao", "")
-            base_desc = re.sub(r"\s*\(\d+/\d+\)$", "", desc)
-            
-            e_de_hoje = item["id"] in ids_hoje
-            e_parcela_de_hoje = base_desc in bases_hoje and bool(re.search(r"\s*\(\d+/\d+\)$", desc))
-
-            if e_de_hoje or e_parcela_de_hoje:
-                movs.append(item)
+        movs = res_movs.data or []
 
         if not movs:
-            await update.message.reply_text("📂 Nenhum lançamento realizado no dia de hoje.")
+            await update.message.reply_text("📂 Nenhum lançamento encontrado no banco.")
             return
 
-        await update.message.reply_text("📋 *Lançamentos cadastrados HOJE:*", parse_mode="Markdown")
+        await update.message.reply_text("📋 *Últimos lançamentos e parcelas cadastradas:*", parse_mode="Markdown")
 
-        # 4. Exibe os itens na tela
+        # Inverte a lista para mostrar na ordem correta de criação (1/2 depois 2/2)
+        movs.reverse()
+
         for m in movs:
             mov_id = m["id"]
             desc = m.get("descricao", "Sem descrição")
             valor = m.get("valor", 0.0)
             tipo = m.get("tipo", "Despesa")
             
+            # Formata a data de vencimento desta parcela
             data_raw = m.get("data")
-            data_br = datetime.strptime(data_raw, "%Y-%m-%d").strftime("%d/%m/%Y") if data_raw else "N/I"
+            if data_raw:
+                data_br = datetime.strptime(data_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
+            else:
+                data_br = "N/I"
 
             emoji_tipo = "🟢" if tipo == "Receita" else "🔴"
-            texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Data/Vencimento: `{data_br}`"
+            texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Vencimento: `{data_br}`"
 
             teclado = [
                 [
@@ -351,8 +328,8 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     except Exception as e:
         logging.error(f"Erro ao listar lançamentos: {e}")
-        await update.message.reply_text(f"❌ Erro ao buscar no banco: {e}")
-
+        await update.message.reply_text("❌ Erro ao buscar os lançamentos no banco.")
+        
 async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Trata o clique nos botões Inline de Excluir e Editar."""
     query = update.callback_query
@@ -1051,6 +1028,19 @@ async def testar_alertas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await processar_e_enviar_alertas(context)
 
 
+async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        req = urllib.request.Request(
+            STREAMLIT_URL, 
+            headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status == 200:
+                logging.info("🟢 Ping enviado com sucesso para o Streamlit!")
+    except Exception as e:
+        logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
+
+
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -1069,6 +1059,12 @@ def main():
         time=time(hour=15, minute=0, tzinfo=fuso_br)
     )
 
+    # Ping do Streamlit (a cada 5 horas)
+    app.job_queue.run_repeating(
+        ping_streamlit,
+        interval=18000,
+        first=18000
+    )
 
     # Agendamento Automático do Resumo Mensal: Todo dia 1º às 08:00
     app.job_queue.run_monthly(
