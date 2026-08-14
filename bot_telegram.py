@@ -265,7 +265,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lista todas as movimentações CRIADAS HOJE no sistema (não importa a data da parcela)."""
+    """Lista todas as movimentações CRIADAS HOJE no sistema (ajustado para fuso horário UTC)."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -275,18 +275,23 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     usuario_id = dados_usuario["usuario_id"]
 
-    # 🗓️ Pega a data de hoje no formato do banco (YYYY-MM-DD)
-    hoje_str = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
+    # 🗓️ Pega o início e o fim do dia de HOJE no fuso do Brasil
+    agora_br = datetime.now(FUSO_BR)
+    inicio_dia_br = agora_br.replace(hour=0, minute=0, second=0, microsecond=0)
+    fim_dia_br = agora_br.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    # 🌐 Converte o intervalo para UTC (como o Supabase salva o created_at)
+    inicio_utc_str = inicio_dia_br.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    fim_utc_str = fim_dia_br.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
     try:
-        # Busca lançamentos inseridos hoje no banco de dados (usando created_at)
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
             .eq("usuario_id", usuario_id)
-            .gte("created_at", f"{hoje_str}T00:00:00")  # A partir da meia-noite de hoje
-            .lte("created_at", f"{hoje_str}T23:59:59")  # Até o final do dia de hoje
-            .order("id", desc=True)                      # Mostra os mais recentes primeiro
+            .gte("created_at", inicio_utc_str)
+            .lte("created_at", fim_utc_str)
+            .order("id", desc=True)
             .execute()
         )
 
@@ -303,12 +308,10 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             desc = m.get("descricao", "Sem descrição")
             valor = m.get("valor", 0.0)
             tipo = m.get("tipo", "Despesa")
-            
-            # Formata a data de vencimento/fatura original do lançamento
             data_br = datetime.strptime(m.get("data"), "%Y-%m-%d").strftime("%d/%m/%Y")
 
             emoji_tipo = "🟢" if tipo == "Receita" else "🔴"
-            texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Data no sistema: `{data_br}`"
+            texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Data: `{data_br}`"
 
             teclado = [
                 [
