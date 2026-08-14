@@ -265,7 +265,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lista todas as movimentações CRIADAS HOJE no sistema (ajustado para fuso horário UTC)."""
+    """Lista os lançamentos cadastrados HOJE no sistema de forma segura."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -275,27 +275,39 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     usuario_id = dados_usuario["usuario_id"]
 
-    # 🗓️ Pega o início e o fim do dia de HOJE no fuso do Brasil
-    agora_br = datetime.now(FUSO_BR)
-    inicio_dia_br = agora_br.replace(hour=0, minute=0, second=0, microsecond=0)
-    fim_dia_br = agora_br.replace(hour=23, minute=59, second=59, microsecond=999999)
-
-    # 🌐 Converte o intervalo para UTC (como o Supabase salva o created_at)
-    inicio_utc_str = inicio_dia_br.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
-    fim_utc_str = fim_dia_br.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
-
     try:
+        # Busca os últimos 30 lançamentos do usuário no banco (sem filtro complexo de data na query)
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
             .eq("usuario_id", usuario_id)
-            .gte("created_at", inicio_utc_str)
-            .lte("created_at", fim_utc_str)
             .order("id", desc=True)
+            .limit(30)
             .execute()
         )
 
-        movs = res_movs.data or []
+        movs_brutas = res_movs.data or []
+
+        if not movs_brutas:
+            await update.message.reply_text("📂 Nenhum lançamento encontrado.")
+            return
+
+        # 🗓️ Pega a data de HOJE no fuso do Brasil (ex: "2026-08-14")
+        hoje_br_str = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
+
+        # Filtra no Python apenas o que foi criado HOJE
+        movs = []
+        for m in movs_brutas:
+            created_at = m.get("created_at")
+            if created_at:
+                # Tenta extrair a data YYYY-MM-DD do created_at (ex: "2026-08-14T13:45:00...")
+                data_criacao = str(created_at).split("T")[0]
+                if data_criacao == hoje_br_str:
+                    movs.append(m)
+            else:
+                # Se não existir created_at, verifica o campo 'data' comum
+                if m.get("data") == hoje_br_str:
+                    movs.append(m)
 
         if not movs:
             await update.message.reply_text("📂 Nenhum lançamento foi registrado hoje.")
@@ -308,6 +320,8 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             desc = m.get("descricao", "Sem descrição")
             valor = m.get("valor", 0.0)
             tipo = m.get("tipo", "Despesa")
+            
+            # Data de vencimento/fatura do lançamento
             data_br = datetime.strptime(m.get("data"), "%Y-%m-%d").strftime("%d/%m/%Y")
 
             emoji_tipo = "🟢" if tipo == "Receita" else "🔴"
