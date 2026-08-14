@@ -264,7 +264,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Traz tudo o que foi CRIADO/LANÇADO hoje no banco (incluindo todas as parcelas)."""
+    """Traz as movimentações realizadas/lançadas no dia de hoje sem quebrar a consulta."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -275,20 +275,33 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     usuario_id = dados_usuario["usuario_id"]
 
     try:
-        # Pega a data de hoje às 00:00:00 no fuso do Brasil
-        hoje_inicio = datetime.now(FUSO_BR).strftime("%Y-%m-%dT00:00:00")
+        # Data de hoje no fuso do Brasil
+        hoje_str = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
 
-        # Busca tudo que foi cadastrado no banco do início do dia até agora
+        # Busca os últimos lançamentos do banco
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
             .eq("usuario_id", usuario_id)
-            .gte("created_at", hoje_inicio)  # 👈 Filtra por QUANDO foi lançado hoje!
             .order("id", desc=True)
+            .limit(50)
             .execute()
         )
 
-        movs = res_movs.data or []
+        movs_todos = res_movs.data or []
+
+        # Filtra no Python o que foi cadastrado/criado hoje
+        movs = []
+        for m in movs_todos:
+            created_at = m.get("created_at")
+            data_mov = m.get("data")
+            
+            # Se existir a coluna created_at, compara o dia
+            if created_at and str(created_at).startswith(hoje_str):
+                movs.append(m)
+            # Ou se a data do lançamento for hoje
+            elif data_mov == hoje_str:
+                movs.append(m)
 
         if not movs:
             await update.message.reply_text("📂 Nenhum lançamento realizado no dia de hoje.")
