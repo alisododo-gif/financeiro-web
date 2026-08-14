@@ -276,12 +276,11 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     usuario_id = dados_usuario["usuario_id"]
 
     try:
-        # Pega as 10 últimas movimentações criadas, ignorando datas de 2027 em diante
+        # Pega as 10 últimas movimentações criadas (independente da data de vencimento)
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
             .eq("usuario_id", usuario_id)
-            .lt("data", "2027-01-01")  # 👈 IGNORA 2027 DIRETO NA CONSULTA DO BANCO
             .order("id", desc=True)
             .limit(10)
             .execute()
