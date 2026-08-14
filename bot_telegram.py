@@ -841,23 +841,74 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "c_parcelado_menu":
         botoes = []
         for i in range(2, 13, 2):
-            p1_valor = dados_temp["valor"] / i
-            p2_valor = dados_temp["valor"] / (i + 1) if (i + 1) <= 12 else None
-
-            row = [InlineKeyboardButton(f"{i}x (R$ {p1_valor:.2f})", callback_data=f"parc_{i}")]
-            if p2_valor:
-                row.append(InlineKeyboardButton(f"{i+1}x (R$ {p2_valor:.2f})", callback_data=f"parc_{i+1}"))
+            # Exibe no botão o valor MENSAL fixo
+            v1 = dados_temp["valor"]
+            row = [InlineKeyboardButton(f"{i}x de R$ {v1:.2f}", callback_data=f"parc_{i}")]
+            if (i + 1) <= 12:
+                row.append(InlineKeyboardButton(f"{i+1}x de R$ {v1:.2f}", callback_data=f"parc_{i+1}"))
             botoes.append(row)
 
         await query.edit_message_text(
-            f"📅 Selecione a quantidade de parcelas para R$ {dados_temp['valor']:.2f}:",
+            f"📅 Selecione por quantos meses deseja agendar este gasto mensal de R$ {dados_temp['valor']:.2f}:",
             reply_markup=InlineKeyboardMarkup(botoes)
         )
         return
 
+    # 🟢 SELEÇÃO DAS PARCELAS
     if action.startswith("parc_"):
         num_parcelas = int(action.replace("parc_", ""))
         dados_temp["parcelas"] = num_parcelas
+
+        # 🛑 SE FOR GASTO FIXO/RECORRENTE: Salva parcelas de valor FIXO sem usar cartão!
+        if dados_temp.get("e_recorrente"):
+            valor_parcela = dados_temp["valor"]  # O valor digitado é o valor FIXO de cada mês
+            valor_total = valor_parcela * num_parcelas  # Total somado
+            
+            data_inicial_dt = datetime.strptime(dados_temp["data"], "%Y-%m-%d")
+            
+            payloads = []
+            for i in range(num_parcelas):
+                # Soma os meses mantendo o dia fixo
+                data_parcela_dt = data_inicial_dt + relativedelta(months=i)
+                str_data_parcela = data_parcela_dt.strftime("%Y-%m-%d")
+                str_mes_fatura = data_parcela_dt.strftime("%m/%Y")
+
+                desc_final = f"{dados_temp['descricao']} ({i+1}/{num_parcelas})"
+
+                payloads.append({
+                    "usuario_id": dados_temp["usuario_id"],
+                    "conta_id": None,
+                    "cartao_id": None,  # 👈 NENHUM CARTÃO VINCULADO
+                    "descricao": desc_final,
+                    "valor": valor_parcela,  # 👈 R$ 1.200 em todas as parcelas
+                    "tipo": "Despesa",
+                    "categoria": dados_temp.get("categoria", "Outros"),
+                    "forma_pagamento": "Boleto",
+                    "data": str_data_parcela,
+                    "mes_fatura": str_mes_fatura,
+                    "pago": False,
+                    "tags": dados_temp.get("tags"),
+                })
+
+            try:
+                supabase.table("movimentacoes").insert(payloads).execute()
+                tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp.get("tags") else ""
+
+                await query.edit_message_text(
+                    f"✅ *Gasto Fixo Agendado!*\n\n"
+                    f"💸 *Valor Mensal:* R$ {valor_parcela:.2f}\n"
+                    f"📅 *Duração:* {num_parcelas} meses (Total: R$ {valor_total:.2f})\n"
+                    f"📝 *Descrição:* {dados_temp['descricao']}\n"
+                    f"🗓️ *Primeiro Vencimento:* {data_inicial_dt.strftime('%d/%m/%Y')}{tag_str}",
+                    parse_mode="Markdown"
+                )
+                context.user_data.pop("temp_lancamento", None)
+            except Exception as e:
+                logging.error(f"Erro ao salvar gasto fixo: {e}")
+                await query.edit_message_text(f"⚠️ Erro ao salvar no banco: {e}")
+            return
+        
+        # Se NÃO for fixo (compra normal no cartão), segue o fluxo tradicional:
         action = "c_avista"
 
     if action == "c_avista":
