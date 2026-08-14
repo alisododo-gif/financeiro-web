@@ -434,6 +434,34 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
 async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
 
+    # 🟢 CAPTURA DO MODO DE DIGITAÇÃO DE DIA DE VENCIMENTO PERSONALIZADO
+    if context.user_data.get("aguardando_dia_vencimento"):
+        context.user_data["aguardando_dia_vencimento"] = False
+        texto_dia = update.message.text.strip()
+        
+        if not texto_dia.isdigit() or not (1 <= int(texto_dia) <= 31):
+            await update.message.reply_text("⚠️ Dia inválido! Por favor, informe um dia entre 1 e 31.")
+            return
+
+        dia_escolhido = int(texto_dia)
+        now = datetime.now(FUSO_BR)
+        
+        try:
+            data_vencimento_dt = datetime(now.year, now.month, dia_escolhido)
+        except ValueError:
+            import calendar
+            ultimo_dia = calendar.monthrange(now.year, now.month)[1]
+            data_vencimento_dt = datetime(now.year, now.month, ultimo_dia)
+
+        dados_temp = context.user_data.get("temp_lancamento")
+        if dados_temp:
+            dados_temp["data"] = data_vencimento_dt.strftime("%Y-%m-%d")
+            dados_temp["mes_fatura"] = data_vencimento_dt.strftime("%m/%Y")
+            
+            # Chama o menu de seleção (À Vista / Parcelado)
+            await perguntar_forma_pagamento_recorrente(update, context)
+            return
+
     # 🟢 CAPTURA DO MODO DE EDIÇÃO
     if "edit_mov_id" in context.user_data:
         mov_id = context.user_data.pop("edit_mov_id")
@@ -650,8 +678,27 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "data": data_final,
         "mes_fatura": mes_fatura_calc,
         "tags": tags_final,
-        "pago": not e_recorrente
+        "pago": not e_recorrente,
+        "e_recorrente": e_recorrente  # 👈 Adicione essa flag para controle
     }
+
+    # 🟢 Se for RECORRENTE / FIXO, pergunta primeiro o Vencimento:
+    if e_recorrente:
+        botoes = [
+            [
+                InlineKeyboardButton("📅 Vence Hoje", callback_data="venc_hoje"),
+                InlineKeyboardButton("✏️ Escolher Dia", callback_data="venc_mudar"),
+            ]
+        ]
+        await update.message.reply_text(
+            f"🔄 *Lançamento Fixo / Recorrente*\n\n"
+            f"📝 *Descrição:* {descricao_limpa}\n"
+            f"💰 *Valor:* R$ {valor:.2f}\n\n"
+            f"Qual é o dia de vencimento dessa conta?",
+            reply_markup=InlineKeyboardMarkup(botoes),
+            parse_mode="Markdown"
+        )
+        return
 
     if e_credito:
         if not lista_cartoes:
@@ -729,12 +776,41 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 await update.message.reply_text(f"⚠️ Erro ao salvar no Supabase: {e}")
 
+async def perguntar_forma_pagamento_recorrente(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Pergunta se a conta recorrente/fixa será À vista ou Parcelada."""
+    botoes = [
+        [
+            InlineKeyboardButton("💵 À Vista", callback_data="c_avista"),
+            InlineKeyboardButton("📅 Parcelado (2x a 12x)", callback_data="c_parcelado_menu"),
+        ]
+    ]
+
+    texto_msg = "💳 *Como deseja registrar esse gasto fixo?*\n\nEscolha se será À Vista ou Parcelado:"
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(texto_msg, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    else:
+        await update.message.reply_text(texto_msg, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+
+
 
 async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     action = query.data
+
+    if action == "venc_hoje":
+        await perguntar_forma_pagamento_recorrente(update, context)
+        return
+
+    if action == "venc_mudar":
+        context.user_data["aguardando_dia_vencimento"] = True
+        await query.edit_message_text(
+            "✍️ *Digite o dia de vencimento dessa conta* (envie apenas o número, ex: `10` ou `25`):",
+            parse_mode="Markdown"
+        )
+        return
 
     if action.startswith("pagar_rec_"):
         receber_id = int(action.replace("pagar_rec_", ""))
