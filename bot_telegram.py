@@ -21,7 +21,6 @@ from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
-    ConversationHandler,
     MessageHandler,
     filters,
 )
@@ -39,9 +38,6 @@ logging.basicConfig(level=logging.INFO)
 
 CACHE_USUARIOS = {}
 FUSO_BR = pytz.timezone("America/Sao_Paulo")
-
-# Estado exclusivo para a troca de vencimento
-AGUARDANDO_DIA_VENCIMENTO = 1
 
 
 def buscar_dados_usuario(telegram_id):
@@ -265,7 +261,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
-# LISTAR LANÇAMENTOS E AÇÕES (EXCLUIR) - CÓDIGO ORIGINAL
+# LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Traz as últimas 10 movimentações cadastradas ordenadas pelo ID mais recente."""
@@ -279,7 +275,7 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     usuario_id = dados_usuario["usuario_id"]
 
     try:
-        # Busca exatamente igual ao seu código original
+        # Busca direta no Supabase trazendo as 10 últimas inserções por ID
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
@@ -297,6 +293,7 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         await update.message.reply_text("📋 *Últimos lançamentos cadastrados:*", parse_mode="Markdown")
 
+        # Exibe os itens na tela
         for m in movs:
             mov_id = m["id"]
             desc = m.get("descricao", "Sem descrição")
@@ -326,9 +323,8 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logging.error(f"Erro ao listar lançamentos: {e}")
         await update.message.reply_text(f"❌ Erro ao buscar no banco: {e}")
 
-
 async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Trata o clique nos botões Inline de Excluir e Editar (original)."""
+    """Trata o clique nos botões Inline de Excluir e Editar."""
     query = update.callback_query
     await query.answer()
 
@@ -358,52 +354,6 @@ async def cancelar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Edição cancelada.")
     else:
         await update.message.reply_text("Nenhuma ação para cancelar.")
-
-
-# =========================================================
-# FLUXO DE TROCA DE VENCIMENTO COM CONVERSATION HANDLER
-# =========================================================
-async def iniciar_venc_mudar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    await query.edit_message_text(
-        "✍️ *Digite o dia de vencimento dessa conta* (envie apenas o número, ex: `10` ou `25`):",
-        parse_mode="Markdown"
-    )
-    return AGUARDANDO_DIA_VENCIMENTO
-
-
-async def receber_dia_vencimento_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    texto_dia = update.message.text.strip()
-    
-    if not texto_dia.isdigit() or not (1 <= int(texto_dia) <= 31):
-        await update.message.reply_text("⚠️ Dia inválido! Por favor, informe um dia entre 1 e 31.")
-        return AGUARDANDO_DIA_VENCIMENTO
-
-    dia_escolhido = int(texto_dia)
-    now = datetime.now(FUSO_BR)
-    
-    try:
-        data_vencimento_dt = datetime(now.year, now.month, dia_escolhido)
-    except ValueError:
-        import calendar
-        ultimo_dia = calendar.monthrange(now.year, now.month)[1]
-        data_vencimento_dt = datetime(now.year, now.month, ultimo_dia)
-
-    dados_temp = context.user_data.get("temp_lancamento")
-    if dados_temp:
-        dados_temp["data"] = data_vencimento_dt.strftime("%Y-%m-%d")
-        dados_temp["mes_fatura"] = data_vencimento_dt.strftime("%m/%Y")
-        
-        await perguntar_forma_pagamento_recorrente(update, context)
-
-    return ConversationHandler.END
-
-
-async def cancelar_vencimento(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ Alteração de vencimento cancelada.")
-    return ConversationHandler.END
 
 
 # =========================================================
@@ -463,7 +413,35 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
 async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
 
-    # CAPTURA DO MODO DE EDIÇÃO ORIGINAL
+    # 🟢 CAPTURA DO MODO DE DIGITAÇÃO DE DIA DE VENCIMENTO PERSONALIZADO
+    if context.user_data.get("aguardando_dia_vencimento"):
+        context.user_data["aguardando_dia_vencimento"] = False
+        texto_dia = update.message.text.strip()
+        
+        if not texto_dia.isdigit() or not (1 <= int(texto_dia) <= 31):
+            await update.message.reply_text("⚠️ Dia inválido! Por favor, informe um dia entre 1 e 31.")
+            return
+
+        dia_escolhido = int(texto_dia)
+        now = datetime.now(FUSO_BR)
+        
+        try:
+            data_vencimento_dt = datetime(now.year, now.month, dia_escolhido)
+        except ValueError:
+            import calendar
+            ultimo_dia = calendar.monthrange(now.year, now.month)[1]
+            data_vencimento_dt = datetime(now.year, now.month, ultimo_dia)
+
+        dados_temp = context.user_data.get("temp_lancamento")
+        if dados_temp:
+            dados_temp["data"] = data_vencimento_dt.strftime("%Y-%m-%d")
+            dados_temp["mes_fatura"] = data_vencimento_dt.strftime("%m/%Y")
+            
+            # Chama o menu de seleção (À Vista / Parcelado)
+            await perguntar_forma_pagamento_recorrente(update, context)
+            return
+
+    # 🟢 CAPTURA DO MODO DE EDIÇÃO
     if "edit_mov_id" in context.user_data:
         mov_id = context.user_data.pop("edit_mov_id")
         texto_digitado = update.message.text.strip().replace(",", ".")
@@ -543,8 +521,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `290 Alison receber 15/08` (Cria Conta a Receber)\n\n"
             "• `50 Comida Pix` (Despesa via Pix)\n\n"
             "• `/listar` (Visualizar, Editar ou Excluir Lançamentos)\n\n"
-            "• `resumo` (Exibe o Resumo Geral)\n\n"
-            "• `/cancelar` (Cancelar a operação atual)",
+            "• `resumo` (Exibe o Resumo Geral)",
             parse_mode="Markdown"
         )
         return
@@ -653,6 +630,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     categoria_final = categoria_usuario if categoria_usuario else categoria_padrao
 
+    # Remove apenas 1 ocorrência da palavra de tipo de pagamento
     descricao_limpa = re.sub(
         r"\b(pix|debito|débito|credito|crédito|fixo|fixa|recorrente)\b",
         "",
@@ -664,6 +642,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     descricao_limpa = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", descricao_limpa)
     descricao_limpa = " ".join(descricao_limpa.split())
 
+    # Garante descrição amigável caso fique vazia
     if not descricao_limpa:
         if e_credito:
             descricao_limpa = "Cartão de Crédito"
@@ -689,9 +668,10 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "mes_fatura": mes_fatura_calc,
         "tags": tags_final,
         "pago": not e_recorrente,
-        "e_recorrente": e_recorrente
+        "e_recorrente": e_recorrente  # 👈 Adicione essa flag para controle
     }
 
+    # 🟢 Se for RECORRENTE / FIXO, pergunta primeiro o Vencimento:
     if e_recorrente:
         botoes = [
             [
@@ -802,6 +782,7 @@ async def perguntar_forma_pagamento_recorrente(update: Update, context: ContextT
         await update.message.reply_text(texto_msg, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 
+
 async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -810,6 +791,14 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "venc_hoje":
         await perguntar_forma_pagamento_recorrente(update, context)
+        return
+
+    if action == "venc_mudar":
+        context.user_data["aguardando_dia_vencimento"] = True
+        await query.edit_message_text(
+            "✍️ *Digite o dia de vencimento dessa conta* (envie apenas o número, ex: `10` ou `25`):",
+            parse_mode="Markdown"
+        )
         return
 
     if action.startswith("pagar_rec_"):
@@ -841,6 +830,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "c_parcelado_menu":
         botoes = []
         for i in range(2, 13, 2):
+            # Exibe no botão o valor MENSAL fixo
             v1 = dados_temp["valor"]
             row = [InlineKeyboardButton(f"{i}x de R$ {v1:.2f}", callback_data=f"parc_{i}")]
             if (i + 1) <= 12:
@@ -853,18 +843,21 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # 🟢 SELEÇÃO DAS PARCELAS
     if action.startswith("parc_"):
         num_parcelas = int(action.replace("parc_", ""))
         dados_temp["parcelas"] = num_parcelas
 
+        # 🛑 SE FOR GASTO FIXO/RECORRENTE: Salva parcelas de valor FIXO sem usar cartão!
         if dados_temp.get("e_recorrente"):
-            valor_parcela = dados_temp["valor"]
-            valor_total = valor_parcela * num_parcelas
+            valor_parcela = dados_temp["valor"]  # O valor digitado é o valor FIXO de cada mês
+            valor_total = valor_parcela * num_parcelas  # Total somado
             
             data_inicial_dt = datetime.strptime(dados_temp["data"], "%Y-%m-%d")
             
             payloads = []
             for i in range(num_parcelas):
+                # Soma os meses mantendo o dia fixo
                 data_parcela_dt = data_inicial_dt + relativedelta(months=i)
                 str_data_parcela = data_parcela_dt.strftime("%Y-%m-%d")
                 str_mes_fatura = data_parcela_dt.strftime("%m/%Y")
@@ -874,9 +867,9 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 payloads.append({
                     "usuario_id": dados_temp["usuario_id"],
                     "conta_id": None,
-                    "cartao_id": None,
+                    "cartao_id": None,  # 👈 NENHUM CARTÃO VINCULADO
                     "descricao": desc_final,
-                    "valor": valor_parcela,
+                    "valor": valor_parcela,  # 👈 R$ 1.200 em todas as parcelas
                     "tipo": "Despesa",
                     "categoria": dados_temp.get("categoria", "Outros"),
                     "forma_pagamento": "Boleto",
@@ -904,6 +897,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(f"⚠️ Erro ao salvar no banco: {e}")
             return
         
+        # Se NÃO for fixo (compra normal no cartão), segue o fluxo tradicional:
         action = "c_avista"
 
     if action == "c_avista":
@@ -1045,6 +1039,7 @@ def main():
         time=time(hour=15, minute=0, tzinfo=fuso_br)
     )
 
+
     # Agendamento Automático do Resumo Mensal: Todo dia 1º às 08:00
     app.job_queue.run_monthly(
         enviar_resumo_mensal_telegram,
@@ -1052,21 +1047,7 @@ def main():
         day=1
     )
 
-    # CONVERSATION HANDLER APENAS PARA O VENCIMENTO CUSTOMIZADO
-    conv_vencimento = ConversationHandler(
-        entry_points=[CallbackQueryHandler(iniciar_venc_mudar, pattern="^venc_mudar$")],
-        states={
-            AGUARDANDO_DIA_VENCIMENTO: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receber_dia_vencimento_conv)
-            ]
-        },
-        fallbacks=[CommandHandler("cancelar", cancelar_vencimento)],
-        conversation_timeout=300
-    )
-
-    app.add_handler(conv_vencimento)
-
-    # --- HANDLERS DE COMANDOS ORIGINAL ---
+    # --- HANDLERS DE COMANDOS ---
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", consultar_contas_receber))
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
