@@ -265,7 +265,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lista TODOS os lançamentos cadastrados hoje e todas as suas parcelas relativas, sem limite."""
+    """Lista TODOS os lançamentos cadastrados hoje e remove botões antigos."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -275,10 +275,12 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     usuario_id = dados_usuario["usuario_id"]
 
+    # 🧹 Limpa botões de buscas anteriores se existirem
+    await limpar_botoes_anteriores(update, context)
+
     try:
         data_hoje = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
 
-        # 1. Busca TODAS as movimentações do usuário no Supabase (sem limite)
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
@@ -293,29 +295,28 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("📂 Nenhum lançamento encontrado no banco.")
             return
 
-        # 2. Descobre o nome base de tudo o que foi lançado hoje
         compras_de_hoje = set()
         for m in todos:
             if m.get("data") == data_hoje:
                 desc_base = re.sub(r"\s*\(\d+/\d+\)$", "", m.get("descricao", "")).strip()
                 compras_de_hoje.add(desc_base)
 
-        # 3. Puxa TODAS as parcelas que pertencem às compras feitas hoje
+        if not compras_de_hoje:
+            await update.message.reply_text("📂 Nenhum lançamento cadastrado no dia de hoje.")
+            return
+
         movs = [
             m for m in todos 
             if re.sub(r"\s*\(\d+/\d+\)$", "", m.get("descricao", "")).strip() in compras_de_hoje
         ]
 
-        if not movs:
-            await update.message.reply_text("📂 Nenhum lançamento realizado no dia de hoje.")
-            return
-
-        # Inverte a ordem para mostrar (1/2 primeiro, depois 2/2)
         movs.reverse()
 
         await update.message.reply_text("📋 *Todos os lançamentos cadastrados HOJE:*", parse_mode="Markdown")
 
-        # 4. Exibe cada item na tela com botões de Ação
+        # Guarda a lista de IDs das mensagens enviadas nesta sessão
+        mensagens_com_botoes = []
+
         for m in movs:
             mov_id = m["id"]
             desc = m.get("descricao", "Sem descrição")
@@ -323,10 +324,7 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             tipo = m.get("tipo", "Despesa")
             
             data_raw = m.get("data")
-            if data_raw:
-                data_br = datetime.strptime(data_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
-            else:
-                data_br = "N/I"
+            data_br = datetime.strptime(data_raw, "%Y-%m-%d").strftime("%d/%m/%Y") if data_raw else "N/I"
 
             emoji_tipo = "🟢" if tipo == "Receita" else "🔴"
             texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Vencimento: `{data_br}`"
@@ -338,16 +336,21 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 ]
             ]
 
-            await update.message.reply_text(
+            msg = await update.message.reply_text(
                 text=texto_item,
                 reply_markup=InlineKeyboardMarkup(teclado),
                 parse_mode="Markdown"
             )
+            # Salva o ID da mensagem para desativar depois
+            mensagens_com_botoes.append(msg.message_id)
+
+        # Guarda no contexto do usuário
+        context.user_data["mensagens_botoes_antigas"] = mensagens_com_botoes
 
     except Exception as e:
         logging.error(f"Erro ao listar lançamentos: {e}")
         await update.message.reply_text("❌ Erro ao buscar os lançamentos no banco.")
-        
+
 async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Trata o clique nos botões Inline de Excluir e Editar."""
     query = update.callback_query
@@ -442,8 +445,11 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("aguardando_dia_vencimento"):
         context.user_data["aguardando_dia_vencimento"] = False
         texto_dia = update.message.text.strip()
+
+        await limpar_botoes_anteriores(update, context)
         
         if not texto_dia.isdigit() or not (1 <= int(texto_dia) <= 31):
+            context.user_data.pop("temp_lancamento", None)
             await update.message.reply_text("⚠️ Dia inválido! Por favor, informe um dia entre 1 e 31.")
             return
 
@@ -1057,6 +1063,22 @@ async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
                 logging.info("🟢 Ping enviado com sucesso para o Streamlit!")
     except Exception as e:
         logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
+
+async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Remove o teclado/botões de mensagens de listagem anteriores."""
+    chat_id = update.effective_chat.id
+    mensagens_antigas = context.user_data.pop("mensagens_botoes_antigas", [])
+
+    for msg_id in mensagens_antigas:
+        try:
+            # Remove apenas os botões da mensagem antiga
+            await context.bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=msg_id,
+                reply_markup=None
+            )
+        except Exception:
+            pass  # Ignora se a mensagem já tiver sido apagada pelo usuário        
 
 
 def main():
