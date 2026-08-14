@@ -932,6 +932,47 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         action = "c_avista"
 
     if action == "c_avista":
+        # 🟢 SE FOR GASTO FIXO / RECORRENTE (Não pede cartão de crédito!)
+        if dados_temp.get("e_recorrente"):
+            lista_contas = dados_usuario.get("contas", []) if dados_usuario else []
+            conta_id = lista_contas[0]["id"] if lista_contas else None
+            mes_fatura_calc = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%m/%Y")
+            categoria_salvar = dados_temp.get("categoria", "Fixo")
+
+            payload = {
+                "usuario_id": dados_temp["usuario_id"],
+                "conta_id": conta_id,
+                "cartao_id": None,  # 👈 Sem cartão
+                "descricao": dados_temp["descricao"],
+                "valor": dados_temp["valor"],
+                "tipo": "Despesa",
+                "categoria": categoria_salvar,
+                "forma_pagamento": dados_temp.get("forma_pagamento", "Boleto/Pix"),
+                "data": dados_temp["data"],
+                "mes_fatura": mes_fatura_calc,
+                "pago": False,  # Despesa fixa entra como pendente até o vencimento
+                "tags": dados_temp.get("tags"),
+            }
+
+            try:
+                supabase.table("movimentacoes").insert(payload).execute()
+                tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp.get("tags") else ""
+                data_br = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
+
+                await query.edit_message_text(
+                    f"✅ *Gasto Fixo Registrado com Sucesso!*\n\n"
+                    f"📝 Descrição: *{dados_temp['descricao']}*\n"
+                    f"💸 Valor: R$ *{dados_temp['valor']:.2f}*\n"
+                    f"📅 Vencimento: `{data_br}`\n"
+                    f"🏷️ Categoria: {categoria_salvar}{tag_str}",
+                    parse_mode="Markdown"
+                )
+                context.user_data.pop("temp_lancamento", None)
+            except Exception as e:
+                await query.edit_message_text(f"⚠️ Erro ao salvar gasto fixo no Supabase: {e}")
+            return
+
+        # 💳 SE NÃO FOR RECORRENTE (Fluxo normal de Cartão de Crédito)
         num_parc = dados_temp.get("parcelas", 1)
         if len(lista_cartoes) > 1:
             botoes = []
@@ -951,6 +992,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cartao_id = lista_cartoes[0]["id"] if lista_cartoes else None
             action = f"crt_{cartao_id}"
 
+    # 🟢 PROCESSA LANÇAMENTOS VINCULADOS À CONTA BANCÁRIA (PIX, DÉBITO, ETC)
     if action.startswith("cnt_"):
         conta_id = int(action.replace("cnt_", ""))
         mes_fatura_calc = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%m/%Y")
@@ -964,21 +1006,21 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "valor": dados_temp["valor"],
             "tipo": "Despesa",
             "categoria": categoria_salvar,
-            "forma_pagamento": dados_temp["forma_pagamento"],
+            "forma_pagamento": dados_temp.get("forma_pagamento", "Pix/Débito"),
             "data": dados_temp["data"],
             "mes_fatura": mes_fatura_calc,
             "pago": True,
-            "tags": dados_temp["tags"],
+            "tags": dados_temp.get("tags"),
         }
         try:
             supabase.table("movimentacoes").insert(payload).execute()
-            tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp["tags"] else ""
+            tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp.get("tags") else ""
             await query.edit_message_text(
                 f"✅ Lançamento Registrado!\n\n"
                 f"💸 Valor: R$ {dados_temp['valor']:.2f}\n"
                 f"📝 Descrição: {dados_temp['descricao']}\n"
                 f"🏷️ Categoria: {categoria_salvar}\n"
-                f"⚡ Forma: {dados_temp['forma_pagamento']}\n"
+                f"⚡ Forma: {dados_temp.get('forma_pagamento', 'Pix/Débito')}\n"
                 f"📅 Data: {dados_temp['data']}{tag_str}"
             )
             context.user_data.pop("temp_lancamento", None)
