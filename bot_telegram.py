@@ -264,7 +264,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Traz apenas os lançamentos do dia de hoje."""
+    """Traz tudo o que foi CRIADO/LANÇADO hoje no banco (incluindo todas as parcelas)."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -275,15 +275,15 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     usuario_id = dados_usuario["usuario_id"]
 
     try:
-        # Data de hoje no fuso horário do Brasil (America/Sao_Paulo)
-        data_hoje = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
+        # Pega a data de hoje às 00:00:00 no fuso do Brasil
+        hoje_inicio = datetime.now(FUSO_BR).strftime("%Y-%m-%dT00:00:00")
 
-        # Busca no Supabase filtrando pela data atual
+        # Busca tudo que foi cadastrado no banco do início do dia até agora
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
             .eq("usuario_id", usuario_id)
-            .eq("data", data_hoje)  # 👈 FILTRA SOMENTE O DIA DE HOJE
+            .gte("created_at", hoje_inicio)  # 👈 Filtra por QUANDO foi lançado hoje!
             .order("id", desc=True)
             .execute()
         )
@@ -291,10 +291,10 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
         movs = res_movs.data or []
 
         if not movs:
-            await update.message.reply_text("📂 Nenhum lançamento encontrado para o dia de hoje.")
+            await update.message.reply_text("📂 Nenhum lançamento realizado no dia de hoje.")
             return
 
-        await update.message.reply_text("📋 *Lançamentos de HOJE:*", parse_mode="Markdown")
+        await update.message.reply_text("📋 *Lançamentos cadastrados HOJE:*", parse_mode="Markdown")
 
         # Exibe os itens na tela
         for m in movs:
