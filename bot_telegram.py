@@ -116,6 +116,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Para lançar despesa: `50.00 Mercado`\n"
             "• Para lançar receita: `10 salario receita` ou `/receita 2500 Salário`\n"
             "• Para consultar pendentes: Digite /status ou `receber`\n"
+            "• Para listar e editar: Digite /listar\n"
             "• Para ver o resumo: Digite `resumo` ou /resumo",
             parse_mode="Markdown"
         )
@@ -258,6 +259,99 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
+# LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
+# =========================================================
+async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lista as últimas movimentações com botões de Editar e Excluir."""
+    telegram_id = update.effective_user.id
+    dados_usuario = buscar_dados_usuario(telegram_id)
+
+    if not dados_usuario:
+        await update.message.reply_text("🚫 Acesso não autorizado! Digite /start para vincular.")
+        return
+
+    usuario_id = dados_usuario["usuario_id"]
+
+    try:
+        res_movs = (
+            supabase.table("movimentacoes")
+            .select("*")
+            .eq("usuario_id", usuario_id)
+            .order("data", desc=True)
+            .limit(10)
+            .execute()
+        )
+
+        movs = res_movs.data or []
+
+        if not movs:
+            await update.message.reply_text("📂 Nenhum lançamento encontrado.")
+            return
+
+        await update.message.reply_text("📋 *Seus últimos lançamentos:*", parse_mode="Markdown")
+
+        for m in movs:
+            mov_id = m["id"]
+            desc = m.get("descricao", "Sem descrição")
+            valor = m.get("valor", 0.0)
+            tipo = m.get("tipo", "Despesa")
+            data_br = datetime.strptime(m.get("data"), "%Y-%m-%d").strftime("%d/%m/%Y")
+
+            emoji_tipo = "🟢" if tipo == "Receita" else "🔴"
+            texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Data: `{data_br}`"
+
+            teclado = [
+                [
+                    InlineKeyboardButton("✏️ Editar", callback_data=f"edit_{mov_id}"),
+                    InlineKeyboardButton("🗑️ Excluir", callback_data=f"del_{mov_id}")
+                ]
+            ]
+
+            await update.message.reply_text(
+                text=texto_item,
+                reply_markup=InlineKeyboardMarkup(teclado),
+                parse_mode="Markdown"
+            )
+
+    except Exception as e:
+        logging.error(f"Erro ao listar lançamentos: {e}")
+        await update.message.reply_text("❌ Erro ao buscar os lançamentos no banco.")
+
+
+async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Trata o clique nos botões Inline de Excluir e Editar."""
+    query = update.callback_query
+    await query.answer()
+
+    dados = query.data
+    acao, mov_id = dados.split("_")
+
+    if acao == "del":
+        try:
+            supabase.table("movimentacoes").delete().eq("id", mov_id).execute()
+            await query.edit_message_text(text="🗑️ *Lançamento excluído com sucesso!*", parse_mode="Markdown")
+        except Exception as e:
+            logging.error(f"Erro ao excluir lançamento {mov_id}: {e}")
+            await query.edit_message_text(text="❌ Erro ao tentar excluir o lançamento.")
+
+    elif acao == "edit":
+        context.user_data["edit_mov_id"] = mov_id
+        await query.edit_message_text(
+            text="✏️ *Modo de Edição*\n\nDigite o novo valor para este lançamento (ex: `45.50`):\n_(Ou envie /cancelar para desistir)_",
+            parse_mode="Markdown"
+        )
+
+
+async def cancelar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancela o modo de edição pendente."""
+    if "edit_mov_id" in context.user_data:
+        context.user_data.pop("edit_mov_id", None)
+        await update.message.reply_text("❌ Edição cancelada.")
+    else:
+        await update.message.reply_text("Nenhuma ação para cancelar.")
+
+
+# =========================================================
 # CONSULTAR CONTAS A RECEBER PENDENTES
 # =========================================================
 async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -314,6 +408,18 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
 async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
 
+    # 🟢 CAPTURA DO MODO DE EDIÇÃO
+    if "edit_mov_id" in context.user_data:
+        mov_id = context.user_data.pop("edit_mov_id")
+        texto_digitado = update.message.text.strip().replace(",", ".")
+        try:
+            novo_valor = float(texto_digitado)
+            supabase.table("movimentacoes").update({"valor": novo_valor}).eq("id", mov_id).execute()
+            await update.message.reply_text(f"✅ *Lançamento atualizado para R$ {novo_valor:.2f}!*", parse_mode="Markdown")
+        except ValueError:
+            await update.message.reply_text("❌ Valor inválido. A edição foi cancelada. Tente usar `/listar` novamente.")
+        return
+
     CACHE_USUARIOS.pop(telegram_id, None)
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -331,17 +437,14 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     texto = update.message.text.strip()
 
-    # Atalhos rápidos para consulta
     if texto.lower() in ["status", "receber", "pendentes", "contas"]:
         await consultar_contas_receber(update, context)
         return
 
-    # 1. Extrai hashtags (#tag)
     tags_encontradas = re.findall(r"#(\w+)", texto)
     tags_final = " ".join([f"#{t.lower()}" for t in tags_encontradas]) if tags_encontradas else None
     texto_sem_tags = re.sub(r"#\w+", "", texto).strip()
 
-    # 2. Extrai Categoria personalizada (@categoria)
     match_categoria = re.search(r'@(?:"([^"]+)"|([\wÀ-ÿ]+))', texto_sem_tags)
     if match_categoria:
         categoria_bruta = match_categoria.group(1) or match_categoria.group(2)
@@ -350,7 +453,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         categoria_usuario = None
 
-    # 3. Extrai data personalizada (Ex: 15/08 ou 15/08/2026)
     match_data = re.search(r"\b(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b", texto_sem_tags)
     now = datetime.now()
 
@@ -372,7 +474,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         data_final = now.strftime("%Y-%m-%d")
 
-    # 4. Extrai valor e descrição (Ex: "10 salario receita")
     pattern = r"^(?:r\$\s*)?([\d.,]+)\s*(?:reais|reias)?\s+(.+)$"
     match = re.match(pattern, texto_sem_tags, re.IGNORECASE)
 
@@ -381,13 +482,12 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚠️ Formatos Aceitos!\n\n"
             "Exemplos aceitos:\n\n"
             "• `10 salario receita` (Lança uma Receita)\n\n"
-            "• `120 Internet fixo e a data de Vencimento`\n\n"
+            "• `120 Internet fixo` (Despesa Recorrente)\n\n"
             "• `50 Comida Crédito` (Despesa via Crédito)\n\n"
             "• `290 Alison receber 15/08` (Cria Conta a Receber)\n\n"
             "• `50 Comida Pix` (Despesa via Pix)\n\n"
-            "• `50 Comida Débito` (Despesa via Débito)\n\n"
-            "• `Pendentes` (Listar Contas a Receber)\n\n"
-            "• `resumo` (Irá Fazer um Resumo Geral)",
+            "• `/listar` (Visualizar, Editar ou Excluir Lançamentos)\n\n"
+            "• `resumo` (Exibe o Resumo Geral)",
             parse_mode="Markdown"
         )
         return
@@ -400,22 +500,14 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Valor numérico inválido.")
         return
 
-    # =========================================================
-    # FLUXO RECEITAS DIRETAS (EX: "10 salario receita")
-    # =========================================================
     palavras_chave_receita = ["receita", "prolabore", "entrada"]
     e_receita_direta = any(kw in descricao_bruta.lower() for kw in palavras_chave_receita)
 
     if e_receita_direta:
-        # Regex aprimorada: limpa a palavra-chave e ignora maiúsculas/minúsculas
         palavras_remover = r"\b(receita|prolabore|entrada)\b"
         descricao_limpa = re.sub(palavras_remover, "", descricao_bruta, flags=re.IGNORECASE).strip()
-        
-        # Remove caracteres ou espaços extras que sobram nas pontas
         descricao_limpa = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", descricao_limpa)
         descricao_limpa = " ".join(descricao_limpa.split())
-        
-        # Se após a limpeza a descrição ficar vazia, usa o padrão "Receita"
         nome_descricao = descricao_limpa if descricao_limpa else "Receita"
         
         mes_fatura_calc = datetime.strptime(data_final, "%Y-%m-%d").strftime("%m/%Y")
@@ -425,7 +517,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "usuario_id": usuario_id,
             "conta_id": conta_id,
             "cartao_id": None,
-            "descricao": nome_descricao.title(), # Salva com Inicial Maiúscula
+            "descricao": nome_descricao.title(),
             "valor": valor,
             "tipo": "Receita",
             "categoria": categoria_usuario if categoria_usuario else "Receita",
@@ -455,9 +547,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"⚠️ Erro ao salvar receita no Supabase: {e}")
             return
 
-    # =========================================================
-    # FLUXO CONTAS A RECEBER (LEMBRETES DE COBRANÇA EXTERNA)
-    # =========================================================
     e_recebimento = any(kw in descricao_bruta.lower() for kw in ["receber", "ganho", "venda"])
 
     if e_recebimento:
@@ -489,9 +578,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"⚠️ Erro ao salvar no Supabase: {e}")
             return
 
-    # =========================================================
-    # FLUXO DESPESAS
-    # =========================================================
     texto_analise = descricao_bruta.lower()
     e_recorrente = bool(re.search(r"\b(fixo|fixa|recorrente)\b", texto_analise))
 
@@ -540,7 +626,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "pago": not e_recorrente
     }
 
-    # FLUXO CRÉDITO
     if e_credito:
         if not lista_cartoes:
             await update.message.reply_text("⚠️ Nenhum cartão de crédito cadastrado no seu banco!")
@@ -562,7 +647,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(botoes)
         )
 
-    # FLUXO PIX / DÉBITO
     else:
         if not lista_contas:
             await update.message.reply_text("⚠️ Nenhuma conta bancária cadastrada no seu banco!")
@@ -788,6 +872,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logging.error(f"Erro ao salvar crédito: {e}")
             await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: {e}")
 
+
 async def testar_alertas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔎 Verificando e enviando alertas de boletos do dia...")
     await processar_e_enviar_alertas(context)
@@ -805,91 +890,6 @@ async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
 
-# =========================================================
-# LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
-# =========================================================
-async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lista as últimas movimentações com botões de Editar e Excluir."""
-    telegram_id = update.effective_user.id
-    dados_usuario = buscar_dados_usuario(telegram_id)
-
-    if not dados_usuario:
-        await update.message.reply_text("🚫 Acesso não autorizado! Digite /start para vincular.")
-        return
-
-    usuario_id = dados_usuario["usuario_id"]
-
-    try:
-        # Busca as últimas 10 movimentações do usuário
-        res_movs = (
-            supabase.table("movimentacoes")
-            .select("*")
-            .eq("usuario_id", usuario_id)
-            .order("data", desc=True)
-            .limit(10)
-            .execute()
-        )
-
-        movs = res_movs.data or []
-
-        if not movs:
-            await update.message.reply_text("📂 Nenhum lançamento encontrado.")
-            return
-
-        await update.message.reply_text("📋 *Seus últimos lançamentos:*", parse_mode="Markdown")
-
-        for m in movs:
-            mov_id = m["id"]
-            desc = m.get("descricao", "Sem descrição")
-            valor = m.get("valor", 0.0)
-            tipo = m.get("tipo", "Despesa")
-            data_br = datetime.strptime(m.get("data"), "%Y-%m-%d").strftime("%d/%m/%Y")
-
-            emoji_tipo = "🟢" if tipo == "Receita" else "🔴"
-            texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Data: `{data_br}`"
-
-            # Botões inline associados ao ID do lançamento
-            teclado = [
-                [
-                    InlineKeyboardButton("✏️ Editar", callback_data=f"edit_{mov_id}"),
-                    InlineKeyboardButton("🗑️ Excluir", callback_data=f"del_{mov_id}")
-                ]
-            ]
-
-            await update.message.reply_text(
-                text=texto_item,
-                reply_markup=InlineKeyboardMarkup(teclado),
-                parse_mode="Markdown"
-            )
-
-    except Exception as e:
-        logging.error(f"Erro ao listar lançamentos: {e}")
-        await update.message.reply_text("❌ Erro ao buscar os lançamentos no banco.")
-
-
-async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Trata o clique nos botões Inline de Excluir e Editar."""
-    query = update.callback_query
-    await query.answer()
-
-    dados = query.data
-    acao, mov_id = dados.split("_")
-
-    if acao == "del":
-        try:
-            # Remove do Supabase
-            supabase.table("movimentacoes").delete().eq("id", mov_id).execute()
-            await query.edit_message_text(text="🗑️ *Lançamento excluído com sucesso!*", parse_mode="Markdown")
-        except Exception as e:
-            logging.error(f"Erro ao excluir lançamento {mov_id}: {e}")
-            await query.edit_message_text(text="❌ Erro ao tentar excluir o lançamento.")
-
-    elif acao == "edit":
-        context.user_data["edit_mov_id"] = mov_id
-        await query.edit_message_text(
-            text="✏️ *Modo de Edição*\n\nDigite o novo valor para este lançamento (ex: `45.50`):\n_(Ou envie /cancelar para desistir)_",
-            parse_mode="Markdown"
-        )
 
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
@@ -909,7 +909,7 @@ def main():
         time=time(hour=15, minute=0, tzinfo=fuso_br)
     )
 
-    # Ping do Streamlit (a cada 5 horas para manter ativo)
+    # Ping do Streamlit (a cada 5 horas)
     app.job_queue.run_repeating(
         ping_streamlit,
         interval=18000,
@@ -927,19 +927,20 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", consultar_contas_receber))
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
+    app.add_handler(CommandHandler("cancelar", cancelar_edicao))
 
-    # NOVOS COMANDOS DE LISTAR E EDITAR/EXCLUIR
+    # LISTAR E EDITAR/EXCLUIR
     app.add_handler(CommandHandler(["listar", "lancamentos"], listar_lancamentos))
     app.add_handler(CallbackQueryHandler(tratar_botoes_lancamento, pattern="^(del_|edit_)"))
     
-    # NOVOS COMANDOS DE RECEITA
+    # RECEITA
     app.add_handler(CommandHandler("receita", lancar_receita))
     app.add_handler(CommandHandler("entrada", lancar_receita))
 
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     app.add_handler(CommandHandler("resumo", enviar_resumo_mensal_telegram))
 
-    # HANDLER PARA A PALAVRA "RESUMO" (SEM BARRA)
+    # HANDLER RESUMO
     app.add_handler(
         MessageHandler(
             filters.Regex(re.compile(r"^resumo$", re.IGNORECASE)),
@@ -951,6 +952,8 @@ def main():
     app.add_handler(
         MessageHandler(filters.TEXT & (~filters.COMMAND), registrar_gastos)
     )
+    
+    # CALLBACK GERAL NO FINAL
     app.add_handler(CallbackQueryHandler(callback_geral))
 
     app.run_polling()
