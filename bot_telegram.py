@@ -265,7 +265,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lista os últimos 10 lançamentos cadastrados para você editar ou excluir qualquer parcela."""
+    """Lista TODOS os lançamentos cadastrados hoje e todas as suas parcelas relativas, sem limite."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -276,34 +276,52 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     usuario_id = dados_usuario["usuario_id"]
 
     try:
-        # Pega as 10 últimas movimentações criadas (independente da data de vencimento)
+        data_hoje = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
+
+        # 1. Busca TODAS as movimentações do usuário no Supabase (SEM .limit)
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
             .eq("usuario_id", usuario_id)
             .order("id", desc=True)
-            .limit(10)
             .execute()
         )
 
-        movs = res_movs.data or []
+        todos = res_movs.data or []
 
-        if not movs:
+        if not todos:
             await update.message.reply_text("📂 Nenhum lançamento encontrado no banco.")
             return
 
-        await update.message.reply_text("📋 *Últimos lançamentos e parcelas cadastradas:*", parse_mode="Markdown")
+        # 2. Descobre o nome base de tudo o que foi lançado hoje (ex: extrai "Alison" de "Alison (1/2)")
+        compras_de_hoje = set()
+        for m in todos:
+            if m.get("data") == data_hoje:
+                desc_base = re.sub(r"\s*\(\d+/\d+\)$", "", m.get("descricao", "")).strip()
+                compras_de_hoje.add(desc_base)
 
-        # Inverte a lista para mostrar na ordem correta de criação (1/2 depois 2/2)
+        # 3. Puxa TODAS as parcelas que pertencem às compras feitas hoje
+        movs = [
+            m for m in todos 
+            if re.sub(r"\s*\(\d+/\d+\)$", "", m.get("descricao", "")).strip() in compras_de_hoje
+        ]
+
+        if not movs:
+            await update.message.reply_text("📂 Nenhum lançamento realizado no dia de hoje.")
+            return
+
+        # Inverte para mostrar na ordem de criação (1/2 primeiro, depois 2/2)
         movs.reverse()
 
+        await update.message.reply_text("📋 *Todos os lançamentos cadastrados HOJE:*", parse_mode="Markdown")
+
+        # 4. Exibe cada item na tela
         for m in movs:
             mov_id = m["id"]
             desc = m.get("descricao", "Sem descrição")
             valor = m.get("valor", 0.0)
             tipo = m.get("tipo", "Despesa")
             
-            # Formata a data de vencimento desta parcela
             data_raw = m.get("data")
             if data_raw:
                 data_br = datetime.strptime(data_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
