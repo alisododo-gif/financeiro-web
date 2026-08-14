@@ -264,7 +264,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Traz as últimas 10 movimentações cadastradas ordenadas pelo ID mais recente."""
+    """Traz apenas os lançamentos do dia de hoje."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -275,23 +275,26 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     usuario_id = dados_usuario["usuario_id"]
 
     try:
-        # Busca direta no Supabase trazendo as 10 últimas inserções por ID
+        # Data de hoje no fuso horário do Brasil (America/Sao_Paulo)
+        data_hoje = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
+
+        # Busca no Supabase filtrando pela data atual
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
             .eq("usuario_id", usuario_id)
+            .eq("data", data_hoje)  # 👈 FILTRA SOMENTE O DIA DE HOJE
             .order("id", desc=True)
-            .limit(10)
             .execute()
         )
 
         movs = res_movs.data or []
 
         if not movs:
-            await update.message.reply_text("📂 Nenhum lançamento encontrado na tabela de movimentações.")
+            await update.message.reply_text("📂 Nenhum lançamento encontrado para o dia de hoje.")
             return
 
-        await update.message.reply_text("📋 *Últimos lançamentos cadastrados:*", parse_mode="Markdown")
+        await update.message.reply_text("📋 *Lançamentos de HOJE:*", parse_mode="Markdown")
 
         # Exibe os itens na tela
         for m in movs:
