@@ -33,15 +33,15 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 logging.basicConfig(level=logging.INFO)
 
 CACHE_USUARIOS = {}
 FUSO_BR = pytz.timezone("America/Sao_Paulo")
 
-# Estados para as máquinas de conversação (ConversationHandler)
-EDITANDO_VALOR = 1
-AGUARDANDO_DIA_VENCIMENTO = 2
+# Estado exclusivo para a troca de vencimento
+AGUARDANDO_DIA_VENCIMENTO = 1
 
 
 def buscar_dados_usuario(telegram_id):
@@ -265,7 +265,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
-# LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
+# LISTAR LANÇAMENTOS E AÇÕES (EXCLUIR) - CÓDIGO ORIGINAL
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Traz as últimas 10 movimentações cadastradas ordenadas pelo ID mais recente."""
@@ -279,6 +279,7 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     usuario_id = dados_usuario["usuario_id"]
 
     try:
+        # Busca exatamente igual ao seu código original
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
@@ -326,80 +327,58 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"❌ Erro ao buscar no banco: {e}")
 
 
-async def excluir_lancamento_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Trata o clique no botão Inline de Excluir."""
+async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Trata o clique nos botões Inline de Excluir e Editar (original)."""
     query = update.callback_query
     await query.answer()
 
     dados = query.data
-    _, mov_id = dados.split("_")
+    acao, mov_id = dados.split("_")
 
-    try:
-        supabase.table("movimentacoes").delete().eq("id", mov_id).execute()
-        await query.edit_message_text(text="🗑️ *Lançamento excluído com sucesso!*", parse_mode="Markdown")
-    except Exception as e:
-        logging.error(f"Erro ao excluir lançamento {mov_id}: {e}")
-        await query.edit_message_text(text="❌ Erro ao tentar excluir o lançamento.")
+    if acao == "del":
+        try:
+            supabase.table("movimentacoes").delete().eq("id", mov_id).execute()
+            await query.edit_message_text(text="🗑️ *Lançamento excluído com sucesso!*", parse_mode="Markdown")
+        except Exception as e:
+            logging.error(f"Erro ao excluir lançamento {mov_id}: {e}")
+            await query.edit_message_text(text="❌ Erro ao tentar excluir o lançamento.")
 
-
-# =========================================================
-# FLUXO DE EDIÇÃO COM CONVERSATION HANDLER
-# =========================================================
-async def iniciar_edicao_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Inicia o fluxo de edição de um lançamento especifico via ConversationHandler."""
-    query = update.callback_query
-    await query.answer()
-
-    mov_id = query.data.split("_")[1]
-    context.user_data["edit_mov_id"] = mov_id
-
-    await query.edit_message_text(
-        text="✏️ *Modo de Edição*\n\nDigite o novo valor para este lançamento (ex: `45.50`):\n_(Ou envie /cancelar para desistir)_",
-        parse_mode="Markdown"
-    )
-    return EDITANDO_VALOR
+    elif acao == "edit":
+        context.user_data["edit_mov_id"] = mov_id
+        await query.edit_message_text(
+            text="✏️ *Modo de Edição*\n\nDigite o novo valor para este lançamento (ex: `45.50`):\n_(Ou envie /cancelar para desistir)_",
+            parse_mode="Markdown"
+        )
 
 
-async def receber_novo_valor_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recebe e salva o novo valor do lançamento no banco."""
-    mov_id = context.user_data.pop("edit_mov_id", None)
-
-    if not mov_id:
-        await update.message.reply_text("❌ Sessão de edição expirada ou inválida.")
-        return ConversationHandler.END
-
-    texto_digitado = update.message.text.strip().replace(",", ".")
-    try:
-        novo_valor = float(texto_digitado)
-        supabase.table("movimentacoes").update({"valor": novo_valor}).eq("id", mov_id).execute()
-        await update.message.reply_text(f"✅ *Lançamento atualizado para R$ {novo_valor:.2f}!*", parse_mode="Markdown")
-    except ValueError:
-        await update.message.reply_text("❌ Valor inválido. A edição foi cancelada. Tente usar `/listar` novamente.")
-
-    return ConversationHandler.END
+async def cancelar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancela o modo de edição pendente."""
+    if "edit_mov_id" in context.user_data:
+        context.user_data.pop("edit_mov_id", None)
+        await update.message.reply_text("❌ Edição cancelada.")
+    else:
+        await update.message.reply_text("Nenhuma ação para cancelar.")
 
 
 # =========================================================
-# FLUXO DE DIA DE VENCIMENTO COM CONVERSATION HANDLER
+# FLUXO DE TROCA DE VENCIMENTO COM CONVERSATION HANDLER
 # =========================================================
-async def iniciar_alteracao_vencimento_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Inicia a solicitação de dia de vencimento personalizado."""
+async def iniciar_venc_mudar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     await query.edit_message_text(
-        "✍️ *Digite o dia de vencimento dessa conta* (envie apenas o número, ex: `10` ou `25`):\n_(Ou envie /cancelar para desistir)_",
+        "✍️ *Digite o dia de vencimento dessa conta* (envie apenas o número, ex: `10` ou `25`):",
         parse_mode="Markdown"
     )
     return AGUARDANDO_DIA_VENCIMENTO
 
 
-async def receber_dia_vencimento_customizado(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Processa o dia digitado pelo usuário para a conta recorrente."""
+async def receber_dia_vencimento_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto_dia = update.message.text.strip()
     
     if not texto_dia.isdigit() or not (1 <= int(texto_dia) <= 31):
-        await update.message.reply_text("⚠️ Dia inválido! Por favor, informe um dia numérico entre 1 e 31 (ou envie /cancelar):")
+        await update.message.reply_text("⚠️ Dia inválido! Por favor, informe um dia entre 1 e 31.")
         return AGUARDANDO_DIA_VENCIMENTO
 
     dia_escolhido = int(texto_dia)
@@ -422,10 +401,8 @@ async def receber_dia_vencimento_customizado(update: Update, context: ContextTyp
     return ConversationHandler.END
 
 
-async def cancelar_operacao(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Cancela qualquer conversa/fluxo em andamento."""
-    context.user_data.pop("edit_mov_id", None)
-    await update.message.reply_text("❌ Operação cancelada.")
+async def cancelar_vencimento(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Alteração de vencimento cancelada.")
     return ConversationHandler.END
 
 
@@ -485,6 +462,18 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
 
 async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
+
+    # CAPTURA DO MODO DE EDIÇÃO ORIGINAL
+    if "edit_mov_id" in context.user_data:
+        mov_id = context.user_data.pop("edit_mov_id")
+        texto_digitado = update.message.text.strip().replace(",", ".")
+        try:
+            novo_valor = float(texto_digitado)
+            supabase.table("movimentacoes").update({"valor": novo_valor}).eq("id", mov_id).execute()
+            await update.message.reply_text(f"✅ *Lançamento atualizado para R$ {novo_valor:.2f}!*", parse_mode="Markdown")
+        except ValueError:
+            await update.message.reply_text("❌ Valor inválido. A edição foi cancelada. Tente usar `/listar` novamente.")
+        return
 
     CACHE_USUARIOS.pop(telegram_id, None)
     dados_usuario = buscar_dados_usuario(telegram_id)
@@ -555,7 +544,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `50 Comida Pix` (Despesa via Pix)\n\n"
             "• `/listar` (Visualizar, Editar ou Excluir Lançamentos)\n\n"
             "• `resumo` (Exibe o Resumo Geral)\n\n"
-            "• `/cancelar` (Cancela Qualquer Operação em Andamento)",
+            "• `/cancelar` (Cancelar a operação atual)",
             parse_mode="Markdown"
         )
         return
@@ -795,7 +784,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data.pop("temp_lancamento", None)
             except Exception as e:
                 await update.message.reply_text(f"⚠️ Erro ao salvar no Supabase: {e}")
-
 
 async def perguntar_forma_pagamento_recorrente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Pergunta se a conta recorrente/fixa será À vista ou Parcelada."""
@@ -1064,41 +1052,29 @@ def main():
         day=1
     )
 
-    # --- MÁQUINAS DE ESTADO (CONVERSATION HANDLERS) ---
-    conv_edicao = ConversationHandler(
-        entry_points=[CallbackQueryHandler(iniciar_edicao_callback, pattern="^edit_")],
-        states={
-            EDITANDO_VALOR: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receber_novo_valor_edicao)
-            ]
-        },
-        fallbacks=[CommandHandler("cancelar", cancelar_operacao)],
-        conversation_timeout=300
-    )
-
+    # CONVERSATION HANDLER APENAS PARA O VENCIMENTO CUSTOMIZADO
     conv_vencimento = ConversationHandler(
-        entry_points=[CallbackQueryHandler(iniciar_alteracao_vencimento_callback, pattern="^venc_mudar$")],
+        entry_points=[CallbackQueryHandler(iniciar_venc_mudar, pattern="^venc_mudar$")],
         states={
             AGUARDANDO_DIA_VENCIMENTO: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receber_dia_vencimento_customizado)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receber_dia_vencimento_conv)
             ]
         },
-        fallbacks=[CommandHandler("cancelar", cancelar_operacao)],
+        fallbacks=[CommandHandler("cancelar", cancelar_vencimento)],
         conversation_timeout=300
     )
 
-    app.add_handler(conv_edicao)
     app.add_handler(conv_vencimento)
 
-    # --- HANDLERS DE COMANDOS ---
+    # --- HANDLERS DE COMANDOS ORIGINAL ---
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", consultar_contas_receber))
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
-    app.add_handler(CommandHandler("cancelar", cancelar_operacao))
+    app.add_handler(CommandHandler("cancelar", cancelar_edicao))
 
-    # LISTAR E EXCLUIR
+    # LISTAR E EDITAR/EXCLUIR
     app.add_handler(CommandHandler(["listar", "lancamentos"], listar_lancamentos))
-    app.add_handler(CallbackQueryHandler(excluir_lancamento_callback, pattern="^del_"))
+    app.add_handler(CallbackQueryHandler(tratar_botoes_lancamento, pattern="^(del_|edit_)"))
     
     # RECEITA
     app.add_handler(CommandHandler("receita", lancar_receita))
@@ -1107,7 +1083,7 @@ def main():
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     app.add_handler(CommandHandler("resumo", enviar_resumo_mensal_telegram))
 
-    # HANDLER RESUMO POR TEXTO
+    # HANDLER RESUMO
     app.add_handler(
         MessageHandler(
             filters.Regex(re.compile(r"^resumo$", re.IGNORECASE)),
