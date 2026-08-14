@@ -450,26 +450,8 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 if not pago:
                     faturas_agrupadas[chave]["pago"] = False
 
-            # Contas a receber (Tabela externa)
-            ultimo_dia = calendar.monthrange(agora_br.year, agora_br.month)[1]
-            data_inicio = f"{agora_br.year}-{agora_br.month:02d}-01"
-            data_fim = f"{agora_br.year}-{agora_br.month:02d}-{ultimo_dia:02d}"
-
-            try:
-                res_rec = (
-                    supabase.table("contas_receber")
-                    .select("*")
-                    .eq("usuario_id", uid)
-                    .gte("data_recebimento", data_inicio)
-                    .lte("data_recebimento", data_fim)
-                    .execute()
-                )
-                boletos_rec = res_rec.data or []
-            except Exception:
-                boletos_rec = []
-
             # CÁLCULO DOS TOTAIS
-            tot_rec = sum(float(m.get("valor", 0)) for m in receitas) + sum(float(br.get("valor", 0)) for br in boletos_rec)
+            tot_rec = sum(float(m.get("valor", 0)) for m in receitas)
             tot_cartoes = sum(info["total"] for info in faturas_agrupadas.values())
             tot_pix = sum(float(m.get("valor", 0)) for m in pix_debito)
             tot_boletos = sum(float(m.get("valor", 0)) for m in boletos_pagar)
@@ -489,13 +471,10 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
 
             # 1. RECEITAS / ENTRADAS
             msg += "💵 *RECEITAS / ENTRADAS:*\n"
-            if receitas or boletos_rec:
+            if receitas:
                 for r in receitas:
                     dt = formatar_data_br(r.get("data"))
                     msg += f"• `{dt}` — {r.get('descricao')} | R$ {formatar_moeda(r.get('valor'))}\n"
-                for br in boletos_rec:
-                    dt = formatar_data_br(br.get("data_recebimento"))
-                    msg += f"• `{dt}` — {br.get('descricao')} | R$ {formatar_moeda(br.get('valor'))}\n"
             else:
                 msg += "• Nenhuma receita neste mês.\n"
             msg += "\n"
