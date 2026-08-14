@@ -32,7 +32,6 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-STREAMLIT_URL = "https://financeiro-web-2-0.streamlit.app/?uid=1"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 logging.basicConfig(level=logging.INFO)
@@ -1022,19 +1021,6 @@ async def testar_alertas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await processar_e_enviar_alertas(context)
 
 
-async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
-    try:
-        req = urllib.request.Request(
-            STREAMLIT_URL, 
-            headers={'User-Agent': 'Mozilla/5.0'}
-        )
-        with urllib.request.urlopen(req, timeout=10) as response:
-            if response.status == 200:
-                logging.info("🟢 Ping enviado com sucesso para o Streamlit!")
-    except Exception as e:
-        logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
-
-
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -1053,12 +1039,6 @@ def main():
         time=time(hour=15, minute=0, tzinfo=fuso_br)
     )
 
-    # Ping do Streamlit (a cada 5 horas)
-    app.job_queue.run_repeating(
-        ping_streamlit,
-        interval=18000,
-        first=18000
-    )
 
     # Agendamento Automático do Resumo Mensal: Todo dia 1º às 08:00
     app.job_queue.run_monthly(
