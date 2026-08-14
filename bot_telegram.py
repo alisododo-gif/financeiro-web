@@ -265,7 +265,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lista os lançamentos cadastrados HOJE no sistema de forma segura."""
+    """Lista todos os lançamentos (incluindo parcelas futuras) criados HOJE."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -276,13 +276,13 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     usuario_id = dados_usuario["usuario_id"]
 
     try:
-        # Busca os últimos 30 lançamentos do usuário no banco (sem filtro complexo de data na query)
+        # Busca os últimos 50 lançamentos inseridos recentemente
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
             .eq("usuario_id", usuario_id)
             .order("id", desc=True)
-            .limit(30)
+            .limit(50)
             .execute()
         )
 
@@ -292,20 +292,20 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("📂 Nenhum lançamento encontrado.")
             return
 
-        # 🗓️ Pega a data de HOJE no fuso do Brasil (ex: "2026-08-14")
+        # Data de HOJE no fuso do Brasil
         hoje_br_str = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
 
-        # Filtra no Python apenas o que foi criado HOJE
+        # Filtra registros que foram CRIADOS hoje (pelo created_at ou pela data inicial)
         movs = []
         for m in movs_brutas:
             created_at = m.get("created_at")
             if created_at:
-                # Tenta extrair a data YYYY-MM-DD do created_at (ex: "2026-08-14T13:45:00...")
+                # Extrai a data YYYY-MM-DD do momento de criação (created_at)
                 data_criacao = str(created_at).split("T")[0]
                 if data_criacao == hoje_br_str:
                     movs.append(m)
             else:
-                # Se não existir created_at, verifica o campo 'data' comum
+                # Caso não haja created_at, verifica o campo 'data'
                 if m.get("data") == hoje_br_str:
                     movs.append(m)
 
@@ -313,7 +313,10 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("📂 Nenhum lançamento foi registrado hoje.")
             return
 
-        await update.message.reply_text("📋 *Lançamentos feitos hoje:*", parse_mode="Markdown")
+        await update.message.reply_text("📋 *Lançamentos e parcelas geradas hoje:*", parse_mode="Markdown")
+
+        # Ordena para exibir as parcelas em ordem (1/2, 2/2, etc.)
+        movs.sort(key=lambda x: x.get("id"))
 
         for m in movs:
             mov_id = m["id"]
@@ -321,11 +324,11 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             valor = m.get("valor", 0.0)
             tipo = m.get("tipo", "Despesa")
             
-            # Data de vencimento/fatura do lançamento
+            # Formata a data de vencimento específica desta parcela/mês
             data_br = datetime.strptime(m.get("data"), "%Y-%m-%d").strftime("%d/%m/%Y")
 
             emoji_tipo = "🟢" if tipo == "Receita" else "🔴"
-            texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Data: `{data_br}`"
+            texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Vencimento: `{data_br}`"
 
             teclado = [
                 [
@@ -651,20 +654,30 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     categoria_final = categoria_usuario if categoria_usuario else categoria_padrao
 
+    # Remove apenas 1 ocorrência da palavra de tipo de pagamento
     descricao_limpa = re.sub(
         r"\b(pix|debito|débito|credito|crédito|fixo|fixa|recorrente)\b",
         "",
         descricao_bruta,
+        count=1,
         flags=re.IGNORECASE
     ).strip()
 
     descricao_limpa = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", descricao_limpa)
     descricao_limpa = " ".join(descricao_limpa.split())
 
+    # Garante descrição amigável caso fique vazia
     if not descricao_limpa:
-        descricao_limpa = "Despesa"
+        if e_credito:
+            descricao_limpa = "Cartão de Crédito"
+        elif e_debito:
+            descricao_limpa = "Cartão de Débito"
+        elif e_recorrente:
+            descricao_limpa = "Gasto Fixo"
+        else:
+            descricao_limpa = "Pix"
 
-    if e_recorrente:
+    if e_recorrente and "(Recorrente)" not in descricao_limpa:
         descricao_limpa = f"{descricao_limpa} (Recorrente)"
 
     mes_fatura_calc = datetime.strptime(data_final, "%Y-%m-%d").strftime("%m/%Y")
