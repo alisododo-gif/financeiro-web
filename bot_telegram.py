@@ -265,7 +265,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lista todos os lançamentos (incluindo parcelas futuras) criados HOJE."""
+    """Lista todos os lançamentos e parcelas criados HOJE para facilitar edição/exclusão."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -276,7 +276,7 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     usuario_id = dados_usuario["usuario_id"]
 
     try:
-        # Busca os últimos 50 lançamentos inseridos recentemente
+        # Busca os últimos 50 lançamentos no banco para garantir que pegamos as parcelas geradas
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
@@ -292,20 +292,19 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("📂 Nenhum lançamento encontrado.")
             return
 
-        # Data de HOJE no fuso do Brasil
+        # Pega a data de HOJE no fuso do Brasil
         hoje_br_str = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
 
-        # Filtra registros que foram CRIADOS hoje (pelo created_at ou pela data inicial)
         movs = []
         for m in movs_brutas:
             created_at = m.get("created_at")
             if created_at:
-                # Extrai a data YYYY-MM-DD do momento de criação (created_at)
+                # Extrai apenas a data (YYYY-MM-DD) do momento do lançamento (created_at)
                 data_criacao = str(created_at).split("T")[0]
                 if data_criacao == hoje_br_str:
                     movs.append(m)
             else:
-                # Caso não haja created_at, verifica o campo 'data'
+                # Fallback caso não tenha o campo created_at
                 if m.get("data") == hoje_br_str:
                     movs.append(m)
 
@@ -315,7 +314,7 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         await update.message.reply_text("📋 *Lançamentos e parcelas geradas hoje:*", parse_mode="Markdown")
 
-        # Ordena para exibir as parcelas em ordem (1/2, 2/2, etc.)
+        # Ordena por ID em ordem crescente para mostrar (1/2, 2/2...) na sequência correta
         movs.sort(key=lambda x: x.get("id"))
 
         for m in movs:
@@ -324,7 +323,7 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             valor = m.get("valor", 0.0)
             tipo = m.get("tipo", "Despesa")
             
-            # Formata a data de vencimento específica desta parcela/mês
+            # Formata a data específica do vencimento desta parcela
             data_br = datetime.strptime(m.get("data"), "%Y-%m-%d").strftime("%d/%m/%Y")
 
             emoji_tipo = "🟢" if tipo == "Receita" else "🔴"
