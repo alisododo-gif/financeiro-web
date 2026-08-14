@@ -805,6 +805,91 @@ async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
 
+# =========================================================
+# LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
+# =========================================================
+async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lista as últimas movimentações com botões de Editar e Excluir."""
+    telegram_id = update.effective_user.id
+    dados_usuario = buscar_dados_usuario(telegram_id)
+
+    if not dados_usuario:
+        await update.message.reply_text("🚫 Acesso não autorizado! Digite /start para vincular.")
+        return
+
+    usuario_id = dados_usuario["usuario_id"]
+
+    try:
+        # Busca as últimas 10 movimentações do usuário
+        res_movs = (
+            supabase.table("movimentacoes")
+            .select("*")
+            .eq("usuario_id", usuario_id)
+            .order("data", desc=True)
+            .limit(10)
+            .execute()
+        )
+
+        movs = res_movs.data or []
+
+        if not movs:
+            await update.message.reply_text("📂 Nenhum lançamento encontrado.")
+            return
+
+        await update.message.reply_text("📋 *Seus últimos lançamentos:*", parse_mode="Markdown")
+
+        for m in movs:
+            mov_id = m["id"]
+            desc = m.get("descricao", "Sem descrição")
+            valor = m.get("valor", 0.0)
+            tipo = m.get("tipo", "Despesa")
+            data_br = datetime.strptime(m.get("data"), "%Y-%m-%d").strftime("%d/%m/%Y")
+
+            emoji_tipo = "🟢" if tipo == "Receita" else "🔴"
+            texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Data: `{data_br}`"
+
+            # Botões inline associados ao ID do lançamento
+            teclado = [
+                [
+                    InlineKeyboardButton("✏️ Editar", callback_data=f"edit_{mov_id}"),
+                    InlineKeyboardButton("🗑️ Excluir", callback_data=f"del_{mov_id}")
+                ]
+            ]
+
+            await update.message.reply_text(
+                text=texto_item,
+                reply_markup=InlineKeyboardMarkup(teclado),
+                parse_mode="Markdown"
+            )
+
+    except Exception as e:
+        logging.error(f"Erro ao listar lançamentos: {e}")
+        await update.message.reply_text("❌ Erro ao buscar os lançamentos no banco.")
+
+
+async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Trata o clique nos botões Inline de Excluir e Editar."""
+    query = update.callback_query
+    await query.answer()
+
+    dados = query.data
+    acao, mov_id = dados.split("_")
+
+    if acao == "del":
+        try:
+            # Remove do Supabase
+            supabase.table("movimentacoes").delete().eq("id", mov_id).execute()
+            await query.edit_message_text(text="🗑️ *Lançamento excluído com sucesso!*", parse_mode="Markdown")
+        except Exception as e:
+            logging.error(f"Erro ao excluir lançamento {mov_id}: {e}")
+            await query.edit_message_text(text="❌ Erro ao tentar excluir o lançamento.")
+
+    elif acao == "edit":
+        context.user_data["edit_mov_id"] = mov_id
+        await query.edit_message_text(
+            text="✏️ *Modo de Edição*\n\nDigite o novo valor para este lançamento (ex: `45.50`):\n_(Ou envie /cancelar para desistir)_",
+            parse_mode="Markdown"
+        )
 
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
@@ -842,6 +927,10 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", consultar_contas_receber))
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
+
+    # NOVOS COMANDOS DE LISTAR E EDITAR/EXCLUIR
+    app.add_handler(CommandHandler(["listar", "lancamentos"], listar_lancamentos))
+    app.add_handler(CallbackQueryHandler(tratar_botoes_lancamento, pattern="^(del_|edit_)"))
     
     # NOVOS COMANDOS DE RECEITA
     app.add_handler(CommandHandler("receita", lancar_receita))
