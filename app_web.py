@@ -1659,25 +1659,39 @@ elif opcao == "📅 Próximos Vencimentos":
 
                 def resolver_datas_fatura(row):
                     cid = normalizar_id(row.get("cartao_id"))
-                    info = mapa_cartoes_info.get(cid, {"vencimento": 15, "fechamento": 8})
+                    info = mapa_cartoes_info.get(
+                        cid, {"vencimento": 15, "fechamento": 8}
+                    )
                     dia_venc, dia_fech = info["vencimento"], info["fechamento"]
 
                     m_fat, a_fat = normalizar_mes_fatura(row.get("mes_fatura"))
                     if m_fat and a_fat:
                         mes_fatura, ano_fatura = m_fat, a_fat
                     else:
-                        dt_compra = pd.to_datetime(row.get("data") or pd.to_datetime("today"))
-                        ano, mes, dia_compra = dt_compra.year, dt_compra.month, dt_compra.day
+                        dt_compra = pd.to_datetime(
+                            row.get("data") or pd.to_datetime("today")
+                        )
+                        ano, mes, dia_compra = (
+                            dt_compra.year,
+                            dt_compra.month,
+                            dt_compra.day,
+                        )
 
-                        if dia_compra >= dia_fech:
+                        # 🔧 CORREÇÃO 1: Trata o dia de fechamento caso o mês da compra tenha menos dias (ex: 30 dias em Setembro)
+                        max_dias_mes_compra = calendar.monthrange(ano, mes)[1]
+                        dia_fech_real = min(dia_fech, max_dias_mes_compra)
+
+                        if dia_compra >= dia_fech_real:
                             mes_fatura = mes + 1 if mes < 12 else 1
                             ano_fatura = ano if mes < 12 else ano + 1
                         else:
                             mes_fatura, ano_fatura = mes, ano
 
                     mes_fat_str = f"{mes_fatura:02d}/{ano_fatura:04d}"
-                    max_dias = calendar.monthrange(ano_fatura, mes_fatura)[1]
-                    dia_valido = min(dia_venc, max_dias)
+
+                    # 🔧 CORREÇÃO 2: Garante que a data de vencimento não estoure os dias do mês da fatura
+                    max_dias_mes_fatura = calendar.monthrange(ano_fatura, mes_fatura)[1]
+                    dia_valido = min(dia_venc, max_dias_mes_fatura)
                     data_venc_str = f"{ano_fatura:04d}-{mes_fatura:02d}-{dia_valido:02d}"
 
                     return pd.Series([data_venc_str, mes_fat_str])
@@ -1790,38 +1804,89 @@ elif opcao == "💳 Cartões & Faturas":
             c1, c2, c3 = st.columns(3)
 
             with c1:
-                dict_cartoes = {c["id"]: c.get("nome_cartao") or c.get("nome") for c in cartoes}
-                cartao_id_sel = st.selectbox("Escolha o Cartão", options=list(dict_cartoes.keys()), format_func=lambda x: dict_cartoes[x], key="sel_cartao_fatura")
+                dict_cartoes = {
+                    c["id"]: c.get("nome_cartao") or c.get("nome") for c in cartoes
+                }
+                cartao_id_sel = st.selectbox(
+                    "Escolha o Cartão",
+                    options=list(dict_cartoes.keys()),
+                    format_func=lambda x: dict_cartoes[x],
+                    key="sel_cartao_fatura",
+                )
                 cartao_info = next(c for c in cartoes if c["id"] == cartao_id_sel)
 
             with c2:
-                meses = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]
-                mes_fatura = st.selectbox("Mês da Fatura", meses, index=datetime.now().month - 1)
+                meses = [
+                    "01",
+                    "02",
+                    "03",
+                    "04",
+                    "05",
+                    "06",
+                    "07",
+                    "08",
+                    "09",
+                    "10",
+                    "11",
+                    "12",
+                ]
+                mes_fatura = st.selectbox(
+                    "Mês da Fatura", meses, index=datetime.now().month - 1
+                )
 
             with c3:
-                ano_fatura = st.selectbox("Ano da Fatura", ["2026", "2027", "2028"], index=0)
+                ano_fatura = st.selectbox(
+                    "Ano da Fatura", ["2026", "2027", "2028"], index=0
+                )
 
             fatura_ref = f"{mes_fatura}/{ano_fatura}"
             st.markdown("---")
 
-            dia_fechamento = int(cartao_info['dia_fechamento'])
+            dia_fechamento = int(cartao_info["dia_fechamento"])
             mes_int, ano_int = int(mes_fatura), int(ano_fatura)
 
-            data_fim_fatura = datetime(ano_int, mes_int, dia_fechamento) - timedelta(days=1)
-            data_inicio_fatura = datetime(ano_int - 1, 12, dia_fechamento) if mes_int == 1 else datetime(ano_int, mes_int - 1, dia_fechamento)
+            # 🔧 1. CALCULA O INÍCIO DA FATURA (Mês Anterior sem estourar dias do mês)
+            mes_ini_int = 12 if mes_int == 1 else mes_int - 1
+            ano_ini_int = ano_int - 1 if mes_int == 1 else ano_int
+            max_dias_ini = calendar.monthrange(ano_ini_int, mes_ini_int)[1]
+            dia_fech_ini = min(dia_fechamento, max_dias_ini)
+
+            data_inicio_fatura = datetime(ano_ini_int, mes_ini_int, dia_fech_ini)
+
+            # 🔧 2. CALCULA A DATA DE VIRADA/CORTE (Mês Atual sem estourar dias)
+            max_dias_atual = calendar.monthrange(ano_int, mes_int)[1]
+            dia_fech_atual = min(dia_fechamento, max_dias_atual)
+
+            data_virada = datetime(ano_int, mes_int, dia_fech_atual)
+
+            # 🔧 3. DATA FIM É EXATAMENTE UM DIA ANTES DA VIRADA
+            data_fim_fatura = data_virada - timedelta(days=1)
 
             periodo_str = f"{data_inicio_fatura.strftime('%d/%m/%Y')} a {data_fim_fatura.strftime('%d/%m/%Y')}"
+            data_virada_str = data_virada.strftime("%d/%m/%Y")
 
             compras = buscar_gastos_fatura(user_id, cartao_id_sel, fatura_ref)
-            total_fatura = sum(float(item["valor"]) for item in compras) if compras else 0.0
+            total_fatura = (
+                sum(float(item["valor"]) for item in compras) if compras else 0.0
+            )
 
             todas_compras = buscar_gastos_fatura(user_id, cartao_id_sel, None)
-            total_devedor_geral = sum(float(item["valor"]) for item in todas_compras if not item.get("pago", False) and not item.get("paga", False)) if todas_compras else 0.0
+            total_devedor_geral = (
+                sum(
+                    float(item["valor"])
+                    for item in todas_compras
+                    if not item.get("pago", False) and not item.get("paga", False)
+                )
+                if todas_compras
+                else 0.0
+            )
 
             limite_total = float(cartao_info["limite"])
             limite_disponivel = limite_total - total_devedor_geral
 
-            st.info(f"💡 **Informações:** Fechamento todo **dia {cartao_info['dia_fechamento']}** | Vencimento todo **dia {cartao_info['dia_vencimento']}**")
+            st.info(
+                f"💡 **Informações:** Fechamento todo **dia {cartao_info['dia_fechamento']}** | Vencimento todo **dia {cartao_info['dia_vencimento']}**"
+            )
 
             m1, m2, m3 = st.columns(3)
             m1.metric("Total da Fatura", formatar_moeda_ptbr(total_fatura))
@@ -1829,7 +1894,12 @@ elif opcao == "💳 Cartões & Faturas":
             m3.metric("Limite Total", formatar_moeda_ptbr(limite_total))
 
             st.write(f"### 🛒 Compras da Fatura ({fatura_ref})")
-            st.warning(f"📆 **Atenção:** Esta fatura contempla as compras realizadas no período de **{periodo_str}**.\n\n💡 *Compras a partir do dia **{data_fim_fatura.day + 1:02d}/{mes_fatura}/{ano_fatura}** entram automaticamente na fatura do mês seguinte.*")
+
+            # 🔧 4. MENSAGEM CORRIGIDA USANDO 'data_virada_str' (Adeus dia 32!)
+            st.warning(
+                f"📆 **Atenção:** Esta fatura contempla as compras realizadas no período de **{periodo_str}**.\n\n"
+                f"💡 *Compras a partir do dia **{data_virada_str}** entram automaticamente na fatura do mês seguinte.*"
+            )
             
             if compras:
                 fatura_paga = all(item.get("pago", False) or item.get("paga", False) for item in compras)

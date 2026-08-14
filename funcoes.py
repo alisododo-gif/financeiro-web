@@ -1020,7 +1020,14 @@ def calcular_mes_fatura(data_transacao_str, dia_fechamento):
     )
     dia_fechamento = int(dia_fechamento)
 
-    if dt.day >= dia_fechamento:
+    # 🔧 1. Descobre o número máximo de dias no mês da transação
+    max_dias_mes = calendar.monthrange(dt.year, dt.month)[1]
+
+    # 🔧 2. Ajusta o dia de fechamento se o mês tiver menos dias (ex: 30 em Setembro, 28 em Fev)
+    dia_fechamento_real = min(dia_fechamento, max_dias_mes)
+
+    # 🔧 3. Compara o dia da compra com o fechamento real do mês
+    if dt.day >= dia_fechamento_real:
         ano = dt.year + (1 if dt.month == 12 else 0)
         mes = 1 if dt.month == 12 else dt.month + 1
     else:
