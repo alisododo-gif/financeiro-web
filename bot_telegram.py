@@ -113,10 +113,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if dados_usuario:
         await update.message.reply_text(
             "👋 Você já está cadastrado no FinanceiroPro!\n\n"
-            "• Para lançar despesa: `50.00 Mercado`\n"
-            "• Para lançar receita: `10 salario receita` ou `/receita 2500 Salário`\n"
-            "• Para consultar pendentes: Digite /status ou `receber`\n"
-            "• Para listar e editar: Digite /listar\n"
+            "• Para lançar despesa Pix: `50.00 Mercado Pix`\n\n"
+            "• Para lançar despesa Débito: `50.00 Mercado Débito`\n\n"
+            "• Para lançar despesa Fixo: `50.00 Mercado Fixo`\n\n"
+            "• Para lançar receita: `10 salario receita` ou `/receita 2500 Salário`\n\n"
+            "• Para lançar receber: `50.00 Jõao receber`\n\n"
+            "• Para consultar pendentes: Digite /status ou `receber`\n\n"
+            "• Para listar e editar: Digite /listar\n\n"
             "• Para ver o resumo: Digite `resumo` ou /resumo",
             parse_mode="Markdown"
         )
@@ -262,7 +265,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lista as últimas movimentações com botões de Editar e Excluir."""
+    """Lista todas as movimentações CRIADAS HOJE no sistema (não importa a data da parcela)."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -272,33 +275,40 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     usuario_id = dados_usuario["usuario_id"]
 
+    # 🗓️ Pega a data de hoje no formato do banco (YYYY-MM-DD)
+    hoje_str = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
+
     try:
+        # Busca lançamentos inseridos hoje no banco de dados (usando created_at)
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
             .eq("usuario_id", usuario_id)
-            .order("data", desc=True)
-            .limit(10)
+            .gte("created_at", f"{hoje_str}T00:00:00")  # A partir da meia-noite de hoje
+            .lte("created_at", f"{hoje_str}T23:59:59")  # Até o final do dia de hoje
+            .order("id", desc=True)                      # Mostra os mais recentes primeiro
             .execute()
         )
 
         movs = res_movs.data or []
 
         if not movs:
-            await update.message.reply_text("📂 Nenhum lançamento encontrado.")
+            await update.message.reply_text("📂 Nenhum lançamento foi registrado hoje.")
             return
 
-        await update.message.reply_text("📋 *Seus últimos lançamentos:*", parse_mode="Markdown")
+        await update.message.reply_text("📋 *Lançamentos feitos hoje:*", parse_mode="Markdown")
 
         for m in movs:
             mov_id = m["id"]
             desc = m.get("descricao", "Sem descrição")
             valor = m.get("valor", 0.0)
             tipo = m.get("tipo", "Despesa")
+            
+            # Formata a data de vencimento/fatura original do lançamento
             data_br = datetime.strptime(m.get("data"), "%Y-%m-%d").strftime("%d/%m/%Y")
 
             emoji_tipo = "🟢" if tipo == "Receita" else "🔴"
-            texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Data: `{data_br}`"
+            texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Data no sistema: `{data_br}`"
 
             teclado = [
                 [
@@ -316,7 +326,6 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logging.error(f"Erro ao listar lançamentos: {e}")
         await update.message.reply_text("❌ Erro ao buscar os lançamentos no banco.")
-
 
 async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Trata o clique nos botões Inline de Excluir e Editar."""
@@ -484,6 +493,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `10 salario receita` (Lança uma Receita)\n\n"
             "• `120 Internet fixo` (Despesa Recorrente)\n\n"
             "• `50 Comida Crédito` (Despesa via Crédito)\n\n"
+            "• `50 Comida Débito` (Despesa via Débito)\n\n"
             "• `290 Alison receber 15/08` (Cria Conta a Receber)\n\n"
             "• `50 Comida Pix` (Despesa via Pix)\n\n"
             "• `/listar` (Visualizar, Editar ou Excluir Lançamentos)\n\n"
