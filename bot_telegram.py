@@ -429,13 +429,16 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
 async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
 
-    await limpar_botoes_anteriores(update, context)
+    # 🧹 Tenta limpar botões antigos com segurança
+    try:
+        await limpar_botoes_anteriores(update, context)
+    except Exception as e:
+        logging.error(f"Erro ao tentar limpar botões: {e}")
 
     # 🟢 CAPTURA DO MODO DE DIGITAÇÃO DE DIA DE VENCIMENTO PERSONALIZADO
     if context.user_data.get("aguardando_dia_vencimento"):
         context.user_data["aguardando_dia_vencimento"] = False
         texto_dia = update.message.text.strip()
-
         
         if not texto_dia.isdigit() or not (1 <= int(texto_dia) <= 31):
             context.user_data.pop("temp_lancamento", None)
@@ -457,7 +460,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dados_temp["data"] = data_vencimento_dt.strftime("%Y-%m-%d")
             dados_temp["mes_fatura"] = data_vencimento_dt.strftime("%m/%Y")
             
-            # Chama o menu de seleção (À Vista / Parcelado)
             await perguntar_forma_pagamento_recorrente(update, context)
             return
 
@@ -1100,20 +1102,22 @@ async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
 
 async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Remove o teclado/botões de mensagens de listagem anteriores."""
+    """Remove o teclado/botões de mensagens de listagem anteriores sem quebrar o bot."""
+    if not update.effective_chat:
+        return
+
     chat_id = update.effective_chat.id
     mensagens_antigas = context.user_data.pop("mensagens_botoes_antigas", [])
 
     for msg_id in mensagens_antigas:
         try:
-            # Remove apenas os botões da mensagem antiga
             await context.bot.edit_message_reply_markup(
                 chat_id=chat_id,
                 message_id=msg_id,
                 reply_markup=None
             )
-        except Exception:
-            pass  # Ignora se a mensagem já tiver sido apagada pelo usuário        
+        except Exception as e:
+            logging.debug(f"Não foi possível remover botões da mensagem {msg_id}: {e}")     
 
 
 def main():
