@@ -27,6 +27,7 @@ from telegram.ext import (
 )
 
 from telegram.error import TelegramError
+from telegram.request import HTTPXRequest  # 🟢 Adicionado para solucionar o Timed Out
 from lembrete_boletos import processar_e_enviar_alertas, enviar_resumo_mensal_telegram
 
 load_dotenv()
@@ -279,7 +280,7 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     usuario_id = dados_usuario["usuario_id"]
 
-    # 1. Primeiro apaga todos os botões gerados anteriormente
+    # 1. Limpa botões antigos
     await limpar_botoes_anteriores(update, context)
 
     try:
@@ -304,7 +305,6 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         await update.message.reply_text("📋 <b>Lançamentos cadastrados HOJE:</b>", parse_mode="HTML")
 
-        # 2. Resgata a lista atual do user_data em vez de sobrescrever com lista vazia
         mensagens_com_botoes = context.user_data.get("mensagens_botoes_antigas", [])
 
         for m in movs:
@@ -317,8 +317,6 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             data_br = datetime.strptime(data_raw, "%Y-%m-%d").strftime("%d/%m/%Y") if data_raw else "N/I"
 
             emoji_tipo = "🟢" if tipo == "Receita" else "🔴"
-            
-            # Usando HTML para evitar erros de sintaxe com caracteres especiais no Markdown
             texto_item = (
                 f"{emoji_tipo} <b>{desc}</b>\n"
                 f"💰 Valor: R$ {valor:.2f}\n"
@@ -338,10 +336,11 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 parse_mode="HTML"
             )
             
-            # 3. Adiciona o ID na lista acumulada
             mensagens_com_botoes.append(msg.message_id)
+            
+            # Pausa de segurança anti-rate-limit do Telegram
+            await asyncio.sleep(0.3)
 
-        # 4. Salva a lista consolidada no user_data
         context.user_data["mensagens_botoes_antigas"] = mensagens_com_botoes
 
     except Exception as e:
@@ -433,8 +432,8 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
                 f"📅 Previsão: {data_formatada}",
                 reply_markup=InlineKeyboardMarkup(botoes)
             )
-            # 🟢 SALVA O ID DA MENSAGEM COM BOTÃO
             mensagens_com_botoes.append(msg.message_id)
+            await asyncio.sleep(0.3)
 
         context.user_data["mensagens_botoes_antigas"] = mensagens_com_botoes
 
@@ -446,13 +445,11 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
 async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
 
-    # 🧹 Tenta limpar botões antigos com segurança
     try:
         await limpar_botoes_anteriores(update, context)
     except Exception as e:
         logging.error(f"Erro ao tentar limpar botões: {e}")
 
-    # 🟢 CAPTURA DO MODO DE DIGITAÇÃO DE DIA DE VENCIMENTO PERSONALIZADO
     if context.user_data.get("aguardando_dia_vencimento"):
         context.user_data["aguardando_dia_vencimento"] = False
         texto_dia = update.message.text.strip()
@@ -480,7 +477,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await perguntar_forma_pagamento_recorrente(update, context)
             return
 
-    # 🟢 CAPTURA DO MODO DE EDIÇÃO
     if "edit_mov_id" in context.user_data:
         mov_id = context.user_data.pop("edit_mov_id")
         texto_digitado = update.message.text.strip().replace(",", ".")
@@ -526,7 +522,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         categoria_usuario = None
 
     match_data = re.search(r"\b(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b", texto_sem_tags)
-    now = datetime.now(FUSO_BR) # 👈 Ajustado para o fuso do Brasil
+    now = datetime.now(FUSO_BR)
 
     if match_data:
         data_str = match_data.group(1)
@@ -669,7 +665,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     categoria_final = categoria_usuario if categoria_usuario else categoria_padrao
 
-    # Remove apenas 1 ocorrência da palavra de tipo de pagamento
     descricao_limpa = re.sub(
         r"\b(pix|debito|débito|credito|crédito|fixo|fixa|recorrente)\b",
         "",
@@ -681,7 +676,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     descricao_limpa = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", descricao_limpa)
     descricao_limpa = " ".join(descricao_limpa.split())
 
-    # Garante descrição amigável caso fique vazia
     if not descricao_limpa:
         if e_credito:
             descricao_limpa = "Cartão de Crédito"
@@ -707,10 +701,9 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "mes_fatura": mes_fatura_calc,
         "tags": tags_final,
         "pago": not e_recorrente,
-        "e_recorrente": e_recorrente  # 👈 Adicione essa flag para controle
+        "e_recorrente": e_recorrente
     }
 
-    # 🟢 Se for RECORRENTE / FIXO, pergunta primeiro o Vencimento:
     if e_recorrente:
         botoes = [
             [
@@ -821,7 +814,6 @@ async def perguntar_forma_pagamento_recorrente(update: Update, context: ContextT
         await update.message.reply_text(texto_msg, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 
-
 async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -871,7 +863,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "c_parcelado_menu":
         botoes = []
         for i in range(2, 13, 2):
-            # Exibe no botão o valor MENSAL fixo
             v1 = dados_temp["valor"]
             row = [InlineKeyboardButton(f"{i}x de R$ {v1:.2f}", callback_data=f"parc_{i}")]
             if (i + 1) <= 12:
@@ -884,21 +875,18 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # 🟢 SELEÇÃO DAS PARCELAS
     if action.startswith("parc_"):
         num_parcelas = int(action.replace("parc_", ""))
         dados_temp["parcelas"] = num_parcelas
 
-        # 🛑 SE FOR GASTO FIXO/RECORRENTE: Salva parcelas de valor FIXO sem usar cartão!
         if dados_temp.get("e_recorrente"):
-            valor_parcela = dados_temp["valor"]  # O valor digitado é o valor FIXO de cada mês
-            valor_total = valor_parcela * num_parcelas  # Total somado
+            valor_parcela = dados_temp["valor"]
+            valor_total = valor_parcela * num_parcelas
             
             data_inicial_dt = datetime.strptime(dados_temp["data"], "%Y-%m-%d")
             
             payloads = []
             for i in range(num_parcelas):
-                # Soma os meses mantendo o dia fixo
                 data_parcela_dt = data_inicial_dt + relativedelta(months=i)
                 str_data_parcela = data_parcela_dt.strftime("%Y-%m-%d")
                 str_mes_fatura = data_parcela_dt.strftime("%m/%Y")
@@ -908,9 +896,9 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 payloads.append({
                     "usuario_id": dados_temp["usuario_id"],
                     "conta_id": None,
-                    "cartao_id": None,  # 👈 NENHUM CARTÃO VINCULADO
+                    "cartao_id": None,
                     "descricao": desc_final,
-                    "valor": valor_parcela,  # 👈 R$ 1.200 em todas as parcelas
+                    "valor": valor_parcela,
                     "tipo": "Despesa",
                     "categoria": dados_temp.get("categoria", "Outros"),
                     "forma_pagamento": "Boleto",
@@ -938,11 +926,9 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(f"⚠️ Erro ao salvar no banco: {e}")
             return
         
-        # Se NÃO for fixo (compra normal no cartão), segue o fluxo tradicional:
         action = "c_avista"
 
     if action == "c_avista":
-        # 🟢 SE FOR GASTO FIXO / RECORRENTE (Não pede cartão de crédito!)
         if dados_temp.get("e_recorrente"):
             lista_contas = dados_usuario.get("contas", []) if dados_usuario else []
             conta_id = lista_contas[0]["id"] if lista_contas else None
@@ -952,7 +938,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             payload = {
                 "usuario_id": dados_temp["usuario_id"],
                 "conta_id": conta_id,
-                "cartao_id": None,  # 👈 Sem cartão
+                "cartao_id": None,
                 "descricao": dados_temp["descricao"],
                 "valor": dados_temp["valor"],
                 "tipo": "Despesa",
@@ -960,7 +946,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "forma_pagamento": dados_temp.get("forma_pagamento", "Boleto/Pix"),
                 "data": dados_temp["data"],
                 "mes_fatura": mes_fatura_calc,
-                "pago": False,  # Despesa fixa entra como pendente até o vencimento
+                "pago": False,
                 "tags": dados_temp.get("tags"),
             }
 
@@ -982,7 +968,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(f"⚠️ Erro ao salvar gasto fixo no Supabase: {e}")
             return
 
-        # 💳 SE NÃO FOR RECORRENTE (Fluxo normal de Cartão de Crédito)
         num_parc = dados_temp.get("parcelas", 1)
         if len(lista_cartoes) > 1:
             botoes = []
@@ -1002,7 +987,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cartao_id = lista_cartoes[0]["id"] if lista_cartoes else None
             action = f"crt_{cartao_id}"
 
-    # 🟢 PROCESSA LANÇAMENTOS VINCULADOS À CONTA BANCÁRIA (PIX, DÉBITO, ETC)
     if action.startswith("cnt_"):
         conta_id = int(action.replace("cnt_", ""))
         mes_fatura_calc = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%m/%Y")
@@ -1118,43 +1102,46 @@ async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
 
-import asyncio
-from telegram.error import TelegramError
-
 async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Remove o teclado/botões de TODAS as mensagens salvas anteriormente."""
+    """Remove o teclado/botões de TODAS as mensagens salvas anteriormente de forma resiliente."""
     if not update.effective_chat:
         return
 
     chat_id = update.effective_chat.id
-    
-    # Pega os IDs atuais salvos
     mensagens_antigas = context.user_data.get("mensagens_botoes_antigas", [])
 
     if not mensagens_antigas:
         return
 
-    # Limpa a lista na memória para evitar reprocessamento
     context.user_data["mensagens_botoes_antigas"] = []
 
-    async def apagar_markup(msg_id):
+    for msg_id in mensagens_antigas:
         try:
             await context.bot.edit_message_reply_markup(
                 chat_id=chat_id,
                 message_id=msg_id,
                 reply_markup=None
             )
+            await asyncio.sleep(0.15)  # Evita atingir o limite de requisições
         except TelegramError:
-            # Ignora erros caso a mensagem tenha sido deletada ou não possua mais markup
             pass
-
-    # Processa todas as remoções em paralelo
-    await asyncio.gather(*(apagar_markup(m_id) for m_id in mensagens_antigas))
 
 
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    
+    # 🟢 Configuração de Timeout prolongado para evitar estourar limite do servidor
+    request = HTTPXRequest(
+        connect_timeout=20.0,
+        read_timeout=20.0
+    )
+
+    app = (
+        ApplicationBuilder()
+        .token(TELEGRAM_TOKEN)
+        .request(request)
+        .build()
+    )
 
     fuso_br = pytz.timezone("America/Sao_Paulo")
 
