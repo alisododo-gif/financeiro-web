@@ -27,7 +27,6 @@ from telegram.ext import (
 )
 
 from telegram.error import TelegramError
-from telegram.request import HTTPXRequest  # 🟢 Adicionado para solucionar o Timed Out
 from lembrete_boletos import processar_e_enviar_alertas, enviar_resumo_mensal_telegram
 
 load_dotenv()
@@ -96,7 +95,6 @@ def buscar_dados_usuario(telegram_id):
 
 
 def calcular_mes_fatura(data_compra, dia_fechamento):
-    """Calcula a fatura correta (MM/YYYY) considerando o dia de fechamento do cartão."""
     if not dia_fechamento:
         return data_compra.strftime("%m/%Y")
 
@@ -185,11 +183,7 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ Erro no servidor: {e}")
 
 
-# =========================================================
-# LANÇAR RECEITA VIA COMANDO /RECEITA
-# =========================================================
 async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lança uma nova receita/entrada diretamente no Supabase via comando /receita."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -266,11 +260,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ Erro ao processar o lançamento: {e}")
 
 
-# =========================================================
-# LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
-# =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lista APENAS os lançamentos cadastrados HOJE e remove botões antigos."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -279,8 +269,6 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     usuario_id = dados_usuario["usuario_id"]
-
-    # 1. Limpa botões antigos
     await limpar_botoes_anteriores(update, context)
 
     try:
@@ -302,7 +290,6 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
         movs.reverse()
-
         await update.message.reply_text("📋 <b>Lançamentos cadastrados HOJE:</b>", parse_mode="HTML")
 
         mensagens_com_botoes = context.user_data.get("mensagens_botoes_antigas", [])
@@ -335,11 +322,7 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 reply_markup=InlineKeyboardMarkup(teclado),
                 parse_mode="HTML"
             )
-            
             mensagens_com_botoes.append(msg.message_id)
-            
-            # Pausa de segurança anti-rate-limit do Telegram
-            await asyncio.sleep(0.3)
 
         context.user_data["mensagens_botoes_antigas"] = mensagens_com_botoes
 
@@ -347,8 +330,8 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logging.error(f"Erro ao listar lançamentos: {e}")
         await update.message.reply_text("❌ Erro ao buscar os lançamentos no banco.")
 
+
 async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Trata o clique nos botões Inline de Excluir e Editar."""
     query = update.callback_query
     await query.answer()
 
@@ -372,7 +355,6 @@ async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT
 
 
 async def cancelar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Cancela o modo de edição pendente."""
     if "edit_mov_id" in context.user_data:
         context.user_data.pop("edit_mov_id", None)
         await update.message.reply_text("❌ Edição cancelada.")
@@ -380,9 +362,6 @@ async def cancelar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Nenhuma ação para cancelar.")
 
 
-# =========================================================
-# CONSULTAR CONTAS A RECEBER PENDENTES
-# =========================================================
 async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
@@ -433,7 +412,6 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
                 reply_markup=InlineKeyboardMarkup(botoes)
             )
             mensagens_com_botoes.append(msg.message_id)
-            await asyncio.sleep(0.3)
 
         context.user_data["mensagens_botoes_antigas"] = mensagens_com_botoes
 
@@ -798,7 +776,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"⚠️ Erro ao salvar no Supabase: {e}")
 
 async def perguntar_forma_pagamento_recorrente(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Pergunta se a conta recorrente/fixa será À vista ou Parcelada."""
     botoes = [
         [
             InlineKeyboardButton("💵 À Vista", callback_data="c_avista"),
@@ -1086,7 +1063,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def testar_alertas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔎 Verificando e enviando alertas de boletos do dia...")
     await processar_e_enviar_alertas(context)
-
     await limpar_botoes_anteriores(update, context)
 
 
@@ -1102,8 +1078,8 @@ async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
 
+
 async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Remove o teclado/botões de TODAS as mensagens salvas anteriormente de forma resiliente."""
     if not update.effective_chat:
         return
 
@@ -1122,75 +1098,58 @@ async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT
                 message_id=msg_id,
                 reply_markup=None
             )
-            await asyncio.sleep(0.15)  # Evita atingir o limite de requisições
         except TelegramError:
             pass
 
 
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
-    
-    # Configuração de limites e tempos de resposta no cliente HTTP
-    request = HTTPXRequest(
-        connect_timeout=60.0,
-        read_timeout=60.0,
-        write_timeout=60.0,
-        pool_timeout=60.0
-    )
 
     app = (
         ApplicationBuilder()
         .token(TELEGRAM_TOKEN)
-        .request(request)
         .build()
     )
 
     fuso_br = pytz.timezone("America/Sao_Paulo")
 
-    # 1º Alerta do dia: 09:00 da manhã
     app.job_queue.run_daily(
         processar_e_enviar_alertas,
         time=time(hour=9, minute=0, tzinfo=fuso_br)
     )
 
-    # 2º Alerta do dia: 15:00 da tarde
     app.job_queue.run_daily(
         processar_e_enviar_alertas,
         time=time(hour=15, minute=0, tzinfo=fuso_br)
     )
 
-    # Ping do Streamlit (a cada 5 horas)
     app.job_queue.run_repeating(
         ping_streamlit,
         interval=18000,
         first=18000
     )
 
-    # Agendamento Automático do Resumo Mensal: Todo dia 1º às 08:00
     app.job_queue.run_monthly(
         enviar_resumo_mensal_telegram,
         when=time(hour=8, minute=0, tzinfo=fuso_br),
         day=1
     )
 
-    # --- HANDLERS DE COMANDOS ---
+    # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", consultar_contas_receber))
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
     app.add_handler(CommandHandler("cancelar", cancelar_edicao))
 
-    # LISTAR E EDITAR/EXCLUIR
     app.add_handler(CommandHandler(["listar", "lancamentos"], listar_lancamentos))
     app.add_handler(CallbackQueryHandler(tratar_botoes_lancamento, pattern="^(del_|edit_)"))
     
-    # RECEITA
     app.add_handler(CommandHandler("receita", lancar_receita))
     app.add_handler(CommandHandler("entrada", lancar_receita))
 
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     app.add_handler(CommandHandler("resumo", enviar_resumo_mensal_telegram))
 
-    # HANDLER RESUMO
     app.add_handler(
         MessageHandler(
             filters.Regex(re.compile(r"^resumo$", re.IGNORECASE)),
@@ -1203,10 +1162,8 @@ def main():
         MessageHandler(filters.TEXT & (~filters.COMMAND), registrar_gastos)
     )
     
-    # CALLBACK GERAL NO FINAL
     app.add_handler(CallbackQueryHandler(callback_geral))
 
-    # Execução do polling sem parâmetros inválidos
     app.run_polling()
 
 
