@@ -1144,7 +1144,6 @@ async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
 
-    # 1. Ajuste de timeouts para evitar erros de rede na Discloud
     request_padrao = HTTPXRequest(
         connect_timeout=20.0,
         read_timeout=20.0,
@@ -1152,7 +1151,7 @@ def main():
 
     get_updates_request = HTTPXRequest(
         connect_timeout=20.0,
-        read_timeout=30.0,  # Maior tempo para evitar timeout no polling continuo
+        read_timeout=30.0,  # O read_timeout para polling já fica configurado aqui
         pool_timeout=20.0,
     )
 
@@ -1164,7 +1163,6 @@ def main():
         .build()
     )
 
-    # 2. Registrar o manipulador global de erros para capturar oscilações de conexão silenciosamente
     app.add_error_handler(erro_global_handler)
 
     fuso_br = pytz.timezone("America/Sao_Paulo")
@@ -1225,9 +1223,5 @@ def main():
     # CALLBACK GERAL NO FINAL
     app.add_handler(CallbackQueryHandler(callback_geral))
 
-    # 3. Execução do polling com tentativas ilimitadas de reconexão
-    app.run_polling(bootstrap_retries=-1, read_timeout=30)
-
-
-if __name__ == "__main__":
-    main()
+    # Execução corrigida
+    app.run_polling(bootstrap_retries=-1)
