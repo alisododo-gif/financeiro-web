@@ -1213,7 +1213,7 @@ def main():
 
     app.job_queue.run_monthly(
         job_resumo_mensal,
-        time=time(hour=8, minute=0, tzinfo=fuso_br),
+        when=time(hour=8, minute=0, tzinfo=fuso_br),
         day=1
     )
 
