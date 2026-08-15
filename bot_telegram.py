@@ -3,7 +3,7 @@ import logging
 import asyncio
 import os
 import re
-import urllib.request
+import httpx
 from datetime import datetime, time
 from dateutil.relativedelta import relativedelta
 
@@ -114,7 +114,7 @@ def calcular_mes_fatura(data_compra, dia_fechamento):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
-    dados_usuario = buscar_dados_usuario(telegram_id)
+    dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
 
     if dados_usuario:
         await update.message.reply_text(
@@ -157,21 +157,23 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
         telefone_sem_9 = telefone_telegram
 
     try:
-        response = (
+        response = await asyncio.to_thread(
             supabase.table("usuarios")
             .select("id, telefone")
             .or_(f"telefone.eq.{telefone_telegram},telefone.eq.{telefone_sem_9}")
-            .execute()
+            .execute
         )
 
         if response.data:
             usuario = response.data[0]
             usuario_id = usuario["id"]
 
-            supabase.table("usuarios").update({"telegram_id": telegram_id}).eq("id", usuario_id).execute()
+            await asyncio.to_thread(
+                supabase.table("usuarios").update({"telegram_id": telegram_id}).eq("id", usuario_id).execute
+            )
 
             CACHE_USUARIOS.pop(telegram_id, None)
-            buscar_dados_usuario(telegram_id)
+            await asyncio.to_thread(buscar_dados_usuario, telegram_id)
 
             await update.message.reply_text(
                 f"✅ Conta vinculada com sucesso!\n\n"
@@ -190,7 +192,7 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
-    dados_usuario = buscar_dados_usuario(telegram_id)
+    dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
 
     await limpar_botoes_anteriores(update, context)
 
@@ -245,7 +247,9 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "forma_pagamento": "Outros"
         }
 
-        res_insert = supabase.table("movimentacoes").insert(payload_receita).execute()
+        res_insert = await asyncio.to_thread(
+            supabase.table("movimentacoes").insert(payload_receita).execute
+        )
 
         if res_insert.data:
             data_br = agora_br.strftime("%d/%m/%Y")
@@ -267,7 +271,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
-    dados_usuario = buscar_dados_usuario(telegram_id)
+    dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
 
     if not dados_usuario:
         await update.message.reply_text("🚫 Acesso não autorizado! Digite /start para vincular.")
@@ -279,13 +283,13 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         data_hoje = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
 
-        res_movs = (
+        res_movs = await asyncio.to_thread(
             supabase.table("movimentacoes")
             .select("*")
             .eq("usuario_id", usuario_id)
             .eq("data", data_hoje)
             .order("id", desc=True)
-            .execute()
+            .execute
         )
 
         movs = res_movs.data or []
@@ -345,7 +349,7 @@ async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT
 
     if acao == "del":
         try:
-            supabase.table("movimentacoes").delete().eq("id", mov_id).execute()
+            await asyncio.to_thread(supabase.table("movimentacoes").delete().eq("id", mov_id).execute)
             await query.edit_message_text(text="🗑️ *Lançamento excluído com sucesso!*", parse_mode="Markdown")
         except Exception as e:
             logging.error(f"Erro ao excluir lançamento {mov_id}: {e}")
@@ -369,7 +373,7 @@ async def cancelar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
-    dados_usuario = buscar_dados_usuario(telegram_id)
+    dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
 
     await limpar_botoes_anteriores(update, context)
 
@@ -380,13 +384,13 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
     usuario_id = dados_usuario["usuario_id"]
 
     try:
-        res = (
+        res = await asyncio.to_thread(
             supabase.table("contas_receber")
             .select("*")
             .eq("usuario_id", usuario_id)
             .eq("recebido", False)
             .order("data_recebimento", desc=False)
-            .execute()
+            .execute
         )
 
         pendentes = res.data if res.data else []
@@ -465,14 +469,16 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto_digitado = update.message.text.strip().replace(",", ".")
         try:
             novo_valor = float(texto_digitado)
-            supabase.table("movimentacoes").update({"valor": novo_valor}).eq("id", mov_id).execute()
+            await asyncio.to_thread(
+                supabase.table("movimentacoes").update({"valor": novo_valor}).eq("id", mov_id).execute
+            )
             await update.message.reply_text(f"✅ *Lançamento atualizado para R$ {novo_valor:.2f}!*", parse_mode="Markdown")
         except ValueError:
             await update.message.reply_text("❌ Valor inválido. A edição foi cancelada. Tente usar `/listar` novamente.")
         return
 
     CACHE_USUARIOS.pop(telegram_id, None)
-    dados_usuario = buscar_dados_usuario(telegram_id)
+    dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
 
     if not dados_usuario:
         await update.message.reply_text(
@@ -581,7 +587,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
 
         try:
-            supabase.table("movimentacoes").insert(payload_receita).execute()
+            await asyncio.to_thread(supabase.table("movimentacoes").insert(payload_receita).execute)
             tag_str = f"\n🏷️ Tags: {tags_final}" if tags_final else ""
             data_br = datetime.strptime(data_final, "%Y-%m-%d").strftime("%d/%m/%Y")
             
@@ -615,7 +621,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
 
         try:
-            supabase.table("contas_receber").insert(payload_receber).execute()
+            await asyncio.to_thread(supabase.table("contas_receber").insert(payload_receber).execute)
             tag_str = f"\n🏷️ Tags: {tags_final}" if tags_final else ""
             await update.message.reply_text(
                 f"📥 Conta a Receber Cadastrada!\n\n"
@@ -762,7 +768,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "tags": tags_final,
             }
             try:
-                supabase.table("movimentacoes").insert(payload).execute()
+                await asyncio.to_thread(supabase.table("movimentacoes").insert(payload).execute)
                 tag_str = f"\n🏷️ Tags: {tags_final}" if tags_final else ""
                 icone = "⚡" if forma_pagamento == "Pix" else "💳"
                 status_txt = "Pendente (Recorrente)" if e_recorrente else "Pago"
@@ -796,6 +802,67 @@ async def perguntar_forma_pagamento_recorrente(update: Update, context: ContextT
         await update.message.reply_text(texto_msg, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 
+async def processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes):
+    num_parcelas = dados_temp.get("parcelas", 1)
+    valor_total = dados_temp["valor"]
+    valor_parcela = round(valor_total / num_parcelas, 2)
+    categoria_salvar = dados_temp.get("categoria", "Outros")
+
+    cartao_info = next((c for c in lista_cartoes if c["id"] == cartao_id), None)
+    dia_fechamento = cartao_info.get("dia_fechamento") if cartao_info else None
+
+    data_compra = datetime.strptime(dados_temp["data"], "%Y-%m-%d")
+
+    fatura_inicial_str = calcular_mes_fatura(data_compra, dia_fechamento)
+    fatura_inicial_dt = datetime.strptime(fatura_inicial_str, "%m/%Y")
+
+    payloads = []
+    for i in range(num_parcelas):
+        fatura_parcela_dt = fatura_inicial_dt + relativedelta(months=i)
+        str_mes_fatura = fatura_parcela_dt.strftime("%m/%Y")
+
+        data_parcela_dt = data_compra + relativedelta(months=i)
+        str_data_parcela = data_parcela_dt.strftime("%Y-%m-%d")
+
+        desc_final = dados_temp["descricao"]
+        if num_parcelas > 1:
+            desc_final = f"{dados_temp['descricao']} ({i+1}/{num_parcelas})"
+
+        payloads.append({
+            "usuario_id": dados_temp["usuario_id"],
+            "conta_id": None,
+            "cartao_id": cartao_id,
+            "descricao": desc_final,
+            "valor": valor_parcela,
+            "tipo": "Despesa",
+            "categoria": categoria_salvar,
+            "forma_pagamento": "Cartão de Crédito",
+            "data": str_data_parcela,
+            "mes_fatura": str_mes_fatura,
+            "pago": False,
+            "tags": dados_temp.get("tags"),
+        })
+
+    try:
+        await asyncio.to_thread(supabase.table("movimentacoes").insert(payloads).execute)
+
+        tag_str = f"\n🏷️ Tags: {dados_temp.get('tags')}" if dados_temp.get("tags") else ""
+        detalhe_parc = f" em {num_parcelas}x de R$ {valor_parcela:.2f}" if num_parcelas > 1 else ""
+
+        await query.edit_message_text(
+            f"✅ Lançamento no Crédito Registrado!\n\n"
+            f"💸 Valor Total: R$ {valor_total:.2f}{detalhe_parc}\n"
+            f"📝 Descrição: {dados_temp['descricao']}\n"
+            f"🏷️ Categoria: {categoria_salvar}\n"
+            f"💳 Forma: Cartão de Crédito\n"
+            f"📌 Primeiros Vencimentos/Fatura: {payloads[0]['mes_fatura']}{tag_str}"
+        )
+        context.user_data.pop("temp_lancamento", None)
+    except Exception as e:
+        logging.error(f"Erro ao salvar crédito: {e}")
+        await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: {e}")
+
+
 async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -819,7 +886,9 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action.startswith("pagar_rec_"):
         receber_id = int(action.replace("pagar_rec_", ""))
         try:
-            supabase.table("contas_receber").update({"recebido": True}).eq("id", receber_id).execute()
+            await asyncio.to_thread(
+                supabase.table("contas_receber").update({"recebido": True}).eq("id", receber_id).execute
+            )
             
             texto_antigo = query.message.text
             await query.edit_message_text(
@@ -839,7 +908,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⚠️ Sessão expirada. Por favor, envie o lançamento novamente.")
         return
 
-    dados_usuario = buscar_dados_usuario(query.from_user.id)
+    dados_usuario = await asyncio.to_thread(buscar_dados_usuario, query.from_user.id)
     lista_cartoes = dados_usuario["cartoes"] if dados_usuario else []
 
     if action == "c_parcelado_menu":
@@ -891,7 +960,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 })
 
             try:
-                supabase.table("movimentacoes").insert(payloads).execute()
+                await asyncio.to_thread(supabase.table("movimentacoes").insert(payloads).execute)
                 tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp.get("tags") else ""
 
                 await query.edit_message_text(
@@ -933,7 +1002,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
 
             try:
-                supabase.table("movimentacoes").insert(payload).execute()
+                await asyncio.to_thread(supabase.table("movimentacoes").insert(payload).execute)
                 tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp.get("tags") else ""
                 data_br = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
 
@@ -967,7 +1036,8 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         else:
             cartao_id = lista_cartoes[0]["id"] if lista_cartoes else None
-            action = f"crt_{cartao_id}"
+            await processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes)
+            return
 
     if action.startswith("cnt_"):
         conta_id = int(action.replace("cnt_", ""))
@@ -989,7 +1059,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "tags": dados_temp.get("tags"),
         }
         try:
-            supabase.table("movimentacoes").insert(payload).execute()
+            await asyncio.to_thread(supabase.table("movimentacoes").insert(payload).execute)
             tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp.get("tags") else ""
             await query.edit_message_text(
                 f"✅ Lançamento Registrado!\n\n"
@@ -1005,64 +1075,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif action.startswith("crt_"):
         cartao_id = int(action.replace("crt_", ""))
-        num_parcelas = dados_temp.get("parcelas", 1)
-        valor_total = dados_temp["valor"]
-        valor_parcela = round(valor_total / num_parcelas, 2)
-        categoria_salvar = dados_temp.get("categoria", "Outros")
-
-        cartao_info = next((c for c in lista_cartoes if c["id"] == cartao_id), None)
-        dia_fechamento = cartao_info.get("dia_fechamento") if cartao_info else None
-
-        data_compra = datetime.strptime(dados_temp["data"], "%Y-%m-%d")
-
-        fatura_inicial_str = calcular_mes_fatura(data_compra, dia_fechamento)
-        fatura_inicial_dt = datetime.strptime(fatura_inicial_str, "%m/%Y")
-
-        payloads = []
-        for i in range(num_parcelas):
-            fatura_parcela_dt = fatura_inicial_dt + relativedelta(months=i)
-            str_mes_fatura = fatura_parcela_dt.strftime("%m/%Y")
-
-            data_parcela_dt = data_compra + relativedelta(months=i)
-            str_data_parcela = data_parcela_dt.strftime("%Y-%m-%d")
-
-            desc_final = dados_temp["descricao"]
-            if num_parcelas > 1:
-                desc_final = f"{dados_temp['descricao']} ({i+1}/{num_parcelas})"
-
-            payloads.append({
-                "usuario_id": dados_temp["usuario_id"],
-                "conta_id": None,
-                "cartao_id": cartao_id,
-                "descricao": desc_final,
-                "valor": valor_parcela,
-                "tipo": "Despesa",
-                "categoria": categoria_salvar,
-                "forma_pagamento": "Cartão de Crédito",
-                "data": str_data_parcela,
-                "mes_fatura": str_mes_fatura,
-                "pago": False,
-                "tags": dados_temp["tags"],
-            })
-
-        try:
-            supabase.table("movimentacoes").insert(payloads).execute()
-
-            tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp["tags"] else ""
-            detalhe_parc = f" em {num_parcelas}x de R$ {valor_parcela:.2f}" if num_parcelas > 1 else ""
-
-            await query.edit_message_text(
-                f"✅ Lançamento no Crédito Registrado!\n\n"
-                f"💸 Valor Total: R$ {valor_total:.2f}{detalhe_parc}\n"
-                f"📝 Descrição: {dados_temp['descricao']}\n"
-                f"🏷️ Categoria: {categoria_salvar}\n"
-                f"💳 Forma: Cartão de Crédito\n"
-                f"📌 Primeiros Vencimentos/Fatura: {payloads[0]['mes_fatura']}{tag_str}"
-            )
-            context.user_data.pop("temp_lancamento", None)
-        except Exception as e:
-            logging.error(f"Erro ao salvar crédito: {e}")
-            await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: {e}")
+        await processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes)
 
 
 async def testar_alertas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1073,12 +1086,10 @@ async def testar_alertas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
     try:
-        req = urllib.request.Request(
-            STREAMLIT_URL, 
-            headers={'User-Agent': 'Mozilla/5.0'}
-        )
-        with urllib.request.urlopen(req, timeout=10) as response:
-            if response.status == 200:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        async with httpx.AsyncClient() as client:
+            response = await client.get(STREAMLIT_URL, headers=headers, timeout=10)
+            if response.status_code == 200:
                 logging.info("🟢 Ping enviado com sucesso para o Streamlit!")
     except Exception as e:
         logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
@@ -1112,6 +1123,11 @@ async def handler_resumo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await enviar_resumo_mensal_telegram(update, context)        
 
 
+async def job_resumo_mensal(context: ContextTypes.DEFAULT_TYPE):
+    """Wrapper para a Job Queue chamar a função do resumo mensal de forma segura."""
+    await enviar_resumo_mensal_telegram(None, context)
+
+
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
 
@@ -1140,7 +1156,7 @@ def main():
     )
 
     app.job_queue.run_monthly(
-        enviar_resumo_mensal_telegram,
+        job_resumo_mensal,
         when=time(hour=8, minute=0, tzinfo=fuso_br),
         day=1
     )
