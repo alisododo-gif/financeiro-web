@@ -6,7 +6,9 @@ import re
 import calendar
 import html
 import httpx
-from datetime import datetime, time
+import sys
+import uuid
+from datetime import datetime, time, timedelta
 from dateutil.relativedelta import relativedelta
 
 from dotenv import load_dotenv
@@ -38,12 +40,15 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 STREAMLIT_URL = "https://financeiro-web-2-0.streamlit.app/?uid=1"
 
+# Cache TTL em segundos (ex: 600 segundos = 10 minutos)
+CACHE_TTL = 600
+
 options = ClientOptions(
     postgrest_client_timeout=30,
     storage_client_timeout=30
 )
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY, options=options)
+supabase: Client = None  # Inicializado no main()
 logging.basicConfig(level=logging.INFO)
 
 CACHE_USUARIOS = {}
@@ -70,8 +75,11 @@ def buscar_dados_usuario(telegram_id, forcar_atualizacao=False):
     except (ValueError, TypeError):
         return None
 
+    now = datetime.now()
     if not forcar_atualizacao and telegram_id_int in CACHE_USUARIOS:
-        return CACHE_USUARIOS[telegram_id_int]
+        cached_data, timestamp = CACHE_USUARIOS[telegram_id_int]
+        if (now - timestamp).total_seconds() < CACHE_TTL:
+            return cached_data
 
     try:
         res_user = (
@@ -106,7 +114,7 @@ def buscar_dados_usuario(telegram_id, forcar_atualizacao=False):
                 "cartoes": lista_cartoes,
             }
 
-            CACHE_USUARIOS[telegram_id_int] = dados
+            CACHE_USUARIOS[telegram_id_int] = (dados, now)
             return dados
 
     except Exception as e:
@@ -474,12 +482,15 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"Erro ao tentar limpar botões: {e}")
 
+    # Tratamento de resposta para a escolha de dia de vencimento
     if context.user_data.get("aguardando_dia_vencimento"):
-        context.user_data["aguardando_dia_vencimento"] = False
+        session_id = context.user_data.get("session_ativa")
         texto_dia = update.message.text.strip()
         
         if not texto_dia.isdigit() or not (1 <= int(texto_dia) <= 31):
-            context.user_data.pop("temp_lancamento", None)
+            if session_id and "lancamentos_temp" in context.user_data:
+                context.user_data["lancamentos_temp"].pop(session_id, None)
+            context.user_data["aguardando_dia_vencimento"] = False
             await update.message.reply_text("⚠️ Dia inválido! Por favor, informe um dia entre 1 e 31.")
             return
 
@@ -492,14 +503,16 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ultimo_dia = calendar.monthrange(now.year, now.month)[1]
             data_vencimento_dt = datetime(now.year, now.month, ultimo_dia)
 
-        dados_temp = context.user_data.get("temp_lancamento")
+        dados_temp = context.user_data.get("lancamentos_temp", {}).get(session_id)
         if dados_temp:
             dados_temp["data"] = data_vencimento_dt.strftime("%Y-%m-%d")
             dados_temp["mes_fatura"] = data_vencimento_dt.strftime("%m/%Y")
+            context.user_data["aguardando_dia_vencimento"] = False
             
-            await perguntar_forma_pagamento_recorrente(update, context)
+            await perguntar_forma_pagamento_recorrente(update, context, session_id)
             return
 
+    # Tratamento de Edição
     if "edit_mov_id" in context.user_data:
         mov_id = context.user_data.pop("edit_mov_id")
         texto_digitado = update.message.text.strip()
@@ -723,7 +736,12 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     mes_fatura_calc = datetime.strptime(data_final, "%Y-%m-%d").strftime("%m/%Y")
 
-    context.user_data["temp_lancamento"] = {
+    # Utiliza um ID único para cada sessão de lançamento evitado sobrescritas concorrentes
+    session_id = str(uuid.uuid4())[:8]
+    if "lancamentos_temp" not in context.user_data:
+        context.user_data["lancamentos_temp"] = {}
+
+    context.user_data["lancamentos_temp"][session_id] = {
         "usuario_id": usuario_id,
         "valor": valor,
         "descricao": descricao_limpa,
@@ -737,10 +755,11 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     if e_recorrente:
+        context.user_data["session_ativa"] = session_id
         botoes = [
             [
-                InlineKeyboardButton("📅 Vence Hoje", callback_data="venc_hoje"),
-                InlineKeyboardButton("✏️ Escolher Dia", callback_data="venc_mudar"),
+                InlineKeyboardButton("📅 Vence Hoje", callback_data=f"venc_hoje_{session_id}"),
+                InlineKeyboardButton("✏️ Escolher Dia", callback_data=f"venc_mudar_{session_id}"),
             ]
         ]
         await update.message.reply_text(
@@ -760,8 +779,8 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         botoes = [
             [
-                InlineKeyboardButton("💵 À Vista", callback_data="c_avista"),
-                InlineKeyboardButton("📅 Parcelado (2x a 12x)", callback_data="c_parcelado_menu"),
+                InlineKeyboardButton("💵 À Vista", callback_data=f"c_avista_{session_id}"),
+                InlineKeyboardButton("📅 Parcelado (2x a 12x)", callback_data=f"c_parcelado_menu_{session_id}"),
             ]
         ]
 
@@ -782,7 +801,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(lista_contas) > 1:
             botoes = []
             for c in lista_contas:
-                botoes.append([InlineKeyboardButton(f"🏦 {c['nome']}", callback_data=f"cnt_{c['id']}")])
+                botoes.append([InlineKeyboardButton(f"🏦 {c['nome']}", callback_data=f"cnt_{c['id']}_{session_id}")])
 
             await update.message.reply_text(
                 f"🏦 Selecione a conta utilizada:\n\n"
@@ -828,15 +847,15 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📅 Data: {data_final}\n"
                     f"📌 Status: {status_txt}{tag_str}"
                 )
-                context.user_data.pop("temp_lancamento", None)
+                context.user_data["lancamentos_temp"].pop(session_id, None)
             except Exception as e:
                 await update.message.reply_text(f"⚠️ Erro ao salvar no Supabase: {e}")
 
-async def perguntar_forma_pagamento_recorrente(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def perguntar_forma_pagamento_recorrente(update: Update, context: ContextTypes.DEFAULT_TYPE, session_id: str):
     botoes = [
         [
-            InlineKeyboardButton("💵 À Vista", callback_data="c_avista"),
-            InlineKeyboardButton("📅 Parcelado (2x a 12x)", callback_data="c_parcelado_menu"),
+            InlineKeyboardButton("💵 À Vista", callback_data=f"c_avista_{session_id}"),
+            InlineKeyboardButton("📅 Parcelado (2x a 12x)", callback_data=f"c_parcelado_menu_{session_id}"),
         ]
     ]
 
@@ -848,7 +867,7 @@ async def perguntar_forma_pagamento_recorrente(update: Update, context: ContextT
         await update.message.reply_text(texto_msg, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 
-async def processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes):
+async def processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes, session_id):
     num_parcelas = dados_temp.get("parcelas", 1)
     valor_total = dados_temp["valor"]
     valor_parcela = round(valor_total / num_parcelas, 2)
@@ -906,7 +925,7 @@ async def processar_lancamento_cartao(query, context, cartao_id, dados_temp, lis
             f"💳 Forma: Cartão de Crédito\n"
             f"📌 Primeiros Vencimentos/Fatura: {payloads[0]['mes_fatura']}{tag_str}"
         )
-        context.user_data.pop("temp_lancamento", None)
+        context.user_data.get("lancamentos_temp", {}).pop(session_id, None)
     except Exception as e:
         logging.error(f"Erro ao salvar crédito: {e}")
         await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: {e}")
@@ -918,11 +937,14 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     action = query.data
 
-    if action == "venc_hoje":
-        await perguntar_forma_pagamento_recorrente(update, context)
+    if action.startswith("venc_hoje_"):
+        session_id = action.replace("venc_hoje_", "")
+        await perguntar_forma_pagamento_recorrente(update, context, session_id)
         return
 
-    if action == "venc_mudar":
+    if action.startswith("venc_mudar_"):
+        session_id = action.replace("venc_mudar_", "")
+        context.user_data["session_ativa"] = session_id
         context.user_data["aguardando_dia_vencimento"] = True
         await query.edit_message_text(
             "✍️ *Digite o dia de vencimento dessa conta* (envie apenas o número, ex: `10` ou `25`):",
@@ -950,28 +972,31 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"⚠️ Erro ao atualizar status: {e}")
             return
 
-    dados_temp = context.user_data.get("temp_lancamento")
+    # Extrai o session_id do final do callback_data
+    partes = action.split("_")
+    session_id = partes[-1]
+    
+    dados_temp = context.user_data.get("lancamentos_temp", {}).get(session_id)
 
     if not dados_temp:
-        await query.edit_message_text("⚠️ Sessão expirada. Por favor, envie o lançamento novamente.")
+        await query.edit_message_text("⚠️ Sessão expirada ou não encontrada. Por favor, envie o lançamento novamente.")
         return
 
     dados_usuario = await asyncio.to_thread(buscar_dados_usuario, query.from_user.id)
     lista_cartoes = dados_usuario["cartoes"] if dados_usuario else []
 
-    if action == "c_parcelado_menu":
+    if action.startswith("c_parcelado_menu_"):
         botoes = []
         val_base = dados_temp["valor"]
         e_rec = dados_temp.get("e_recorrente", False)
 
         for i in range(2, 13, 2):
-            # Se for recorrente, mantém o valor cheio por mês no botão
             txt_b1 = f"{i}x meses (R$ {val_base:.2f}/mês)" if e_rec else f"{i}x de R$ {(val_base/i):.2f}"
-            row = [InlineKeyboardButton(txt_b1, callback_data=f"parc_{i}")]
+            row = [InlineKeyboardButton(txt_b1, callback_data=f"parc_{i}_{session_id}")]
 
             if (i + 1) <= 12:
                 txt_b2 = f"{i+1}x meses (R$ {val_base:.2f}/mês)" if e_rec else f"{i+1}x de R$ {(val_base/(i+1)):.2f}"
-                row.append(InlineKeyboardButton(txt_b2, callback_data=f"parc_{i+1}"))
+                row.append(InlineKeyboardButton(txt_b2, callback_data=f"parc_{i+1}_{session_id}"))
             
             botoes.append(row)
 
@@ -988,10 +1013,10 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if action.startswith("parc_"):
-        num_parcelas = int(action.replace("parc_", ""))
+        num_parcelas = int(partes[1])
         dados_temp["parcelas"] = num_parcelas
 
-        # CASO 1: SE FOR GASTO FIXO / RECORRENTE (Repete o valor integral digitado)
+        # CASO 1: FIXO / RECORRENTE
         if dados_temp.get("e_recorrente"):
             valor_parcela = dados_temp["valor"]
             valor_total = valor_parcela * num_parcelas
@@ -1036,18 +1061,18 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"🗓️ *Primeiro Vencimento:* {data_inicial_dt.strftime('%d/%m/%Y')}{tag_str}",
                     parse_mode="Markdown"
                 )
-                context.user_data.pop("temp_lancamento", None)
+                context.user_data.get("lancamentos_temp", {}).pop(session_id, None)
             except Exception as e:
                 logging.error(f"Erro ao salvar gasto fixo: {e}")
                 await query.edit_message_text(f"⚠️ Erro ao salvar no banco: {e}")
             return
 
-        # CASO 2: SE FOR CARTÃO DE CRÉDITO PARCELADO
+        # CASO 2: CARTÃO DE CRÉDITO PARCELADO
         else:
             if len(lista_cartoes) > 1:
                 botoes = []
                 for c in lista_cartoes:
-                    botoes.append([InlineKeyboardButton(f"💳 {c['nome_cartao']}", callback_data=f"crt_{c['id']}")])
+                    botoes.append([InlineKeyboardButton(f"💳 {c['nome_cartao']}", callback_data=f"crt_{c['id']}_{session_id}")])
 
                 await query.edit_message_text(
                     f"💳 Selecione qual CARTÃO foi utilizado ({num_parcelas}x de R$ {(dados_temp['valor']/num_parcelas):.2f}):\n\n"
@@ -1059,10 +1084,10 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             else:
                 cartao_id = lista_cartoes[0]["id"] if lista_cartoes else None
-                await processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes)
+                await processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes, session_id)
                 return
 
-    if action == "c_avista":
+    if action.startswith("c_avista_"):
         if dados_temp.get("e_recorrente"):
             lista_contas = dados_usuario.get("contas", []) if dados_usuario else []
             conta_id = lista_contas[0]["id"] if lista_contas else None
@@ -1100,7 +1125,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"🏷️ Categoria: {categoria_salvar}{tag_str}",
                     parse_mode="Markdown"
                 )
-                context.user_data.pop("temp_lancamento", None)
+                context.user_data.get("lancamentos_temp", {}).pop(session_id, None)
             except Exception as e:
                 await query.edit_message_text(f"⚠️ Erro ao salvar gasto fixo no Supabase: {e}")
             return
@@ -1109,7 +1134,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(lista_cartoes) > 1:
             botoes = []
             for c in lista_cartoes:
-                botoes.append([InlineKeyboardButton(f"💳 {c['nome_cartao']}", callback_data=f"crt_{c['id']}")])
+                botoes.append([InlineKeyboardButton(f"💳 {c['nome_cartao']}", callback_data=f"crt_{c['id']}_{session_id}")])
 
             parc_str = f"({num_parc}x)" if num_parc > 1 else "(À Vista)"
             await query.edit_message_text(
@@ -1122,11 +1147,11 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         else:
             cartao_id = lista_cartoes[0]["id"] if lista_cartoes else None
-            await processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes)
+            await processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes, session_id)
             return
 
     if action.startswith("cnt_"):
-        conta_id = int(action.replace("cnt_", ""))
+        conta_id = int(partes[1])
         mes_fatura_calc = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%m/%Y")
         categoria_salvar = dados_temp.get("categoria", "Outros")
 
@@ -1158,13 +1183,13 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"⚡ Forma: {dados_temp.get('forma_pagamento', 'Pix/Débito')}\n"
                 f"📅 Data: {dados_temp['data']}{tag_str}"
             )
-            context.user_data.pop("temp_lancamento", None)
+            context.user_data.get("lancamentos_temp", {}).pop(session_id, None)
         except Exception as e:
             await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: {e}")
 
     elif action.startswith("crt_"):
-        cartao_id = int(action.replace("crt_", ""))
-        await processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes)
+        cartao_id = int(partes[1])
+        await processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes, session_id)
 
 
 async def testar_alertas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1219,6 +1244,18 @@ async def job_resumo_mensal(context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    global supabase
+
+    # Validação rigorosa das variáveis de ambiente na inicialização
+    if not TELEGRAM_TOKEN:
+        logging.critical("❌ Erro: Variável TELEGRAM_TOKEN não configurada no arquivo .env!")
+        sys.exit(1)
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        logging.critical("❌ Erro: SUPABASE_URL ou SUPABASE_KEY não configuradas no arquivo .env!")
+        sys.exit(1)
+
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY, options=options)
+
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
 
     app = (
