@@ -1130,16 +1130,20 @@ async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
     
-    # 🟢 Configuração de Timeout prolongado para evitar estourar limite do servidor
+    # 🟢 Aumentamos os timeouts para evitar quedas por instabilidade na rede
     request = HTTPXRequest(
-        connect_timeout=20.0,
-        read_timeout=20.0
+        connect_timeout=30.0,
+        read_timeout=30.0,
+        write_timeout=30.0,
+        pool_timeout=30.0
     )
 
+    # 🟢 Adicionamos os parâmetros de get_updates na própria aplicação
     app = (
         ApplicationBuilder()
         .token(TELEGRAM_TOKEN)
         .request(request)
+        .get_updates_request(request)
         .build()
     )
 
@@ -1205,7 +1209,3 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_geral))
 
     app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
