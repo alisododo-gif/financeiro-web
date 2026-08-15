@@ -961,15 +961,15 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "c_parcelado_menu":
         botoes = []
+        val_base = dados_temp["valor"]
         for i in range(2, 13, 2):
-            v1 = dados_temp["valor"]
-            row = [InlineKeyboardButton(f"{i}x de R$ {v1:.2f}", callback_data=f"parc_{i}")]
+            row = [InlineKeyboardButton(f"{i}x de R$ {(val_base/i):.2f}", callback_data=f"parc_{i}")]
             if (i + 1) <= 12:
-                row.append(InlineKeyboardButton(f"{i+1}x de R$ {v1:.2f}", callback_data=f"parc_{i+1}"))
+                row.append(InlineKeyboardButton(f"{i+1}x de R$ {(val_base/(i+1)):.2f}", callback_data=f"parc_{i+1}"))
             botoes.append(row)
 
         await query.edit_message_text(
-            f"📅 Selecione por quantos meses deseja agendar este gasto mensal de R$ {dados_temp['valor']:.2f}:",
+            f"📅 Selecione por quantas parcelas deseja dividir este valor de R$ {dados_temp['valor']:.2f}:",
             reply_markup=InlineKeyboardMarkup(botoes)
         )
         return
@@ -978,6 +978,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         num_parcelas = int(action.replace("parc_", ""))
         dados_temp["parcelas"] = num_parcelas
 
+        # CASO 1: SE FOR GASTO FIXO / RECORRENTE
         if dados_temp.get("e_recorrente"):
             valor_parcela = dados_temp["valor"]
             valor_total = valor_parcela * num_parcelas
@@ -1027,6 +1028,26 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logging.error(f"Erro ao salvar gasto fixo: {e}")
                 await query.edit_message_text(f"⚠️ Erro ao salvar no banco: {e}")
             return
+
+        # CASO 2: SE FOR CARTÃO DE CRÉDITO PARCELADO
+        else:
+            if len(lista_cartoes) > 1:
+                botoes = []
+                for c in lista_cartoes:
+                    botoes.append([InlineKeyboardButton(f"💳 {c['nome_cartao']}", callback_data=f"crt_{c['id']}")])
+
+                await query.edit_message_text(
+                    f"💳 Selecione qual CARTÃO foi utilizado ({num_parcelas}x de R$ {(dados_temp['valor']/num_parcelas):.2f}):\n\n"
+                    f"📝 Descrição: {dados_temp['descricao']}\n"
+                    f"🏷️ Categoria: {dados_temp.get('categoria', 'Outros')}\n"
+                    f"💸 Valor Total: R$ {dados_temp['valor']:.2f}",
+                    reply_markup=InlineKeyboardMarkup(botoes)
+                )
+                return
+            else:
+                cartao_id = lista_cartoes[0]["id"] if lista_cartoes else None
+                await processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes)
+                return
 
     if action == "c_avista":
         if dados_temp.get("e_recorrente"):
