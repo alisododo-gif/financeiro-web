@@ -3,6 +3,7 @@ import logging
 import asyncio
 import os
 import re
+import calendar
 import httpx
 from datetime import datetime, time
 from dateutil.relativedelta import relativedelta
@@ -46,6 +47,16 @@ logging.basicConfig(level=logging.INFO)
 
 CACHE_USUARIOS = {}
 FUSO_BR = pytz.timezone("America/Sao_Paulo")
+
+
+def sanitizar_valor(valor_raw: str) -> float:
+    """Converte e sanitiza strings financeiras sem corromper centavos ou decimais com ponto/vírgula."""
+    v = valor_raw.strip()
+    if "," in v and "." in v:
+        v = v.replace(".", "").replace(",", ".")
+    elif "," in v:
+        v = v.replace(",", ".")
+    return float(v)
 
 
 def buscar_dados_usuario(telegram_id):
@@ -123,7 +134,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Para lançar despesa Débito: `50.00 Mercado Débito`\n\n"
             "• Para lançar despesa Fixo: `50.00 Mercado Fixo`\n\n"
             "• Para lançar receita: `10 salario receita` ou `/receita 2500 Salário`\n\n"
-            "• Para lançar receber: `50.00 Jõao receber`\n\n"
+            "• Para lançar receber: `50.00 João receber`\n\n"
             "• Para consultar pendentes: Digite /status ou `receber`\n\n"
             "• Para listar e editar: Digite /listar\n\n"
             "• Para ver o resumo: Digite `resumo` ou /resumo",
@@ -157,20 +168,29 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
         telefone_sem_9 = telefone_telegram
 
     try:
-        response = await asyncio.to_thread(
-            supabase.table("usuarios")
-            .select("id, telefone")
-            .or_(f"telefone.eq.{telefone_telegram},telefone.eq.{telefone_sem_9}")
-            .execute
-        )
+        def _get_user():
+            return (
+                supabase.table("usuarios")
+                .select("id, telefone")
+                .or_(f"telefone.eq.{telefone_telegram},telefone.eq.{telefone_sem_9}")
+                .execute()
+            )
+
+        response = await asyncio.to_thread(_get_user)
 
         if response.data:
             usuario = response.data[0]
             usuario_id = usuario["id"]
 
-            await asyncio.to_thread(
-                supabase.table("usuarios").update({"telegram_id": telegram_id}).eq("id", usuario_id).execute
-            )
+            def _update_user():
+                return (
+                    supabase.table("usuarios")
+                    .update({"telegram_id": telegram_id})
+                    .eq("id", usuario_id)
+                    .execute()
+                )
+
+            await asyncio.to_thread(_update_user)
 
             CACHE_USUARIOS.pop(telegram_id, None)
             await asyncio.to_thread(buscar_dados_usuario, telegram_id)
@@ -217,11 +237,11 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         partes = texto.split(" ", 1)
-        valor_raw = partes[0].replace(".", "").replace(",", ".")
+        valor_raw = partes[0]
         descricao = partes[1] if len(partes) > 1 else "Receita"
 
         try:
-            valor = float(valor_raw)
+            valor = sanitizar_valor(valor_raw)
             if valor <= 0:
                 raise ValueError
         except ValueError:
@@ -235,8 +255,12 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data_hoje = agora_br.strftime("%Y-%m-%d")
         mes_fatura = agora_br.strftime("%m/%Y")
 
+        lista_contas = dados_usuario.get("contas", [])
+        conta_id = lista_contas[0]["id"] if lista_contas else None
+
         payload_receita = {
             "usuario_id": usuario_id,
+            "conta_id": conta_id,
             "tipo": "Receita",
             "descricao": descricao,
             "valor": valor,
@@ -247,9 +271,10 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "forma_pagamento": "Outros"
         }
 
-        res_insert = await asyncio.to_thread(
-            supabase.table("movimentacoes").insert(payload_receita).execute
-        )
+        def _insert_receita():
+            return supabase.table("movimentacoes").insert(payload_receita).execute()
+
+        res_insert = await asyncio.to_thread(_insert_receita)
 
         if res_insert.data:
             data_br = agora_br.strftime("%d/%m/%Y")
@@ -283,15 +308,17 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         data_hoje = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
 
-        res_movs = await asyncio.to_thread(
-            supabase.table("movimentacoes")
-            .select("*")
-            .eq("usuario_id", usuario_id)
-            .eq("data", data_hoje)
-            .order("id", desc=True)
-            .execute
-        )
+        def _get_movs():
+            return (
+                supabase.table("movimentacoes")
+                .select("*")
+                .eq("usuario_id", usuario_id)
+                .eq("data", data_hoje)
+                .order("id", desc=True)
+                .execute()
+            )
 
+        res_movs = await asyncio.to_thread(_get_movs)
         movs = res_movs.data or []
 
         if not movs:
@@ -349,7 +376,10 @@ async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT
 
     if acao == "del":
         try:
-            await asyncio.to_thread(supabase.table("movimentacoes").delete().eq("id", mov_id).execute)
+            def _delete_mov():
+                return supabase.table("movimentacoes").delete().eq("id", mov_id).execute()
+
+            await asyncio.to_thread(_delete_mov)
             await query.edit_message_text(text="🗑️ *Lançamento excluído com sucesso!*", parse_mode="Markdown")
         except Exception as e:
             logging.error(f"Erro ao excluir lançamento {mov_id}: {e}")
@@ -384,15 +414,17 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
     usuario_id = dados_usuario["usuario_id"]
 
     try:
-        res = await asyncio.to_thread(
-            supabase.table("contas_receber")
-            .select("*")
-            .eq("usuario_id", usuario_id)
-            .eq("recebido", False)
-            .order("data_recebimento", desc=False)
-            .execute
-        )
+        def _get_contas_receber():
+            return (
+                supabase.table("contas_receber")
+                .select("*")
+                .eq("usuario_id", usuario_id)
+                .eq("recebido", False)
+                .order("data_recebimento", desc=False)
+                .execute()
+            )
 
+        res = await asyncio.to_thread(_get_contas_receber)
         pendentes = res.data if res.data else []
 
         if not pendentes:
@@ -452,7 +484,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             data_vencimento_dt = datetime(now.year, now.month, dia_escolhido)
         except ValueError:
-            import calendar
             ultimo_dia = calendar.monthrange(now.year, now.month)[1]
             data_vencimento_dt = datetime(now.year, now.month, ultimo_dia)
 
@@ -466,18 +497,19 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if "edit_mov_id" in context.user_data:
         mov_id = context.user_data.pop("edit_mov_id")
-        texto_digitado = update.message.text.strip().replace(",", ".")
+        texto_digitado = update.message.text.strip()
         try:
-            novo_valor = float(texto_digitado)
-            await asyncio.to_thread(
-                supabase.table("movimentacoes").update({"valor": novo_valor}).eq("id", mov_id).execute
-            )
+            novo_valor = sanitizar_valor(texto_digitado)
+
+            def _update_valor():
+                return supabase.table("movimentacoes").update({"valor": novo_valor}).eq("id", mov_id).execute()
+
+            await asyncio.to_thread(_update_valor)
             await update.message.reply_text(f"✅ *Lançamento atualizado para R$ {novo_valor:.2f}!*", parse_mode="Markdown")
         except ValueError:
             await update.message.reply_text("❌ Valor inválido. A edição foi cancelada. Tente usar `/listar` novamente.")
         return
 
-    CACHE_USUARIOS.pop(telegram_id, None)
     dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
 
     if not dados_usuario:
@@ -553,7 +585,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     valor_raw, descricao_bruta = match.groups()
 
     try:
-        valor = float(valor_raw.replace(".", "").replace(",", "."))
+        valor = sanitizar_valor(valor_raw)
     except ValueError:
         await update.message.reply_text("❌ Valor numérico inválido.")
         return
@@ -587,7 +619,10 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
 
         try:
-            await asyncio.to_thread(supabase.table("movimentacoes").insert(payload_receita).execute)
+            def _insert_rec_dir():
+                return supabase.table("movimentacoes").insert(payload_receita).execute()
+
+            await asyncio.to_thread(_insert_rec_dir)
             tag_str = f"\n🏷️ Tags: {tags_final}" if tags_final else ""
             data_br = datetime.strptime(data_final, "%Y-%m-%d").strftime("%d/%m/%Y")
             
@@ -621,7 +656,10 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
 
         try:
-            await asyncio.to_thread(supabase.table("contas_receber").insert(payload_receber).execute)
+            def _insert_receber():
+                return supabase.table("contas_receber").insert(payload_receber).execute()
+
+            await asyncio.to_thread(_insert_receber)
             tag_str = f"\n🏷️ Tags: {tags_final}" if tags_final else ""
             await update.message.reply_text(
                 f"📥 Conta a Receber Cadastrada!\n\n"
@@ -768,7 +806,10 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "tags": tags_final,
             }
             try:
-                await asyncio.to_thread(supabase.table("movimentacoes").insert(payload).execute)
+                def _insert_mov():
+                    return supabase.table("movimentacoes").insert(payload).execute()
+
+                await asyncio.to_thread(_insert_mov)
                 tag_str = f"\n🏷️ Tags: {tags_final}" if tags_final else ""
                 icone = "⚡" if forma_pagamento == "Pix" else "💳"
                 status_txt = "Pendente (Recorrente)" if e_recorrente else "Pago"
@@ -844,7 +885,10 @@ async def processar_lancamento_cartao(query, context, cartao_id, dados_temp, lis
         })
 
     try:
-        await asyncio.to_thread(supabase.table("movimentacoes").insert(payloads).execute)
+        def _insert_cartao():
+            return supabase.table("movimentacoes").insert(payloads).execute()
+
+        await asyncio.to_thread(_insert_cartao)
 
         tag_str = f"\n🏷️ Tags: {dados_temp.get('tags')}" if dados_temp.get("tags") else ""
         detalhe_parc = f" em {num_parcelas}x de R$ {valor_parcela:.2f}" if num_parcelas > 1 else ""
@@ -886,9 +930,10 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action.startswith("pagar_rec_"):
         receber_id = int(action.replace("pagar_rec_", ""))
         try:
-            await asyncio.to_thread(
-                supabase.table("contas_receber").update({"recebido": True}).eq("id", receber_id).execute
-            )
+            def _update_rec():
+                return supabase.table("contas_receber").update({"recebido": True}).eq("id", receber_id).execute()
+
+            await asyncio.to_thread(_update_rec)
             
             texto_antigo = query.message.text
             await query.edit_message_text(
@@ -960,7 +1005,10 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 })
 
             try:
-                await asyncio.to_thread(supabase.table("movimentacoes").insert(payloads).execute)
+                def _insert_parc_fixa():
+                    return supabase.table("movimentacoes").insert(payloads).execute()
+
+                await asyncio.to_thread(_insert_parc_fixa)
                 tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp.get("tags") else ""
 
                 await query.edit_message_text(
@@ -976,10 +1024,8 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logging.error(f"Erro ao salvar gasto fixo: {e}")
                 await query.edit_message_text(f"⚠️ Erro ao salvar no banco: {e}")
             return
-        
-        action = "c_avista"
 
-    if action == "c_avista":
+    if action == "c_avista" or action.startswith("parc_"):
         if dados_temp.get("e_recorrente"):
             lista_contas = dados_usuario.get("contas", []) if dados_usuario else []
             conta_id = lista_contas[0]["id"] if lista_contas else None
@@ -1002,7 +1048,10 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
 
             try:
-                await asyncio.to_thread(supabase.table("movimentacoes").insert(payload).execute)
+                def _insert_fixo_avista():
+                    return supabase.table("movimentacoes").insert(payload).execute()
+
+                await asyncio.to_thread(_insert_fixo_avista)
                 tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp.get("tags") else ""
                 data_br = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
 
@@ -1059,7 +1108,10 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "tags": dados_temp.get("tags"),
         }
         try:
-            await asyncio.to_thread(supabase.table("movimentacoes").insert(payload).execute)
+            def _insert_cnt():
+                return supabase.table("movimentacoes").insert(payload).execute()
+
+            await asyncio.to_thread(_insert_cnt)
             tag_str = f"\n🏷️ Tags: {dados_temp['tags']}" if dados_temp.get("tags") else ""
             await query.edit_message_text(
                 f"✅ Lançamento Registrado!\n\n"
