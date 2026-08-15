@@ -25,8 +25,6 @@ from telegram.ext import (
     filters,
 )
 
-from telegram.error import TimedOut, NetworkError
-from telegram.request import HTTPXRequest
 from lembrete_boletos import processar_e_enviar_alertas, enviar_resumo_mensal_telegram
 
 load_dotenv()
@@ -1096,14 +1094,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logging.error(f"Erro ao salvar crédito: {e}")
             await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: {e}")
 
-async def erro_global_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    """Captura e trata erros globais da aplicação."""
-    erro = context.error
-    if isinstance(erro, (TimedOut, NetworkError)):
-        logging.warning(f"⚠️ Instabilidade na rede do Telegram capturada: {erro}")
-        return
-    logging.error(f"Exceção não tratada ao processar update: {erro}", exc_info=erro)            
-
 
 async def testar_alertas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔎 Verificando e enviando alertas de boletos do dia...")
@@ -1143,47 +1133,30 @@ async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT
 
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
-
-    request_padrao = HTTPXRequest(
-        connect_timeout=20.0,
-        read_timeout=20.0,
-    )
-
-    get_updates_request = HTTPXRequest(
-        connect_timeout=20.0,
-        read_timeout=30.0,  # O read_timeout para polling já fica configurado aqui
-        pool_timeout=20.0,
-    )
-
-    app = (
-        ApplicationBuilder()
-        .token(TELEGRAM_TOKEN)
-        .request(request_padrao)
-        .get_updates_request(get_updates_request)
-        .build()
-    )
-
-    app.add_error_handler(erro_global_handler)
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     fuso_br = pytz.timezone("America/Sao_Paulo")
 
-    # --- AGENDAMENTOS (JOB QUEUE) ---
+    # 1º Alerta do dia: 09:00 da manhã
     app.job_queue.run_daily(
         processar_e_enviar_alertas,
         time=time(hour=9, minute=0, tzinfo=fuso_br)
     )
 
+    # 2º Alerta do dia: 15:00 da tarde
     app.job_queue.run_daily(
         processar_e_enviar_alertas,
         time=time(hour=15, minute=0, tzinfo=fuso_br)
     )
 
+    # Ping do Streamlit (a cada 5 horas)
     app.job_queue.run_repeating(
         ping_streamlit,
         interval=18000,
         first=18000
     )
 
+    # Agendamento Automático do Resumo Mensal: Todo dia 1º às 08:00
     app.job_queue.run_monthly(
         enviar_resumo_mensal_telegram,
         when=time(hour=8, minute=0, tzinfo=fuso_br),
@@ -1223,5 +1196,8 @@ def main():
     # CALLBACK GERAL NO FINAL
     app.add_handler(CallbackQueryHandler(callback_geral))
 
-    # Execução corrigida
-    app.run_polling(bootstrap_retries=-1)
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
