@@ -978,9 +978,9 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         num_parcelas = int(action.replace("parc_", ""))
         dados_temp["parcelas"] = num_parcelas
 
-        # CASO 1: SE FOR GASTO FIXO / RECORRENTE (Repete o valor integral)
+        # CASO 1: SE FOR GASTO FIXO / RECORRENTE (Repete o valor cheio para cada mês)
         if dados_temp.get("e_recorrente"):
-            valor_mensal = dados_temp["valor"]
+            valor_mensal = dados_temp["valor"]  # Mantém o valor cheio fornecido
             valor_total_acumulado = valor_mensal * num_parcelas
             
             data_inicial_dt = datetime.strptime(dados_temp["data"], "%Y-%m-%d")
@@ -998,7 +998,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "conta_id": None,
                     "cartao_id": None,
                     "descricao": desc_final,
-                    "valor": valor_mensal,
+                    "valor": valor_mensal,  # Salva o valor integral no mês
                     "tipo": "Despesa",
                     "categoria": dados_temp.get("categoria", "Outros"),
                     "forma_pagamento": "Boleto",
@@ -1029,7 +1029,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(f"⚠️ Erro ao salvar no banco: {e}")
             return
 
-        # CASO 2: SE FOR CARTÃO DE CRÉDITO PARCELADO
+        # CASO 2: SE FOR CARTÃO DE CRÉDITO PARCELADO (Divide o valor total)
         else:
             if len(lista_cartoes) > 1:
                 botoes = []
