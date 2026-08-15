@@ -3,8 +3,10 @@ import logging
 import os
 import re
 import urllib.request
+import asyncio
 from datetime import datetime, time
 from dateutil.relativedelta import relativedelta
+from telegram.error import TelegramError
 
 from dotenv import load_dotenv
 import pytz
@@ -1104,20 +1106,21 @@ async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
 
 async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Apaga as mensagens de listagem anteriores do chat."""
-    chat_id = update.effective_chat.id
+    """Apaga todas as mensagens com botões pendentes simultaneamente."""
     mensagens_antigas = context.user_data.pop("mensagens_botoes_antigas", [])
+    if not mensagens_antigas:
+        return
 
-    for msg_id in mensagens_antigas:
+    chat_id = update.effective_chat.id
+
+    async def apagar_uma(msg_id):
         try:
-            # Apaga a mensagem inteira do chat
-            await context.bot.delete_message(
-                chat_id=chat_id,
-                message_id=msg_id
-            )
-        except Exception:
-            pass    
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except TelegramError:
+            pass  # Ignora erros se a mensagem já foi apagada pelo usuário ou expirou
 
+    # Dispara o apagamento de todas as mensagens ao mesmo tempo
+    await asyncio.gather(*(apagar_uma(msg_id) for msg_id in mensagens_antigas))
 
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
