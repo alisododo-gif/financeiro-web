@@ -962,14 +962,27 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "c_parcelado_menu":
         botoes = []
         val_base = dados_temp["valor"]
+        e_rec = dados_temp.get("e_recorrente", False)
+
         for i in range(2, 13, 2):
-            row = [InlineKeyboardButton(f"{i}x de R$ {(val_base/i):.2f}", callback_data=f"parc_{i}")]
+            # Se for recorrente, mantém o valor cheio por mês no botão
+            txt_b1 = f"{i}x meses (R$ {val_base:.2f}/mês)" if e_rec else f"{i}x de R$ {(val_base/i):.2f}"
+            row = [InlineKeyboardButton(txt_b1, callback_data=f"parc_{i}")]
+
             if (i + 1) <= 12:
-                row.append(InlineKeyboardButton(f"{i+1}x de R$ {(val_base/(i+1)):.2f}", callback_data=f"parc_{i+1}"))
+                txt_b2 = f"{i+1}x meses (R$ {val_base:.2f}/mês)" if e_rec else f"{i+1}x de R$ {(val_base/(i+1)):.2f}"
+                row.append(InlineKeyboardButton(txt_b2, callback_data=f"parc_{i+1}"))
+            
             botoes.append(row)
 
+        msg_texto = (
+            f"📅 Selecione por quantos meses deseja REPETIR o valor de R$ {val_base:.2f}/mês:"
+            if e_rec else
+            f"📅 Selecione por quantas parcelas deseja DIVIDIR este valor de R$ {val_base:.2f}:"
+        )
+
         await query.edit_message_text(
-            f"📅 Selecione por quantas parcelas deseja dividir este valor de R$ {dados_temp['valor']:.2f}:",
+            msg_texto,
             reply_markup=InlineKeyboardMarkup(botoes)
         )
         return
@@ -978,10 +991,10 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         num_parcelas = int(action.replace("parc_", ""))
         dados_temp["parcelas"] = num_parcelas
 
-        # CASO 1: SE FOR GASTO FIXO / RECORRENTE (Repete o valor cheio para cada mês)
+        # CASO 1: SE FOR GASTO FIXO / RECORRENTE (Repete o valor integral digitado)
         if dados_temp.get("e_recorrente"):
-            valor_mensal = dados_temp["valor"]  # Mantém o valor cheio fornecido
-            valor_total_acumulado = valor_mensal * num_parcelas
+            valor_parcela = dados_temp["valor"]
+            valor_total = valor_parcela * num_parcelas
             
             data_inicial_dt = datetime.strptime(dados_temp["data"], "%Y-%m-%d")
             
@@ -998,7 +1011,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "conta_id": None,
                     "cartao_id": None,
                     "descricao": desc_final,
-                    "valor": valor_mensal,  # Salva o valor integral no mês
+                    "valor": valor_parcela,
                     "tipo": "Despesa",
                     "categoria": dados_temp.get("categoria", "Outros"),
                     "forma_pagamento": "Boleto",
@@ -1017,8 +1030,8 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 await query.edit_message_text(
                     f"✅ *Gasto Fixo Agendado!*\n\n"
-                    f"💸 *Valor Mensal:* R$ {valor_mensal:.2f}\n"
-                    f"📅 *Duração:* {num_parcelas} meses (Total acumulado: R$ {valor_total_acumulado:.2f})\n"
+                    f"💸 *Valor Mensal:* R$ {valor_parcela:.2f}\n"
+                    f"📅 *Duração:* {num_parcelas} meses (Total acumulado: R$ {valor_total:.2f})\n"
                     f"📝 *Descrição:* {dados_temp['descricao']}\n"
                     f"🗓️ *Primeiro Vencimento:* {data_inicial_dt.strftime('%d/%m/%Y')}{tag_str}",
                     parse_mode="Markdown"
@@ -1029,7 +1042,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(f"⚠️ Erro ao salvar no banco: {e}")
             return
 
-        # CASO 2: SE FOR CARTÃO DE CRÉDITO PARCELADO (Divide o valor total)
+        # CASO 2: SE FOR CARTÃO DE CRÉDITO PARCELADO
         else:
             if len(lista_cartoes) > 1:
                 botoes = []
