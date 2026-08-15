@@ -1163,7 +1163,7 @@ def main():
     app.add_handler(
         MessageHandler(
             filters.Regex(re.compile(r"^resumo$", re.IGNORECASE)),
-            enviar_resumo_mensal_telegram
+            handler_resumo
         )
     )
 
