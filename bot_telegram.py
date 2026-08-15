@@ -1106,6 +1106,11 @@ async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT
         except TelegramError:
             pass
 
+async def handler_resumo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Limpa os botões antigos antes de acionar o resumo mensal."""
+    await limpar_botoes_anteriores(update, context)
+    await enviar_resumo_mensal_telegram(update, context)        
+
 
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
@@ -1153,7 +1158,7 @@ def main():
     app.add_handler(CommandHandler("entrada", lancar_receita))
 
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
-    app.add_handler(CommandHandler("resumo", enviar_resumo_mensal_telegram))
+    app.add_handler(CommandHandler("resumo", handler_resumo))
 
     app.add_handler(
         MessageHandler(
