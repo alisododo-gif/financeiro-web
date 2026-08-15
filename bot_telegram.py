@@ -1,5 +1,6 @@
 import json
 import logging
+import asyncio
 import os
 import re
 import urllib.request
@@ -25,6 +26,7 @@ from telegram.ext import (
     filters,
 )
 
+from telegram.error import TelegramError
 from lembrete_boletos import processar_e_enviar_alertas, enviar_resumo_mensal_telegram
 
 load_dotenv()
@@ -277,13 +279,12 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     usuario_id = dados_usuario["usuario_id"]
 
-    # 🧹 Limpa mensagens/botões de buscas anteriores
+    # 1. Primeiro apaga todos os botões gerados anteriormente
     await limpar_botoes_anteriores(update, context)
 
     try:
         data_hoje = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
 
-        # FIX 1: Busca APENAS os lançamentos com a data de HOJE
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
@@ -301,9 +302,10 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         movs.reverse()
 
-        await update.message.reply_text("📋 *Lançamentos cadastrados HOJE:*", parse_mode="Markdown")
+        await update.message.reply_text("📋 <b>Lançamentos cadastrados HOJE:</b>", parse_mode="HTML")
 
-        mensagens_com_botoes = []
+        # 2. Resgata a lista atual do user_data em vez de sobrescrever com lista vazia
+        mensagens_com_botoes = context.user_data.get("mensagens_botoes_antigas", [])
 
         for m in movs:
             mov_id = m["id"]
@@ -315,7 +317,13 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             data_br = datetime.strptime(data_raw, "%Y-%m-%d").strftime("%d/%m/%Y") if data_raw else "N/I"
 
             emoji_tipo = "🟢" if tipo == "Receita" else "🔴"
-            texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Data: `{data_br}`"
+            
+            # Usando HTML para evitar erros de sintaxe com caracteres especiais no Markdown
+            texto_item = (
+                f"{emoji_tipo} <b>{desc}</b>\n"
+                f"💰 Valor: R$ {valor:.2f}\n"
+                f"📅 Data: <code>{data_br}</code>"
+            )
 
             teclado = [
                 [
@@ -327,10 +335,13 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             msg = await update.message.reply_text(
                 text=texto_item,
                 reply_markup=InlineKeyboardMarkup(teclado),
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
+            
+            # 3. Adiciona o ID na lista acumulada
             mensagens_com_botoes.append(msg.message_id)
 
+        # 4. Salva a lista consolidada no user_data
         context.user_data["mensagens_botoes_antigas"] = mensagens_com_botoes
 
     except Exception as e:
@@ -410,16 +421,22 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
             parse_mode="Markdown"
         )
 
+        mensagens_com_botoes = context.user_data.get("mensagens_botoes_antigas", [])
+
         for item in pendentes:
             data_formatada = datetime.strptime(item["data_recebimento"], "%Y-%m-%d").strftime("%d/%m/%Y")
             botoes = [[InlineKeyboardButton("✅ Marcar como Pago", callback_data=f"pagar_rec_{item['id']}")]]
             
-            await update.message.reply_text(
+            msg = await update.message.reply_text(
                 f"📝 {item['descricao']}\n"
                 f"💵 Valor: R$ {item['valor']:.2f}\n"
                 f"📅 Previsão: {data_formatada}",
                 reply_markup=InlineKeyboardMarkup(botoes)
             )
+            # 🟢 SALVA O ID DA MENSAGEM COM BOTÃO
+            mensagens_com_botoes.append(msg.message_id)
+
+        context.user_data["mensagens_botoes_antigas"] = mensagens_com_botoes
 
     except Exception as e:
         logging.error(f"Erro ao consultar contas a receber: {e}")
@@ -1111,11 +1128,14 @@ async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT
 
     chat_id = update.effective_chat.id
     
-    # Extrai a lista de mensagens antigas e esvazia o user_data
-    mensagens_antigas = context.user_data.pop("mensagens_botoes_antigas", [])
+    # Pega os IDs atuais salvos
+    mensagens_antigas = context.user_data.get("mensagens_botoes_antigas", [])
 
     if not mensagens_antigas:
         return
+
+    # Limpa a lista na memória para evitar reprocessamento
+    context.user_data["mensagens_botoes_antigas"] = []
 
     async def apagar_markup(msg_id):
         try:
@@ -1125,10 +1145,10 @@ async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT
                 reply_markup=None
             )
         except TelegramError:
-            # Ignora erros caso a mensagem já tenha sido apagada manualmente ou editada
+            # Ignora erros caso a mensagem tenha sido deletada ou não possua mais markup
             pass
 
-    # Executa a remoção de todos os botões simultaneamente
+    # Processa todas as remoções em paralelo
     await asyncio.gather(*(apagar_markup(m_id) for m_id in mensagens_antigas))
 
 
