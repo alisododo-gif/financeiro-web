@@ -148,7 +148,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Para lançar despesa Fixo: `50.00 Mercado Fixo`\n\n"
             "• Para lançar receita: `10 salario receita` ou `/receita 2500 Salário`\n\n"
             "• Para lançar receber: `50.00 João receber`\n\n"
-            "• Para consultar pendentes: Digite /status ou `receber`\n\n"
+            "• Consultar Pendentes a Receber: Digite `receber ou pendentes`\n\n"
             "• Para listar e editar: Digite /listar\n\n"
             "• Para ver o resumo: Digite `resumo` ou /resumo",
             parse_mode="Markdown"
@@ -594,6 +594,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `50 Comida Débito` (Despesa via Débito)\n\n"
             "• `290 Alison receber 15/08` (Cria Conta a Receber)\n\n"
             "• `50 Comida Pix` (Despesa via Pix)\n\n"
+            "• Consultar Pendentes a Receber: Digite `receber ou pendentes`\n\n"
             "• `/listar` (Visualizar, Editar ou Excluir Lançamentos)\n\n"
             "• `resumo` (Exibe o Resumo Geral)",
             parse_mode="Markdown"
