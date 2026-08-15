@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import calendar
+import html
 import httpx
 from datetime import datetime, time
 from dateutil.relativedelta import relativedelta
@@ -50,22 +51,26 @@ FUSO_BR = pytz.timezone("America/Sao_Paulo")
 
 
 def sanitizar_valor(valor_raw: str) -> float:
-    """Converte e sanitiza strings financeiras sem corromper centavos ou decimais com ponto/vírgula."""
+    """Converte e sanitiza strings financeiras aceitando formatos PT-BR e EN de forma consistente."""
     v = valor_raw.strip()
     if "," in v and "." in v:
         v = v.replace(".", "").replace(",", ".")
     elif "," in v:
         v = v.replace(",", ".")
+    elif "." in v:
+        partes = v.split(".")
+        if len(partes[-1]) == 3 and len(partes) > 1:
+            v = v.replace(".", "")
     return float(v)
 
 
-def buscar_dados_usuario(telegram_id):
+def buscar_dados_usuario(telegram_id, forcar_atualizacao=False):
     try:
         telegram_id_int = int(telegram_id)
     except (ValueError, TypeError):
         return None
 
-    if telegram_id_int in CACHE_USUARIOS:
+    if not forcar_atualizacao and telegram_id_int in CACHE_USUARIOS:
         return CACHE_USUARIOS[telegram_id_int]
 
     try:
@@ -193,7 +198,7 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.to_thread(_update_user)
 
             CACHE_USUARIOS.pop(telegram_id, None)
-            await asyncio.to_thread(buscar_dados_usuario, telegram_id)
+            await asyncio.to_thread(buscar_dados_usuario, telegram_id, True)
 
             await update.message.reply_text(
                 f"✅ Conta vinculada com sucesso!\n\n"
@@ -332,7 +337,7 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         for m in movs:
             mov_id = m["id"]
-            desc = m.get("descricao", "Sem descrição")
+            desc = html.escape(m.get("descricao", "Sem descrição"))
             valor = m.get("valor", 0.0)
             tipo = m.get("tipo", "Despesa")
             
@@ -911,8 +916,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    await limpar_botoes_anteriores(update, context)
-
     action = query.data
 
     if action == "venc_hoje":
@@ -1025,7 +1028,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(f"⚠️ Erro ao salvar no banco: {e}")
             return
 
-    if action == "c_avista" or action.startswith("parc_"):
+    if action == "c_avista":
         if dados_temp.get("e_recorrente"):
             lista_contas = dados_usuario.get("contas", []) if dados_usuario else []
             conta_id = lista_contas[0]["id"] if lista_contas else None
@@ -1169,6 +1172,7 @@ async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT
         except TelegramError:
             pass
 
+
 async def handler_resumo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Limpa os botões antigos antes de acionar o resumo mensal."""
     await limpar_botoes_anteriores(update, context)
@@ -1209,7 +1213,7 @@ def main():
 
     app.job_queue.run_monthly(
         job_resumo_mensal,
-        when=time(hour=8, minute=0, tzinfo=fuso_br),
+        time=time(hour=8, minute=0, tzinfo=fuso_br),
         day=1
     )
 
