@@ -434,12 +434,12 @@ async def consultar_contas_receber(update: Update, context: ContextTypes.DEFAULT
 async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
 
+    await limpar_botoes_anteriores(update, context)
+
     # 🟢 CAPTURA DO MODO DE DIGITAÇÃO DE DIA DE VENCIMENTO PERSONALIZADO
     if context.user_data.get("aguardando_dia_vencimento"):
         context.user_data["aguardando_dia_vencimento"] = False
         texto_dia = update.message.text.strip()
-
-        await limpar_botoes_anteriores(update, context)
         
         if not texto_dia.isdigit() or not (1 <= int(texto_dia) <= 31):
             context.user_data.pop("temp_lancamento", None)
