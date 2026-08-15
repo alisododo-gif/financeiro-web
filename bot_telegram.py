@@ -1101,23 +1101,35 @@ async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
 
+import asyncio
+from telegram.error import TelegramError
+
 async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Remove o teclado/botões de mensagens de listagem anteriores sem quebrar o bot."""
+    """Remove o teclado/botões de TODAS as mensagens salvas anteriormente."""
     if not update.effective_chat:
         return
 
     chat_id = update.effective_chat.id
+    
+    # Extrai a lista de mensagens antigas e esvazia o user_data
     mensagens_antigas = context.user_data.pop("mensagens_botoes_antigas", [])
 
-    for msg_id in mensagens_antigas:
+    if not mensagens_antigas:
+        return
+
+    async def apagar_markup(msg_id):
         try:
             await context.bot.edit_message_reply_markup(
                 chat_id=chat_id,
                 message_id=msg_id,
                 reply_markup=None
             )
-        except Exception as e:
-            logging.debug(f"Não foi possível remover botões da mensagem {msg_id}: {e}")     
+        except TelegramError:
+            # Ignora erros caso a mensagem já tenha sido apagada manualmente ou editada
+            pass
+
+    # Executa a remoção de todos os botões simultaneamente
+    await asyncio.gather(*(apagar_markup(m_id) for m_id in mensagens_antigas))
 
 
 def main():
