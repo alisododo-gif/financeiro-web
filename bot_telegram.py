@@ -267,7 +267,7 @@ async def lancar_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LISTAR LANÇAMENTOS E AÇÕES (EDITAR / EXCLUIR)
 # =========================================================
 async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lista TODOS os lançamentos cadastrados hoje e remove botões antigos."""
+    """Lista APENAS os lançamentos cadastrados HOJE e remove botões antigos."""
     telegram_id = update.effective_user.id
     dados_usuario = buscar_dados_usuario(telegram_id)
 
@@ -277,46 +277,32 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     usuario_id = dados_usuario["usuario_id"]
 
-    # 🧹 Limpa botões de buscas anteriores se existirem
+    # 🧹 Limpa mensagens/botões de buscas anteriores
     await limpar_botoes_anteriores(update, context)
 
     try:
         data_hoje = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
 
+        # FIX 1: Busca APENAS os lançamentos com a data de HOJE
         res_movs = (
             supabase.table("movimentacoes")
             .select("*")
             .eq("usuario_id", usuario_id)
+            .eq("data", data_hoje)
             .order("id", desc=True)
             .execute()
         )
 
-        todos = res_movs.data or []
+        movs = res_movs.data or []
 
-        if not todos:
-            await update.message.reply_text("📂 Nenhum lançamento encontrado no banco.")
-            return
-
-        compras_de_hoje = set()
-        for m in todos:
-            if m.get("data") == data_hoje:
-                desc_base = re.sub(r"\s*\(\d+/\d+\)$", "", m.get("descricao", "")).strip()
-                compras_de_hoje.add(desc_base)
-
-        if not compras_de_hoje:
+        if not movs:
             await update.message.reply_text("📂 Nenhum lançamento cadastrado no dia de hoje.")
             return
 
-        movs = [
-            m for m in todos 
-            if re.sub(r"\s*\(\d+/\d+\)$", "", m.get("descricao", "")).strip() in compras_de_hoje
-        ]
-
         movs.reverse()
 
-        await update.message.reply_text("📋 *Todos os lançamentos cadastrados HOJE:*", parse_mode="Markdown")
+        await update.message.reply_text("📋 *Lançamentos cadastrados HOJE:*", parse_mode="Markdown")
 
-        # Guarda a lista de IDs das mensagens enviadas nesta sessão
         mensagens_com_botoes = []
 
         for m in movs:
@@ -329,7 +315,7 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             data_br = datetime.strptime(data_raw, "%Y-%m-%d").strftime("%d/%m/%Y") if data_raw else "N/I"
 
             emoji_tipo = "🟢" if tipo == "Receita" else "🔴"
-            texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Vencimento: `{data_br}`"
+            texto_item = f"{emoji_tipo} *{desc}*\n💰 Valor: R$ {valor:.2f}\n📅 Data: `{data_br}`"
 
             teclado = [
                 [
@@ -343,10 +329,8 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 reply_markup=InlineKeyboardMarkup(teclado),
                 parse_mode="Markdown"
             )
-            # Salva o ID da mensagem para desativar depois
             mensagens_com_botoes.append(msg.message_id)
 
-        # Guarda no contexto do usuário
         context.user_data["mensagens_botoes_antigas"] = mensagens_com_botoes
 
     except Exception as e:
