@@ -1130,7 +1130,7 @@ async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT
 def main():
     print("🤖 Bot de Finanças iniciado e escutando mensagens...")
     
-    # 🟢 Aumentamos o tempo limite para conexões lentas ou instáveis
+    # Configuração de limites e tempos de resposta no cliente HTTP
     request = HTTPXRequest(
         connect_timeout=60.0,
         read_timeout=60.0,
@@ -1206,8 +1206,8 @@ def main():
     # CALLBACK GERAL NO FINAL
     app.add_handler(CallbackQueryHandler(callback_geral))
 
-    # 🟢 O parâmetro correto é passado aqui no run_polling
-    app.run_polling(get_updates_request=request)
+    # Execução do polling sem parâmetros inválidos
+    app.run_polling()
 
 
 if __name__ == "__main__":
