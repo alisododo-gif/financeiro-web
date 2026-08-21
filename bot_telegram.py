@@ -23,6 +23,7 @@ from telegram import (
 )
 from telegram.ext import (
     ApplicationBuilder,
+    ConversationHandler,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
@@ -1306,47 +1307,66 @@ async def cadastrar_cliente_recorrente(update: Update, context: ContextTypes.DEF
 
 # --- NOVAS FUNÇÕES: GESTÃO DE CLIENTES & COBRANÇAS ---
 
-# --- NOVAS FUNÇÕES: GESTÃO DE CLIENTES & COBRANÇAS ---
+# --- ETAPAS DA CONVERSA (/cadastrar) ---
+NOME, TELEFONE, VALOR, DATA = range(4)
 
-async def cadastrar_cliente_recorrente(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Cadastra cliente na tabela 'clientes'.
-    Uso: /cadastrar Nome | 5565999999999 | 150.00 | 2026-08-25
-    """
+async def iniciar_cadastro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Inicia o fluxo de cadastro perguntando o Nome."""
+    await update.message.reply_text("👤 **Qual o nome do cliente?**\n\n_(Para cancelar, digite /cancelar)_", parse_mode="Markdown")
+    return NOME
+
+async def receber_nome(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recebe o Nome e pede o Telefone."""
+    context.user_data['cad_nome'] = update.message.text.strip()
+    await update.message.reply_text("📱 **Qual o telefone do cliente com DDD?**\n_(Exemplo: 5565999999999)_", parse_mode="Markdown")
+    return TELEFONE
+
+async def receber_telefone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recebe o Telefone e pede o Valor."""
+    telefone_limpo = re.sub(r"\D", "", update.message.text)
+    context.user_data['cad_telefone'] = telefone_limpo
+    await update.message.reply_text("💰 **Qual o valor da mensalidade/cobrança?**\n_(Exemplo: 150,00)_", parse_mode="Markdown")
+    return VALOR
+
+async def receber_valor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recebe o Valor e pede a Data de Vencimento."""
     try:
-        texto = " ".join(context.args)
-        if not texto or "|" not in texto:
-            await update.message.reply_text(
-                "❌ *Formato incorreto!*\n\n"
-                "Use assim:\n`/cadastrar Nome | TelefoneComDDD | Valor | YYYY-MM-DD`\n\n"
-                "*Exemplo:*\n`/cadastrar João Silva | 5565999999999 | 150.00 | 2026-08-25`",
-                parse_mode="Markdown"
-            )
-            return
+        valor = sanitizar_valor(update.message.text)
+        context.user_data['cad_valor'] = valor
+        await update.message.reply_text("📅 **Qual a data de vencimento?**\n_(Formatos aceitos: `25/08/2026` ou `2026-08-25`)_", parse_mode="Markdown")
+        return DATA
+    except Exception:
+        await update.message.reply_text("⚠️ Valor inválido. Digite apenas o número (ex: 150.00 ou 150,00):")
+        return VALOR
 
-        dados = [d.strip() for d in texto.split("|")]
-        if len(dados) < 4:
-            await update.message.reply_text("❌ Preencha todos os 4 campos separados por `|`.", parse_mode="Markdown")
-            return
+async def receber_data_e_salvar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recebe a Data, grava no Supabase e finaliza a conversa."""
+    texto_data = update.message.text.strip()
+    
+    # Suporta formato BR (DD/MM/AAAA) e formato ISO (AAAA-MM-DD)
+    try:
+        if "/" in texto_data:
+            data_obj = datetime.strptime(texto_data, "%d/%m/%Y")
+        else:
+            data_obj = datetime.strptime(texto_data, "%Y-%m-%d")
+        data_iso = data_obj.strftime("%Y-%m-%d")
+    except ValueError:
+        await update.message.reply_text("⚠️ Data em formato incorreto. Digite como `DD/MM/AAAA` (ex: `25/08/2026`):")
+        return DATA
 
-        nome, telefone, valor_raw, data_venc = dados[0], dados[1], dados[2], dados[3]
-        valor = sanitizar_valor(valor_raw)
+    nome = context.user_data['cad_nome']
+    telefone = context.user_data['cad_telefone']
+    valor = context.user_data['cad_valor']
 
-        # Validar se a data foi digitada corretamente (AAAA-MM-DD)
-        try:
-            data_obj = datetime.strptime(data_venc, "%Y-%m-%d")
-        except ValueError:
-            await update.message.reply_text("⚠️ Data inválida! Digite no formato `AAAA-MM-DD` (ex: `2026-08-25`).", parse_mode="Markdown")
-            return
+    payload = {
+        "nome": nome,
+        "telefone": telefone,
+        "valor": valor,
+        "data_vencimento": data_iso,
+        "status": "Pendente"
+    }
 
-        payload = {
-            "nome": nome,
-            "telefone": re.sub(r"\D", "", telefone),
-            "valor": valor,
-            "data_vencimento": data_venc,
-            "status": "Pendente"
-        }
-
+    try:
         def _insert_cliente():
             return supabase.table("clientes").insert(payload).execute()
 
@@ -1355,19 +1375,29 @@ async def cadastrar_cliente_recorrente(update: Update, context: ContextTypes.DEF
         if res.data:
             data_br = data_obj.strftime("%d/%m/%Y")
             await update.message.reply_text(
-                f"✅ *Cliente Cadastrado com Sucesso!*\n\n"
-                f"👤 *Nome:* {nome}\n"
-                f"📱 *Telefone:* {payload['telefone']}\n"
-                f"💰 *Valor:* R$ {valor:.2f}\n"
-                f"📅 *Data de Vencimento:* {data_br}",
+                f"✅ **Cliente Cadastrado com Sucesso!**\n\n"
+                f"👤 **Nome:** {nome}\n"
+                f"📱 **Telefone:** {telefone}\n"
+                f"💰 **Valor:** R$ {valor:.2f}\n"
+                f"📅 **Vencimento:** {data_br}",
                 parse_mode="Markdown"
             )
         else:
-            await update.message.reply_text("❌ Erro ao cadastrar cliente no banco de dados.")
+            await update.message.reply_text("❌ Erro ao salvar cliente no banco de dados.")
 
     except Exception as e:
-        logging.error(f"Erro ao cadastrar cliente: {e}")
-        await update.message.reply_text(f"⚠️ Erro ao processar comando: {e}", parse_mode="Markdown")
+        logging.error(f"Erro ao salvar cliente: {e}")
+        await update.message.reply_text(f"⚠️ Erro ao registrar no banco: {e}")
+
+    # Limpa os dados temporários e encerra a conversa
+    context.user_data.clear()
+    return ConversationHandler.END
+
+async def cancelar_cadastro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancela o processo de cadastro."""
+    context.user_data.clear()
+    await update.message.reply_text("❌ Cadastro cancelado.")
+    return ConversationHandler.END
 
 
 async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1465,9 +1495,22 @@ def main():
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     app.add_handler(CommandHandler("resumo", handler_resumo))
 
-    app.add_handler(CommandHandler("cadastrar", cadastrar_cliente_recorrente))
-    app.add_handler(CommandHandler("clientes", listar_clientes_recorrentes))
+    # Handlers para a conversa do /cadastrar
+    conv_handler_cliente = ConversationHandler(
+        entry_points=[CommandHandler("cadastrar", iniciar_cadastro)],
+        states={
+            NOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_nome)],
+            TELEFONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_telefone)],
+            VALOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_valor)],
+            DATA: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_data_e_salvar)],
+        },
+        fallbacks=[CommandHandler("cancelar", cancelar_cadastro)]
+    )
 
+    # Adicione no seu app
+    app.add_handler(conv_handler_cliente)
+    app.add_handler(CommandHandler("clientes", listar_clientes_recorrentes))
+  
     app.add_handler(
         MessageHandler(
             filters.Regex(re.compile(r"^resumo$", re.IGNORECASE)),
