@@ -139,6 +139,7 @@ def calcular_mes_fatura(data_compra, dia_fechamento):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await limpar_botoes_anteriores(update, context)
     telegram_id = update.effective_user.id
     dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
 
@@ -1313,6 +1314,7 @@ NOME, TELEFONE, VALOR, DATA = range(4)
 
 async def iniciar_cadastro(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Inicia o fluxo de cadastro perguntando o Nome."""
+    await limpar_botoes_anteriores(update, context)
     await update.message.reply_text("👤 **Qual o nome do cliente?**\n\n_(Para cancelar, digite /cancelar)_", parse_mode="Markdown")
     return NOME
 
@@ -1402,12 +1404,13 @@ async def cancelar_cadastro(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await limpar_botoes_anteriores(update, context)
+
     """
     Lista todos os clientes com botões de Editar e Excluir.
     Uso: /clientes
     """
-    await limpar_botoes_anteriores(update, context)
-    
+
     try:
         def _get_clientes():
             return supabase.table("clientes").select("*").order("data_vencimento").execute()
@@ -1498,6 +1501,7 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 # --- COMANDO PARA SALVAR A NOVA DATA ---
 
 async def alterar_data_comando(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await limpar_botoes_anteriores(update, context)
     """
     Atualiza a data do cliente no Supabase.
     Uso: /data ID DD/MM/AAAA
