@@ -1306,6 +1306,8 @@ async def cadastrar_cliente_recorrente(update: Update, context: ContextTypes.DEF
 
 # --- NOVAS FUNÇÕES: GESTÃO DE CLIENTES & COBRANÇAS ---
 
+# --- NOVAS FUNÇÕES: GESTÃO DE CLIENTES & COBRANÇAS ---
+
 async def cadastrar_cliente_recorrente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Cadastra cliente na tabela 'clientes'.
@@ -1330,6 +1332,13 @@ async def cadastrar_cliente_recorrente(update: Update, context: ContextTypes.DEF
         nome, telefone, valor_raw, data_venc = dados[0], dados[1], dados[2], dados[3]
         valor = sanitizar_valor(valor_raw)
 
+        # Validar se a data foi digitada corretamente (AAAA-MM-DD)
+        try:
+            data_obj = datetime.strptime(data_venc, "%Y-%m-%d")
+        except ValueError:
+            await update.message.reply_text("⚠️ Data inválida! Digite no formato `AAAA-MM-DD` (ex: `2026-08-25`).", parse_mode="Markdown")
+            return
+
         payload = {
             "nome": nome,
             "telefone": re.sub(r"\D", "", telefone),
@@ -1344,14 +1353,13 @@ async def cadastrar_cliente_recorrente(update: Update, context: ContextTypes.DEF
         res = await asyncio.to_thread(_insert_cliente)
 
         if res.data:
-            # Converte data para exibir em PT-BR (DD/MM/YYYY)
-            data_br = datetime.strptime(data_venc, "%Y-%m-%d").strftime("%d/%m/%Y")
+            data_br = data_obj.strftime("%d/%m/%Y")
             await update.message.reply_text(
                 f"✅ *Cliente Cadastrado com Sucesso!*\n\n"
                 f"👤 *Nome:* {nome}\n"
                 f"📱 *Telefone:* {payload['telefone']}\n"
                 f"💰 *Valor:* R$ {valor:.2f}\n"
-                f"📅 *Vencimento:* {data_br}",
+                f"📅 *Data de Vencimento:* {data_br}",
                 parse_mode="Markdown"
             )
         else:
@@ -1359,7 +1367,7 @@ async def cadastrar_cliente_recorrente(update: Update, context: ContextTypes.DEF
 
     except Exception as e:
         logging.error(f"Erro ao cadastrar cliente: {e}")
-        await update.message.reply_text(f"⚠️ Erro ao processar comando: {e}\n\n*Dica:* Use a data no formato `AAAA-MM-DD`.", parse_mode="Markdown")
+        await update.message.reply_text(f"⚠️ Erro ao processar comando: {e}", parse_mode="Markdown")
 
 
 async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1394,7 +1402,7 @@ async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFA
 
     except Exception as e:
         logging.error(f"Erro ao listar clientes: {e}")
-        await update.message.reply_text("❌ Erro ao buscar a lista de clientes no Supabase.") 
+        await update.message.reply_text("❌ Erro ao buscar a lista de clientes no Supabase.")
 
 
 def main():
