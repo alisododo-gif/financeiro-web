@@ -318,26 +318,18 @@ async def processar_mensagem_audio(update: Update, context: ContextTypes.DEFAULT
     msg_status = await update.message.reply_text("🎙️ *Ouvindo áudio...*", parse_mode="Markdown")
 
     try:
-        # Obter o arquivo do Telegram
+        # Obter e baixar o arquivo diretamente para a memória em bytes
         file = await context.bot.get_file(voice.file_id)
-        
-        # Download do áudio em arquivo temporário com nome adequado
-        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as temp_audio:
-            temp_path = temp_audio.name
-            await file.download_to_drive(temp_path)
+        byte_array = await file.download_as_bytearray()
+        audio_bytes = bytes(byte_array)
 
-        # Enviar para a API da Groq (Whisper)
-        with open(temp_path, "rb") as audio_file:
-            transcription = await groq_client.audio.transcriptions.create(
-                file=(os.path.basename(temp_path), audio_file.read()),
-                model="whisper-large-v3",
-                response_format="json",
-                language="pt"
-            )
-
-        # Limpa o arquivo temporário
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        # Enviar o buffer de bytes diretamente declarando o formato ogg aceito pelo Opus
+        transcription = await groq_client.audio.transcriptions.create(
+            file=("audio.ogg", audio_bytes, "audio/ogg"),
+            model="whisper-large-v3",
+            response_format="json",
+            language="pt"
+        )
 
         texto_transcrito = transcription.text.strip()
 
@@ -347,13 +339,13 @@ async def processar_mensagem_audio(update: Update, context: ContextTypes.DEFAULT
 
         await msg_status.edit_text(f"🗣️ *Transcrição:* \"_{texto_transcrito}_\"", parse_mode="Markdown")
 
-        # Injeta o texto transcrito na mensagem para o processador comum
+        # Injeta o texto transcrito na mensagem para o processador comum de lançamentos
         update.message.text = texto_transcrito
         await registrar_gastos(update, context)
 
     except Exception as e:
         logging.error(f"Erro ao processar áudio com Whisper Groq: {e}")
-        await msg_status.edit_text("❌ Erro ao transcrever áudio. Tente enviar em formato de texto.")
+        await msg_status.edit_text(f"❌ Erro na transcrição: `{e}`", parse_mode="Markdown")
 
 
 async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):

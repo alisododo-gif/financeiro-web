@@ -18,5 +18,7 @@ python-telegram-bot[job-queue]>=20.0
 plotly
 reportlab
 
+# IA, Transcrição e Conversão de Áudio
 groq
-ffmpeg-python
+pydub
+imageio-ffmpeg
