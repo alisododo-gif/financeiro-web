@@ -1422,7 +1422,7 @@ async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFA
             status_emoji = "✅" if c.get('status') == 'Pago' else "⏳"
             
             msg += (
-                f"👤 *{c['nome']}*\n"
+                f"🆔 *ID:* `{c['id']}` | 👤 *{c['nome']}*\n"
                 f"📱 `{c['telefone']}` | 💰 R$ {c['valor']:.2f}\n"
                 f"📅 Vencimento: *{data_br}* ({status_emoji} {c.get('status', 'Pendente')})\n"
                 f"───────────────\n"
@@ -1433,6 +1433,122 @@ async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFA
     except Exception as e:
         logging.error(f"Erro ao listar clientes: {e}")
         await update.message.reply_text("❌ Erro ao buscar a lista de clientes no Supabase.")
+
+# --- FUNÇÕES PARA EDITAR E DELETAR CLIENTES ---
+
+async def deletar_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Deleta um cliente pelo ID ou Nome.
+    Uso: /deletar 5 ou /deletar João
+    """
+    try:
+        parametro = " ".join(context.args).strip()
+        
+        if not parametro:
+            await update.message.reply_text(
+                "❌ *Parâmetro ausente!*\n\n"
+                "Use enviando o ID ou o Nome do cliente:\n"
+                "• `/deletar 12` (pelo ID)\n"
+                "• `/deletar João` (pelo Nome)",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Se for um número, apaga pelo ID
+        if parametro.isdigit():
+            cliente_id = int(parametro)
+            def _delete_id():
+                return supabase.table("clientes").delete().eq("id", cliente_id).execute()
+            res = await asyncio.to_thread(_delete_id)
+        else:
+            # Caso contrário, apaga buscando pelo nome (case-insensitive)
+            def _delete_nome():
+                return supabase.table("clientes").delete().ilike("nome", f"%{parametro}%").execute()
+            res = await asyncio.to_thread(_delete_nome)
+
+        if res.data:
+            await update.message.reply_text(f"🗑️ *Cliente removido com sucesso!*", parse_mode="Markdown")
+        else:
+            await update.message.reply_text("⚠️ Nenhum cliente encontrado com essa identificação.")
+
+    except Exception as e:
+        logging.error(f"Erro ao deletar cliente: {e}")
+        await update.message.reply_text(f"⚠️ Erro ao deletar cliente: {e}")
+
+
+async def editar_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Edita os dados de um cliente pelo ID.
+    Uso: /editar ID | Nome | Telefone | Valor | Data
+    Exemplo: /editar 5 | João Silva | 5565999999999 | 150.00 | 2026-08-25
+    """
+    try:
+        texto = " ".join(context.args)
+        if not texto or "|" not in texto:
+            await update.message.reply_text(
+                "❌ *Formato incorreto!*\n\n"
+                "Use assim:\n`/editar ID | Nome | TelefoneComDDD | Valor | YYYY-MM-DD`\n\n"
+                "*Exemplo:*\n`/editar 5 | João Silva | 5565999999999 | 150.00 | 2026-08-25`\n\n"
+                "💡 *Dica:* Rode `/clientes` para ver o ID do cliente.",
+                parse_mode="Markdown"
+            )
+            return
+
+        dados = [d.strip() for d in texto.split("|")]
+        if len(dados) < 5:
+            await update.message.reply_text("❌ Preencha todos os 5 campos (ID | Nome | Telefone | Valor | Data) separados por `|`.", parse_mode="Markdown")
+            return
+
+        cliente_id_raw, nome, telefone, valor_raw, data_venc = dados[0], dados[1], dados[2], dados[3], dados[4]
+
+        if not cliente_id_raw.isdigit():
+            await update.message.reply_text("⚠️ O ID do cliente precisa ser um número válido.")
+            return
+
+        cliente_id = int(cliente_id_raw)
+        valor = sanitizar_valor(valor_raw)
+
+        # Validar data
+        try:
+            if "/" in data_venc:
+                data_obj = datetime.strptime(data_venc, "%d/%m/%Y")
+            else:
+                data_obj = datetime.strptime(data_venc, "%Y-%m-%d")
+            data_iso = data_obj.strftime("%Y-%m-%d")
+        except ValueError:
+            await update.message.reply_text("⚠️ Data inválida! Use `DD/MM/AAAA` ou `AAAA-MM-DD`.", parse_mode="Markdown")
+            return
+
+        payload = {
+            "nome": nome,
+            "telefone": re.sub(r"\D", "", telefone),
+            "valor": valor,
+            "data_vencimento": data_iso
+        }
+
+        def _update_cliente():
+            return supabase.table("clientes").update(payload).eq("id", cliente_id).execute()
+
+        res = await asyncio.to_thread(_update_cliente)
+
+        if res.data:
+            data_br = data_obj.strftime("%d/%m/%Y")
+            await update.message.reply_text(
+                f"✏️ *Cliente Atualizado com Sucesso!*\n\n"
+                f"🆔 *ID:* {cliente_id}\n"
+                f"👤 *Nome:* {nome}\n"
+                f"📱 *Telefone:* {payload['telefone']}\n"
+                f"💰 *Valor:* R$ {valor:.2f}\n"
+                f"📅 *Vencimento:* {data_br}",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text("❌ Cliente não encontrado com este ID.")
+
+    except Exception as e:
+        logging.error(f"Erro ao editar cliente: {e}")
+        await update.message.reply_text(f"⚠️ Erro ao editar cliente: {e}")
+
 
 
 def main():
@@ -1494,6 +1610,11 @@ def main():
 
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     app.add_handler(CommandHandler("resumo", handler_resumo))
+
+    # Handlers para Edição e Exclusão
+    app.add_handler(CommandHandler("deletar", deletar_cliente))
+    app.add_handler(CommandHandler("apagar", deletar_cliente))
+    app.add_handler(CommandHandler("editar", editar_cliente))
 
     # Handlers para a conversa do /cadastrar
     conv_handler_cliente = ConversationHandler(
