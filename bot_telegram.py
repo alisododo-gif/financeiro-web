@@ -1436,8 +1436,8 @@ async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFA
             # Botões inline específicos para este cliente
             keyboard = [
                 [
-                    InlineKeyboardButton("✏️ Editar", callback_data=f"edit_{c['id']}"),
-                    InlineKeyboardButton("🗑️ Excluir", callback_data=f"del_{c['id']}")
+                    InlineKeyboardButton("✏️ Editar", callback_data=f"cledit_{c['id']}"),
+                    InlineKeyboardButton("🗑️ Excluir", callback_data=f"cldel_{c['id']}")
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1451,16 +1451,12 @@ async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFA
 # --- TRATAMENTO DOS BOTÕES DE AÇÃO (EXCLUSÃO E EDICAO DE DATA) ---
 
 async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Processa o clique nos botões inline de excluir, cancelar e editar data."""
     query = update.callback_query
     await query.answer()
-
     data = query.data
 
-    # 1. Ação de Excluir (Pede Confirmação)
-    if data.startswith("del_"):
+    if data.startswith("cldel_"):
         cliente_id = int(data.split("_")[1])
-        
         keyboard = [
             [
                 InlineKeyboardButton("✅ Confirmar Exclusão", callback_data=f"confdel_{cliente_id}"),
@@ -1469,24 +1465,18 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         ]
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
 
-    # 2. Ação de Confirmar Exclusão
     elif data.startswith("confdel_"):
         cliente_id = int(data.split("_")[1])
-        
         def _delete():
             return supabase.table("clientes").delete().eq("id", cliente_id).execute()
-
         res = await asyncio.to_thread(_delete)
         if res.data:
             await query.edit_message_text("🗑️ *Cliente excluído com sucesso!*", parse_mode="Markdown")
         else:
             await query.edit_message_text("❌ Erro ao excluir cliente do banco.")
 
-    # 3. Ação de Editar Data (Gera o comando fácil para copiar)
-    elif data.startswith("edit_"):
+    elif data.startswith("cledit_"):
         cliente_id = int(data.split("_")[1])
-        
-        # Puxa o nome para personalizar a mensagem
         def _get_nome():
             return supabase.table("clientes").select("nome").eq("id", cliente_id).execute()
         
@@ -1494,12 +1484,11 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         nome = res.data[0]['nome'] if res.data else "Cliente"
 
         await query.message.reply_text(
-            f"✏️ Copie o texto abaixo, altere a data e envie no chat:\n\n"
+            f"✏️ Para alterar a data de *{nome}*, copie a mensagem abaixo, altere a data e envie:\n\n"
             f"`/data {cliente_id} 25/08/2026`",
             parse_mode="Markdown"
         )
 
-    # 4. Ação de Cancelar
     elif data == "cancel_action":
         await query.edit_message_text("❌ Ação cancelada.")
 
@@ -1591,22 +1580,23 @@ def main():
         day=1
     )
 
-    # Handlers
+    # --- HANDLERS DE COMANDOS BÁSICOS ---
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", consultar_contas_receber))
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
     app.add_handler(CommandHandler("cancelar", cancelar_edicao))
 
     app.add_handler(CommandHandler(["listar", "lancamentos"], listar_lancamentos))
-    app.add_handler(CallbackQueryHandler(tratar_botoes_lancamento, pattern="^(del_|edit_)"))
-    
     app.add_handler(CommandHandler("receita", lancar_receita))
     app.add_handler(CommandHandler("entrada", lancar_receita))
-
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     app.add_handler(CommandHandler("resumo", handler_resumo))
 
-    # Handlers para a conversa do /cadastrar
+    # --- CLIENTES (LISTAGEM E ALTERAÇÃO DE DATA) ---
+    app.add_handler(CommandHandler("clientes", listar_clientes_recorrentes))
+    app.add_handler(CommandHandler("data", alterar_data_comando))
+
+    # Handlers da conversa do /cadastrar
     conv_handler_cliente = ConversationHandler(
         entry_points=[CommandHandler("cadastrar", iniciar_cadastro)],
         states={
@@ -1617,27 +1607,25 @@ def main():
         },
         fallbacks=[CommandHandler("cancelar", cancelar_cadastro)]
     )
-
-    # Adicione no seu app
     app.add_handler(conv_handler_cliente)
-    app.add_handler(CommandHandler("clientes", listar_clientes_recorrentes))
-    app.add_handler(CommandHandler("data", alterar_data_comando))
-    app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern=".*"))
+
+    # --- CALLBACKS DOS BOTÕES ---
+    # Botões dos Clientes
+    app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern="^(cldel_|cledit_|confdel_|cancel_action)"))
     
-  
+    # Botões de Lançamentos Financeiros Gerais
+    app.add_handler(CallbackQueryHandler(tratar_botoes_lancamento, pattern="^(del_|edit_)"))
+    app.add_handler(CallbackQueryHandler(callback_geral))
+
+    # --- MENSAGENS DE TEXTO E CONTATOS ---
     app.add_handler(
         MessageHandler(
             filters.Regex(re.compile(r"^resumo$", re.IGNORECASE)),
             handler_resumo
         )
     )
-
     app.add_handler(MessageHandler(filters.CONTACT, receber_contato))
-    app.add_handler(
-        MessageHandler(filters.TEXT & (~filters.COMMAND), registrar_gastos)
-    )
-    
-    app.add_handler(CallbackQueryHandler(callback_geral))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), registrar_gastos))
 
     app.run_polling()
 
