@@ -17,3 +17,5 @@ python-telegram-bot[job-queue]>=20.0
 # Relatórios e Visualização
 plotly
 reportlab
+
+groq
