@@ -1406,6 +1406,8 @@ async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFA
     Lista todos os clientes com botões de Editar e Excluir.
     Uso: /clientes
     """
+    await limpar_botoes_anteriores(update, context)
+    
     try:
         def _get_clientes():
             return supabase.table("clientes").select("*").order("data_vencimento").execute()
