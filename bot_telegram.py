@@ -199,7 +199,7 @@ async def interpretar_com_groq(texto_usuario: str) -> dict:
 
     try:
         response = await groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",  # Modelo ativo, ultra-rápido e sem bloqueios
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": texto_usuario}
