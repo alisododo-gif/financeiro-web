@@ -199,7 +199,7 @@ async def interpretar_com_groq(texto_usuario: str) -> dict:
 
     try:
         response = await groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",  # Modelo ativo, ultra-rápido e sem bloqueios
+            model="openai/gpt-oss-20b",  # ID do modelo ativo e suportado na Groq
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": texto_usuario}
@@ -207,7 +207,7 @@ async def interpretar_com_groq(texto_usuario: str) -> dict:
             tools=tools,
             tool_choice="auto"
         )
-        
+                
 
         message = response.choices[0].message
 
