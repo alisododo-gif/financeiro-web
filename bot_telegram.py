@@ -1621,9 +1621,9 @@ def main():
     # Adicione no seu app
     app.add_handler(conv_handler_cliente)
     app.add_handler(CommandHandler("clientes", listar_clientes_recorrentes))
-    app.add_handler(CallbackQueryHandler(botao_callback_handler))
     app.add_handler(CommandHandler("data", alterar_data_comando))
-    app.add_handler(CallbackQueryHandler(botao_callback_handler))
+    app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern=".*"))
+    
   
     app.add_handler(
         MessageHandler(
