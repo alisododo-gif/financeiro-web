@@ -318,21 +318,32 @@ async def processar_mensagem_audio(update: Update, context: ContextTypes.DEFAULT
     msg_status = await update.message.reply_text("🎙️ *Ouvindo áudio...*", parse_mode="Markdown")
 
     try:
+        # Obter o arquivo do Telegram
         file = await context.bot.get_file(voice.file_id)
+        
+        # Download do áudio em arquivo temporário com nome adequado
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as temp_audio:
             temp_path = temp_audio.name
             await file.download_to_drive(temp_path)
 
+        # Enviar para a API da Groq (Whisper)
         with open(temp_path, "rb") as audio_file:
             transcription = await groq_client.audio.transcriptions.create(
-                file=(temp_path, audio_file.read()),
+                file=(os.path.basename(temp_path), audio_file.read()),
                 model="whisper-large-v3",
                 response_format="json",
                 language="pt"
             )
 
-        os.remove(temp_path)
+        # Limpa o arquivo temporário
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
         texto_transcrito = transcription.text.strip()
+
+        if not texto_transcrito:
+            await msg_status.edit_text("⚠️ Não consegui entender o áudio. Tente falar mais perto do microfone.")
+            return
 
         await msg_status.edit_text(f"🗣️ *Transcrição:* \"_{texto_transcrito}_\"", parse_mode="Markdown")
 
