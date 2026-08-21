@@ -38,10 +38,11 @@ from lembrete_boletos import processar_e_enviar_alertas, enviar_resumo_mensal_te
 
 # Carrega variáveis de ambiente
 load_dotenv()
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.environ.get("TELEGRAM_TOKEN")
+SUPABASE_URL = os.getenv("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
 
 STREAMLIT_URL = "https://financeiro-web-2-0.streamlit.app/?uid=1"
 CACHE_TTL = 600
