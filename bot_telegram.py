@@ -1448,20 +1448,19 @@ async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFA
         logging.error(f"Erro ao listar clientes: {e}")
         await update.message.reply_text("❌ Erro ao buscar a lista de clientes no Supabase.")
 
-# --- TRATAMENTO DOS BOTÕES DE AÇÃO ---
+# --- TRATAMENTO DOS BOTÕES DE AÇÃO (EXCLUSÃO E EDICAO DE DATA) ---
 
 async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Processa o clique nos botões inline de excluir e editar."""
+    """Processa o clique nos botões inline de excluir, cancelar e editar data."""
     query = update.callback_query
     await query.answer()
 
     data = query.data
 
-    # Ação de Excluir
+    # 1. Ação de Excluir (Pede Confirmação)
     if data.startswith("del_"):
         cliente_id = int(data.split("_")[1])
         
-        # Cria botão de confirmação
         keyboard = [
             [
                 InlineKeyboardButton("✅ Confirmar Exclusão", callback_data=f"confdel_{cliente_id}"),
@@ -1470,6 +1469,7 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         ]
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
 
+    # 2. Ação de Confirmar Exclusão
     elif data.startswith("confdel_"):
         cliente_id = int(data.split("_")[1])
         
@@ -1482,25 +1482,68 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         else:
             await query.edit_message_text("❌ Erro ao excluir cliente do banco.")
 
-    elif data == "cancel_action":
-        await query.edit_message_text("❌ Ação cancelada.")
-
-    # Ação de Editar (Orienta como usar o comando rápido)
+    # 3. Ação de Editar Data (Gera o comando fácil para copiar)
     elif data.startswith("edit_"):
         cliente_id = int(data.split("_")[1])
         
-        # Busca dados atuais para preencher no exemplo
-        def _get_one():
-            return supabase.table("clientes").select("*").eq("id", cliente_id).execute()
-            
-        res = await asyncio.to_thread(_get_one)
+        # Puxa o nome para personalizar a mensagem
+        def _get_nome():
+            return supabase.table("clientes").select("nome").eq("id", cliente_id).execute()
+        
+        res = await asyncio.to_thread(_get_nome)
+        nome = res.data[0]['nome'] if res.data else "Cliente"
+
+        await query.message.reply_text(
+            f"✏️ Copie o texto abaixo, altere a data e envie no chat:\n\n"
+            f"`/data {cliente_id} 25/08/2026`",
+            parse_mode="Markdown"
+        )
+
+    # 4. Ação de Cancelar
+    elif data == "cancel_action":
+        await query.edit_message_text("❌ Ação cancelada.")
+
+
+# --- COMANDO PARA SALVAR A NOVA DATA ---
+
+async def alterar_data_comando(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Atualiza a data do cliente no Supabase.
+    Uso: /data ID DD/MM/AAAA
+    """
+    try:
+        args = context.args
+        if len(args) < 2:
+            await update.message.reply_text("❌ Use assim: `/data ID DATA` (Ex: `/data 5 25/08/2026`)", parse_mode="Markdown")
+            return
+
+        cliente_id = int(args[0])
+        data_raw = args[1]
+
+        # Tratamento do formato da data
+        if "/" in data_raw:
+            dt = datetime.strptime(data_raw, "%d/%m/%Y")
+        else:
+            dt = datetime.strptime(data_raw, "%Y-%m-%d")
+        
+        data_iso = dt.strftime("%Y-%m-%d")
+        data_br = dt.strftime("%d/%m/%Y")
+
+        # Atualiza apenas a data no Supabase pelo ID do cliente
+        def _update():
+            return supabase.table("clientes").update({"data_vencimento": data_iso}).eq("id", cliente_id).execute()
+
+        res = await asyncio.to_thread(_update)
+
         if res.data:
-            c = res.data[0]
-            await query.message.reply_text(
-                f"✏️ *Para editar o cliente {c['nome']}, copie e altere a mensagem abaixo:*\n\n"
-                f"`/editar {c['id']} | {c['nome']} | {c['telefone']} | {c['valor']} | {c['data_vencimento']}`",
-                parse_mode="Markdown"
-            )        
+            await update.message.reply_text(f"✅ Data de vencimento alterada para *{data_br}*!", parse_mode="Markdown")
+        else:
+            await update.message.reply_text("❌ Cliente não encontrado.")
+
+    except ValueError:
+        await update.message.reply_text("⚠️ Data em formato inválido. Use `DD/MM/AAAA` (Ex: `25/08/2026`).")
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Erro ao atualizar: {e}")
 
 
 def main():
@@ -1578,6 +1621,8 @@ def main():
     # Adicione no seu app
     app.add_handler(conv_handler_cliente)
     app.add_handler(CommandHandler("clientes", listar_clientes_recorrentes))
+    app.add_handler(CallbackQueryHandler(botao_callback_handler))
+    app.add_handler(CommandHandler("data", alterar_data_comando))
     app.add_handler(CallbackQueryHandler(botao_callback_handler))
   
     app.add_handler(
