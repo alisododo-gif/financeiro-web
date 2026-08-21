@@ -151,7 +151,7 @@ def calcular_mes_fatura(data_compra, dia_fechamento):
 # =========================================================
 
 async def interpretar_com_groq(texto_usuario: str) -> dict:
-    """Interpreta texto livre do usuário usando Llama-3.3 da Groq para extrair parâmetros financeiros."""
+    """Interpreta texto livre do usuário usando Llama-3.3 da Groq para extrair parâmetros financeiros ou responder dúvidas."""
     tools = [
         {
             "type": "function",
@@ -181,7 +181,7 @@ async def interpretar_com_groq(texto_usuario: str) -> dict:
                         },
                         "data": {
                             "type": "string",
-                            "description": "Data no formato YYYY-MM-DD se mencionada. Caso contrário, omitir."
+                            "description": "Data no formato YYYY-MM-DD se mencionada."
                         }
                     },
                     "required": ["tipo", "valor", "descricao"]
@@ -192,9 +192,9 @@ async def interpretar_com_groq(texto_usuario: str) -> dict:
 
     hoje = datetime.now(FUSO_BR).strftime("%Y-%m-%d")
     system_prompt = (
-        f"Você é o assistente financeiro do FinanceiroPro. Hoje é {hoje}.\n"
-        "Sua função é analisar a mensagem do usuário e extrair os dados financeiros chamando a função 'adicionar_lancamento'.\n"
-        "Se o usuário estiver apenas conversando ou tirando dúvidas, responda educadamente em texto."
+        f"Você é o assistente financeiro inteligente do FinanceiroPro. Hoje é {hoje}.\n"
+        "Se o usuário informar um gasto, receita ou conta a receber, chame a função 'adicionar_lancamento'.\n"
+        "Se o usuário fizer perguntas gerais, conversas, saudações ou dúvidas financeiras, responda em texto normal de forma amigável, clara e prestativa."
     )
 
     try:
@@ -214,12 +214,14 @@ async def interpretar_com_groq(texto_usuario: str) -> dict:
             tool_call = message.tool_calls[0]
             args = json.loads(tool_call.function.arguments)
             return {"type": "action", "function": tool_call.function.name, "args": args}
-        else:
+        elif message.content:
             return {"type": "reply", "text": message.content}
+        else:
+            return {"type": "reply", "text": "Como posso te ajudar com suas finanças hoje?"}
 
     except Exception as e:
-        logging.error(f"Erro ao consultar Groq API: {e}")
-        return {"type": "error", "text": "Desculpe, tive um problema ao processar via IA."}
+        logging.error(f"Erro na chamada da Groq: {e}")
+        return {"type": "error", "text": f"⚠️ Erro ao consultar IA: {e}"}
 
 
 # =========================================================
@@ -310,7 +312,7 @@ async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def processar_mensagem_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recebe mensagens de voz do Telegram, transcreve com Groq Whisper e reencaminha para o pipeline."""
+    """Recebe mensagens de voz do Telegram, transcreve com Groq Whisper e envia para a IA."""
     voice = update.message.voice or update.message.audio
     if not voice:
         return
@@ -318,14 +320,12 @@ async def processar_mensagem_audio(update: Update, context: ContextTypes.DEFAULT
     msg_status = await update.message.reply_text("🎙️ *Ouvindo áudio...*", parse_mode="Markdown")
 
     try:
-        # Obter e baixar o arquivo diretamente para a memória em bytes
         file = await context.bot.get_file(voice.file_id)
         byte_array = await file.download_as_bytearray()
-        audio_bytes = bytes(byte_array)
-
-        # Enviar o buffer de bytes diretamente declarando o formato ogg aceito pelo Opus
+        
+        # Envio em memória direto para a API sem depender do ffmpeg do sistema
         transcription = await groq_client.audio.transcriptions.create(
-            file=("audio.ogg", audio_bytes, "audio/ogg"),
+            file=("audio.m4a", bytes(byte_array), "audio/m4a"),
             model="whisper-large-v3",
             response_format="json",
             language="pt"
@@ -334,18 +334,17 @@ async def processar_mensagem_audio(update: Update, context: ContextTypes.DEFAULT
         texto_transcrito = transcription.text.strip()
 
         if not texto_transcrito:
-            await msg_status.edit_text("⚠️ Não consegui entender o áudio. Tente falar mais perto do microfone.")
+            await msg_status.edit_text("⚠️ Não consegui entender o áudio.")
             return
 
         await msg_status.edit_text(f"🗣️ *Transcrição:* \"_{texto_transcrito}_\"", parse_mode="Markdown")
 
-        # Injeta o texto transcrito na mensagem para o processador comum de lançamentos
         update.message.text = texto_transcrito
         await registrar_gastos(update, context)
 
     except Exception as e:
-        logging.error(f"Erro ao processar áudio com Whisper Groq: {e}")
-        await msg_status.edit_text(f"❌ Erro na transcrição: `{e}`", parse_mode="Markdown")
+        logging.error(f"Erro no Whisper da Groq: {e}")
+        await msg_status.edit_text(f"❌ Erro ao processar áudio via Groq: `{e}`", parse_mode="Markdown")
 
 
 async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
