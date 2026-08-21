@@ -1243,6 +1243,159 @@ async def job_resumo_mensal(context: ContextTypes.DEFAULT_TYPE):
     """Wrapper para a Job Queue chamar a função do resumo mensal de forma segura."""
     await enviar_resumo_mensal_telegram(None, context)
 
+# --- NOVAS FUNÇÕES: GESTÃO DE CLIENTES RECORRENTES ---
+
+async def cadastrar_cliente_recorrente(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Cadastra cliente na tabela 'clientes'.
+    Uso: /cadastrar Nome | 5565999999999 | 150.00 | 10
+    """
+    try:
+        texto = " ".join(context.args)
+        if not texto or "|" not in texto:
+            await update.message.reply_text(
+                "❌ *Formato incorreto!*\n\n"
+                "Use assim:\n`/cadastrar Nome | TelefoneComDDD | Valor | DiaVencimento`\n\n"
+                "*Exemplo:*\n`/cadastrar João Silva | 5565999999999 | 150.00 | 10`",
+                parse_mode="Markdown"
+            )
+            return
+
+        dados = [d.strip() for d in texto.split("|")]
+        if len(dados) < 4:
+            await update.message.reply_text("❌ Preencha todos os 4 campos separados por `|`.", parse_mode="Markdown")
+            return
+
+        nome, telefone, valor_raw, dia_raw = dados[0], dados[1], dados[2], dados[3]
+        valor = sanitizar_valor(valor_raw)
+        dia = int(dia_raw)
+
+        if not (1 <= dia <= 31):
+            await update.message.reply_text("⚠️ O dia de vencimento deve ser entre 1 e 31.")
+            return
+
+        payload = {
+            "nome": nome,
+            "telefone": re.sub(r"\D", "", telefone),
+            "valor": valor,
+            "dia_vencimento": dia,
+            "status": "Pendente"
+        }
+
+        def _insert_cliente():
+            return supabase.table("clientes").insert(payload).execute()
+
+        res = await asyncio.to_thread(_insert_cliente)
+
+        if res.data:
+            await update.message.reply_text(
+                f"✅ *Cliente Cadastrado com Sucesso!*\n\n"
+                f"👤 *Nome:* {nome}\n"
+                f"📱 *Telefone:* {payload['telefone']}\n"
+                f"💰 *Valor:* R$ {valor:.2f}\n"
+                f"📅 *Vence todo dia:* {dia}",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text("❌ Erro ao cadastrar cliente no banco de dados.")
+
+    except Exception as e:
+        logging.error(f"Erro ao cadastrar cliente: {e}")
+        await update.message.reply_text(f"⚠️ Erro ao processar comando: {e}")
+
+
+# --- NOVAS FUNÇÕES: GESTÃO DE CLIENTES & COBRANÇAS ---
+
+async def cadastrar_cliente_recorrente(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Cadastra cliente na tabela 'clientes'.
+    Uso: /cadastrar Nome | 5565999999999 | 150.00 | 2026-08-25
+    """
+    try:
+        texto = " ".join(context.args)
+        if not texto or "|" not in texto:
+            await update.message.reply_text(
+                "❌ *Formato incorreto!*\n\n"
+                "Use assim:\n`/cadastrar Nome | TelefoneComDDD | Valor | YYYY-MM-DD`\n\n"
+                "*Exemplo:*\n`/cadastrar João Silva | 5565999999999 | 150.00 | 2026-08-25`",
+                parse_mode="Markdown"
+            )
+            return
+
+        dados = [d.strip() for d in texto.split("|")]
+        if len(dados) < 4:
+            await update.message.reply_text("❌ Preencha todos os 4 campos separados por `|`.", parse_mode="Markdown")
+            return
+
+        nome, telefone, valor_raw, data_venc = dados[0], dados[1], dados[2], dados[3]
+        valor = sanitizar_valor(valor_raw)
+
+        payload = {
+            "nome": nome,
+            "telefone": re.sub(r"\D", "", telefone),
+            "valor": valor,
+            "data_vencimento": data_venc,
+            "status": "Pendente"
+        }
+
+        def _insert_cliente():
+            return supabase.table("clientes").insert(payload).execute()
+
+        res = await asyncio.to_thread(_insert_cliente)
+
+        if res.data:
+            # Converte data para exibir em PT-BR (DD/MM/YYYY)
+            data_br = datetime.strptime(data_venc, "%Y-%m-%d").strftime("%d/%m/%Y")
+            await update.message.reply_text(
+                f"✅ *Cliente Cadastrado com Sucesso!*\n\n"
+                f"👤 *Nome:* {nome}\n"
+                f"📱 *Telefone:* {payload['telefone']}\n"
+                f"💰 *Valor:* R$ {valor:.2f}\n"
+                f"📅 *Vencimento:* {data_br}",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text("❌ Erro ao cadastrar cliente no banco de dados.")
+
+    except Exception as e:
+        logging.error(f"Erro ao cadastrar cliente: {e}")
+        await update.message.reply_text(f"⚠️ Erro ao processar comando: {e}\n\n*Dica:* Use a data no formato `AAAA-MM-DD`.", parse_mode="Markdown")
+
+
+async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Lista todos os clientes da tabela 'clientes'.
+    Uso: /clientes
+    """
+    try:
+        def _get_clientes():
+            return supabase.table("clientes").select("*").order("data_vencimento").execute()
+
+        res = await asyncio.to_thread(_get_clientes)
+        clientes = res.data or []
+
+        if not clientes:
+            await update.message.reply_text("📂 Nenhum cliente cadastrado na tabela de cobranças.")
+            return
+
+        msg = "📋 *Lista de Clientes Cadastrados:*\n\n"
+        for c in clientes:
+            data_br = datetime.strptime(c['data_vencimento'], "%Y-%m-%d").strftime("%d/%m/%Y")
+            status_emoji = "✅" if c.get('status') == 'Pago' else "⏳"
+            
+            msg += (
+                f"👤 *{c['nome']}*\n"
+                f"📱 `{c['telefone']}` | 💰 R$ {c['valor']:.2f}\n"
+                f"📅 Vencimento: *{data_br}* ({status_emoji} {c.get('status', 'Pendente')})\n"
+                f"───────────────\n"
+            )
+
+        await update.message.reply_text(msg, parse_mode="Markdown")
+
+    except Exception as e:
+        logging.error(f"Erro ao listar clientes: {e}")
+        await update.message.reply_text("❌ Erro ao buscar a lista de clientes no Supabase.") 
+
 
 def main():
     global supabase
@@ -1303,6 +1456,9 @@ def main():
 
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     app.add_handler(CommandHandler("resumo", handler_resumo))
+
+    app.add_handler(CommandHandler("cadastrar", cadastrar_cliente_recorrente))
+    app.add_handler(CommandHandler("clientes", listar_clientes_recorrentes))
 
     app.add_handler(
         MessageHandler(
