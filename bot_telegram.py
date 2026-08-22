@@ -1427,6 +1427,9 @@ async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFA
 
         await update.message.reply_text("📋 *Lista de Clientes Cadastrados:*", parse_mode="Markdown")
 
+        # Recupera a lista de IDs ou cria uma nova se não existir
+        mensagens_com_botoes = context.user_data.get("mensagens_botoes_antigas", [])
+
         for c in clientes:
             try:
                 data_br = datetime.strptime(c['data_vencimento'], "%Y-%m-%d").strftime("%d/%m/%Y")
@@ -1435,7 +1438,7 @@ async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFA
 
             status_emoji = "✅" if c.get('status') == 'Pago' else "⏳"
             
-            msg = (
+            msg_texto = (
                 f"👤 *{c['nome']}*\n"
                 f"📱 `{c['telefone']}` | 💰 R$ {float(c['valor']):.2f}\n"
                 f"📅 Vencimento: *{data_br}* ({status_emoji} {c.get('status', 'Pendente')})"
@@ -1450,7 +1453,14 @@ async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFA
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-            await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=reply_markup)
+            # Envia a mensagem e captura a resposta para extrair o ID
+            msg_enviada = await update.message.reply_text(msg_texto, parse_mode="Markdown", reply_markup=reply_markup)
+            
+            # Guarda o ID da mensagem para poder fechar/limpar depois
+            mensagens_com_botoes.append(msg_enviada.message_id)
+
+        # Atualiza a lista no context
+        context.user_data["mensagens_botoes_antigas"] = mensagens_com_botoes
 
     except Exception as e:
         logging.error(f"Erro ao listar clientes: {e}")
