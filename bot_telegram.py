@@ -173,6 +173,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await limpar_botoes_anteriores(update, context)
     contato = update.message.contact
     telefone_telegram = re.sub(r"\D", "", contato.phone_number)
     telegram_id = int(update.effective_user.id)
@@ -410,6 +411,7 @@ async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT
 
 
 async def cancelar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await limpar_botoes_anteriores(update, context)
     if "edit_mov_id" in context.user_data:
         context.user_data.pop("edit_mov_id", None)
         await update.message.reply_text("❌ Edição cancelada.")
@@ -1397,6 +1399,7 @@ async def receber_data_e_salvar(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 async def cancelar_cadastro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await limpar_botoes_anteriores(update, context)
     """Cancela o processo de cadastro."""
     context.user_data.clear()
     await update.message.reply_text("❌ Cadastro cancelado.")
