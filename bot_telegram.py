@@ -1317,15 +1317,24 @@ async def cadastrar_cliente_recorrente(update: Update, context: ContextTypes.DEF
 NOME, TELEFONE, VALOR, DATA = range(4)
 
 async def iniciar_cadastro(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Inicia o fluxo de cadastro perguntando o Nome."""
+    """Inicia o fluxo de cadastro validando a autorização do usuário."""
     await limpar_botoes_anteriores(update, context)
+    
+    telegram_id = update.effective_user.id
+    dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
+
+    if not dados_usuario:
+        await update.message.reply_text("🚫 Acesso não autorizado! Digite /start para vincular sua conta.")
+        return ConversationHandler.END
+
+    context.user_data['cad_usuario_id'] = dados_usuario["usuario_id"]
     await update.message.reply_text("👤 **Qual o nome do cliente?**\n\n_(Para cancelar, digite /cancelar)_", parse_mode="Markdown")
     return NOME
 
 async def receber_nome(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Recebe o Nome e pede o Telefone."""
     context.user_data['cad_nome'] = update.message.text.strip()
-    await update.message.reply_text("📱 **Qual o telefone do cliente com DDD?**\n_(Exemplo: 5565999999999)_", parse_mode="Markdown")
+    await update.message.reply_text("📱 **Qual o telefone do cliente com DDD?**\n_(Exemplo: 556599999999) (Sem o 9)_", parse_mode="Markdown")
     return TELEFONE
 
 async def receber_telefone(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1347,10 +1356,9 @@ async def receber_valor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return VALOR
 
 async def receber_data_e_salvar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recebe a Data, grava no Supabase e finaliza a conversa."""
+    """Recebe a Data, grava no Supabase com o vínculo do usuário e finaliza a conversa."""
     texto_data = update.message.text.strip()
     
-    # Suporta formato BR (DD/MM/AAAA) e formato ISO (AAAA-MM-DD)
     try:
         if "/" in texto_data:
             data_obj = datetime.strptime(texto_data, "%d/%m/%Y")
@@ -1364,13 +1372,15 @@ async def receber_data_e_salvar(update: Update, context: ContextTypes.DEFAULT_TY
     nome = context.user_data['cad_nome']
     telefone = context.user_data['cad_telefone']
     valor = context.user_data['cad_valor']
+    usuario_id = context.user_data['cad_usuario_id']
 
     payload = {
         "nome": nome,
         "telefone": telefone,
         "valor": valor,
         "data_vencimento": data_iso,
-        "status": "Pendente"
+        "status": "Pendente",
+        "usuario_id": usuario_id
     }
 
     try:
@@ -1396,7 +1406,6 @@ async def receber_data_e_salvar(update: Update, context: ContextTypes.DEFAULT_TY
         logging.error(f"Erro ao salvar cliente: {e}")
         await update.message.reply_text(f"⚠️ Erro ao registrar no banco: {e}")
 
-    # Limpa os dados temporários e encerra a conversa
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -1412,22 +1421,37 @@ async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFA
     await limpar_botoes_anteriores(update, context)
 
     """
-    Lista todos os clientes com botões de Editar e Excluir.
+    Lista os clientes pertencentes ao usuário atual com botões de Editar e Excluir.
     Uso: /clientes
     """
 
+    telegram_id = update.effective_user.id
+    dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
+
+    if not dados_usuario:
+        await update.message.reply_text("🚫 Acesso não autorizado! Envie /start para configurar sua conta.")
+        return
+
+    usuario_id = dados_usuario["usuario_id"]
+
     try:
         def _get_clientes():
-            return supabase.table("clientes").select("*").order("data_vencimento").execute()
+            return (
+                supabase.table("clientes")
+                .select("*")
+                .eq("usuario_id", usuario_id)
+                .order("data_vencimento")
+                .execute()
+            )
 
         res = await asyncio.to_thread(_get_clientes)
         clientes = res.data or []
 
         if not clientes:
-            await update.message.reply_text("📂 Nenhum cliente cadastrado na tabela de cobranças.")
+            await update.message.reply_text("📂 Nenhum cliente cadastrado na sua conta.")
             return
 
-        await update.message.reply_text("📋 *Lista de Clientes Cadastrados:*", parse_mode="Markdown")
+        await update.message.reply_text("📋 *Sua Lista de Clientes Cadastrados:*", parse_mode="Markdown")
 
         # Recupera a lista de IDs ou cria uma nova se não existir
         mensagens_com_botoes = context.user_data.get("mensagens_botoes_antigas", [])
@@ -1475,6 +1499,15 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     data = query.data
 
+    telegram_id = query.from_user.id
+    dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
+
+    if not dados_usuario:
+        await query.edit_message_text("🚫 Operação não autorizada.")
+        return
+
+    usuario_id = dados_usuario["usuario_id"]
+
     if data.startswith("cldel_"):
         cliente_id = int(data.split("_")[1])
         keyboard = [
@@ -1487,27 +1520,45 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     elif data.startswith("confdel_"):
         cliente_id = int(data.split("_")[1])
+
+        # Exclui apenas se o cliente pertencer ao usuário logado
         def _delete():
-            return supabase.table("clientes").delete().eq("id", cliente_id).execute()
+            return (
+                supabase.table("clientes")
+                .delete()
+                .eq("id", cliente_id)
+                .eq("usuario_id", usuario_id)
+                .execute()
+            )
+
         res = await asyncio.to_thread(_delete)
         if res.data:
             await query.edit_message_text("🗑️ *Cliente excluído com sucesso!*", parse_mode="Markdown")
         else:
-            await query.edit_message_text("❌ Erro ao excluir cliente do banco.")
+            await query.edit_message_text("❌ Erro ao excluir: cliente não encontrado ou sem permissão.")
 
     elif data.startswith("cledit_"):
         cliente_id = int(data.split("_")[1])
+
         def _get_nome():
-            return supabase.table("clientes").select("nome").eq("id", cliente_id).execute()
+            return (
+                supabase.table("clientes")
+                .select("nome")
+                .eq("id", cliente_id)
+                .eq("usuario_id", usuario_id)
+                .execute()
+            )
         
         res = await asyncio.to_thread(_get_nome)
-        nome = res.data[0]['nome'] if res.data else "Cliente"
-
-        await query.message.reply_text(
-            f"✏️ Para alterar a data de *{nome}*, copie a mensagem abaixo, altere a data e envie:\n\n"
-            f"`/data {cliente_id} 25/08/2026`",
-            parse_mode="Markdown"
-        )
+        if res.data:
+            nome = res.data[0]['nome']
+            await query.message.reply_text(
+                f"✏️ Para alterar a data de *{nome}*, copie a mensagem abaixo, altere a data e envie:\n\n"
+                f"`/data {cliente_id} 25/08/2026`",
+                parse_mode="Markdown"
+            )
+        else:
+            await query.message.reply_text("❌ Cliente não encontrado ou sem permissão.")
 
     elif data == "cancel_action":
         await query.edit_message_text("❌ Ação cancelada.")
