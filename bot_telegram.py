@@ -1508,7 +1508,37 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     usuario_id = dados_usuario["usuario_id"]
 
-    # --- SUPORTE AO PAGAR DESPESA (LISTAR_VENCIMENTOS) ---
+    # --- SUPORTE A QUITAÇÃO DE FATURA AGRUPADA ---
+    if data.startswith("pagarfat_"):
+        ids_raw = data.replace("pagarfat_", "").split("-")
+        ids_movs = [int(i) for i in ids_raw if i.isdigit()]
+
+        try:
+            def _quitar_fatura():
+                return (
+                    supabase.table("movimentacoes")
+                    .update({"pago": True})
+                    .in_("id", ids_movs)
+                    .eq("usuario_id", usuario_id)
+                    .execute()
+                )
+
+            res = await asyncio.to_thread(_quitar_fatura)
+            if res.data:
+                texto_antigo = query.message.text
+                texto_atualizado = re.sub(r"\(⏳ Pendente\)", "(✅ Pago)", texto_antigo)
+                await query.edit_message_text(
+                    f"{texto_atualizado}\n\n✅ *FATURA QUITADA COM SUCESSO!*",
+                    parse_mode="Markdown"
+                )
+            else:
+                await query.edit_message_text("❌ Erro ao atualizar: lançamentos não encontrados.")
+        except Exception as e:
+            logging.error(f"Erro ao quitar fatura: {e}")
+            await query.edit_message_text(f"⚠️ Erro ao atualizar status: {e}")
+        return
+
+    # --- SUPORTE AO PAGAR DESPESA INDIVIDUAL (BOLETOS / FIXOS) ---
     if data.startswith("pagar_"):
         mov_id = int(data.split("_")[1])
         try:
@@ -1645,6 +1675,8 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     usuario_id = dados_usuario["usuario_id"]
+    lista_cartoes = dados_usuario.get("cartoes", [])
+    mapa_cartoes = {c["id"]: c["nome_cartao"] for c in lista_cartoes}
 
     try:
         agora = datetime.now(FUSO_BR)
@@ -1668,11 +1700,62 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(f"📂 Nenhuma despesa/vencimento encontrado para o mês {mes_atual}.")
             return
 
-        await update.message.reply_text(f"📋 *Vencimentos e Despesas de {mes_atual}:*", parse_mode="Markdown")
-
-        mensagens_com_botoes = context.user_data.get("mensagens_botoes_antigas", [])
+        faturas_cartao = {}
+        outros_vencimentos = []
 
         for m in movimentacoes:
+            cartao_id = m.get("cartao_id")
+            forma_pagto = m.get("forma_pagamento", "")
+
+            if cartao_id or forma_pagto == "Cartão de Crédito":
+                nome_cartao = mapa_cartoes.get(cartao_id, "Cartão de Crédito")
+                if nome_cartao not in faturas_cartao:
+                    faturas_cartao[nome_cartao] = {
+                        "valor_total": 0.0,
+                        "pago": True,
+                        "data_vencimento": m.get("data"),
+                        "ids": []
+                    }
+                
+                faturas_cartao[nome_cartao]["valor_total"] += float(m.get("valor", 0))
+                faturas_cartao[nome_cartao]["ids"].append(m["id"])
+                
+                if not m.get("pago", False):
+                    faturas_cartao[nome_cartao]["pago"] = False
+            else:
+                outros_vencimentos.append(m)
+
+        await update.message.reply_text(f"📋 *Próximos Vencimentos - {mes_atual}:*", parse_mode="Markdown")
+        mensagens_com_botoes = context.user_data.get("mensagens_botoes_antigas", [])
+
+        # 1. Exibição das Faturas de Cartão de Crédito (Agrupadas por Banco)
+        for nome_cartao, dados_fatura in faturas_cartao.items():
+            try:
+                data_br = datetime.strptime(dados_fatura["data_vencimento"], "%Y-%m-%d").strftime("%d/%m/%Y")
+            except Exception:
+                data_br = dados_fatura["data_vencimento"]
+
+            status_pago = dados_fatura["pago"]
+            status_txt = "✅ Pago" if status_pago else "⏳ Pendente"
+
+            msg_texto = (
+                f"📅 {data_br} — 💳 *Fatura {nome_cartao} ({mes_atual})*\n"
+                f"💰 Total da Fatura: *R$ {dados_fatura['valor_total']:.2f}* ({status_txt})"
+            )
+
+            botoes = []
+            if not status_pago:
+                ids_str = "-".join(str(i) for i in dados_fatura["ids"])
+                botoes.append([InlineKeyboardButton("✅ Quitar Fatura", callback_data=f"pagarfat_{ids_str}")])
+
+            reply_markup = InlineKeyboardMarkup(botoes) if botoes else None
+            msg_enviada = await update.message.reply_text(msg_texto, parse_mode="Markdown", reply_markup=reply_markup)
+
+            if reply_markup:
+                mensagens_com_botoes.append(msg_enviada.message_id)
+
+        # 2. Exibição dos Boletos e Contas Fixas/Recorrentes
+        for m in outros_vencimentos:
             try:
                 data_br = datetime.strptime(m["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
             except Exception:
@@ -1682,9 +1765,8 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             status_txt = "✅ Pago" if status_pago else "⏳ Pendente"
 
             msg_texto = (
-                f"📝 *{m.get('descricao', 'Sem descrição')}*\n"
-                f"💰 Valor: R$ {float(m.get('valor', 0)):.2f}\n"
-                f"📅 Data: *{data_br}* ({status_txt})"
+                f"📅 {data_br} — 📑 *{m.get('descricao', 'Sem descrição')}*\n"
+                f"💰 Valor: *R$ {float(m.get('valor', 0)):.2f}* ({status_txt})"
             )
 
             botoes = []
@@ -1692,12 +1774,8 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 botoes.append([InlineKeyboardButton("✅ Marcar como Pago", callback_data=f"pagar_{m['id']}")])
 
             reply_markup = InlineKeyboardMarkup(botoes) if botoes else None
-            msg_enviada = await update.message.reply_text(
-                msg_texto,
-                parse_mode="Markdown",
-                reply_markup=reply_markup
-            )
-            
+            msg_enviada = await update.message.reply_text(msg_texto, parse_mode="Markdown", reply_markup=reply_markup)
+
             if reply_markup:
                 mensagens_com_botoes.append(msg_enviada.message_id)
 
@@ -1787,7 +1865,7 @@ def main():
     # --- CALLBACKS DOS BOTÕES ---
     # Botões dos Clientes
     app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern="^(cldel_|cledit_|confdel_|cancel_action)"))
-    app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern="^(cldel_|cledit_|confdel_|cancel_action|pagar_)"))
+    app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern="^(cldel_|cledit_|confdel_|cancel_action|pagar_|pagarfat_)"))
     
     # Botões de Lançamentos Financeiros Gerais
     app.add_handler(CallbackQueryHandler(tratar_botoes_lancamento, pattern="^(del_|edit_)"))
