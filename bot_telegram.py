@@ -1707,16 +1707,13 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             cartao_id = m.get("cartao_id")
             forma_pagto = m.get("forma_pagamento", "")
 
-            # Agrupa compras que possuem cartão vinculado
             if cartao_id or forma_pagto == "Cartão de Crédito":
                 nome_cartao = mapa_cartoes.get(cartao_id, "Cartão de Crédito")
                 if nome_cartao not in faturas_cartao:
                     faturas_cartao[nome_cartao] = {
-                        "tipo_item": "fatura",
-                        "descricao": f"Fatura {nome_cartao} ({mes_atual})",
                         "valor_total": 0.0,
                         "pago": True,
-                        "data": m.get("data"),
+                        "data_vencimento": m.get("data"),
                         "ids": []
                     }
                 
@@ -1726,60 +1723,58 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 if not m.get("pago", False):
                     faturas_cartao[nome_cartao]["pago"] = False
             else:
-                # Boletos, despesas fixas, recorrentes ou esporádicas
-                m["tipo_item"] = "outro"
                 outros_vencimentos.append(m)
-
-        # Junta faturas agrupadas e despesas avulsas em uma lista única
-        todos_itens = list(faturas_cartao.values()) + outros_vencimentos
-
-        # Ordena a lista unificada pela data de vencimento
-        todos_itens.sort(key=lambda x: x.get("data", ""))
 
         await update.message.reply_text(f"📋 *Próximos Vencimentos - {mes_atual}:*", parse_mode="Markdown")
         mensagens_com_botoes = context.user_data.get("mensagens_botoes_antigas", [])
 
-        for item in todos_itens:
+        # 1. Exibição das Faturas de Cartão de Crédito (Agrupadas por Banco)
+        for nome_cartao, dados_fatura in faturas_cartao.items():
             try:
-                data_br = datetime.strptime(item["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
+                data_br = datetime.strptime(dados_fatura["data_vencimento"], "%Y-%m-%d").strftime("%d/%m/%Y")
             except Exception:
-                data_br = item.get("data", "")
+                data_br = dados_fatura["data_vencimento"]
 
-            status_pago = item.get("pago", False)
+            status_pago = dados_fatura["pago"]
             status_txt = "✅ Pago" if status_pago else "⏳ Pendente"
 
-            # Renderização para Fatura de Cartão
-            if item.get("tipo_item") == "fatura":
-                msg_texto = (
-                    f"📅 *{data_br}* — 💳 *{item['descricao']}*\n"
-                    f"💰 Valor Total: *R$ {item['valor_total']:.2f}* ({status_txt})"
-                )
+            msg_texto = (
+                f"📅 {data_br} — 💳 *Fatura {nome_cartao} ({mes_atual})*\n"
+                f"💰 Total da Fatura: *R$ {dados_fatura['valor_total']:.2f}* ({status_txt})"
+            )
 
-                botoes = []
-                if not status_pago:
-                    ids_str = "-".join(str(i) for i in item["ids"])
-                    botoes.append([InlineKeyboardButton("✅ Quitar Fatura", callback_data=f"pagarfat_{ids_str}")])
-
-            # Renderização para Boletos / Contas Fixas / Recorrentes
-            else:
-                tag_recorrente = " (Recorrente)" if item.get("recorrente") or item.get("fixa") else ""
-                descricao = item.get("descricao", "Sem descrição") + tag_recorrente
-
-                msg_texto = (
-                    f"📅 *{data_br}* — 📑 *{descricao}*\n"
-                    f"💰 Valor: *R$ {float(item.get('valor', 0)):.2f}* ({status_txt})"
-                )
-
-                botoes = []
-                if not status_pago:
-                    botoes.append([InlineKeyboardButton("✅ Marcar como Pago", callback_data=f"pagar_{item['id']}")])
+            botoes = []
+            if not status_pago:
+                ids_str = "-".join(str(i) for i in dados_fatura["ids"])
+                botoes.append([InlineKeyboardButton("✅ Quitar Fatura", callback_data=f"pagarfat_{ids_str}")])
 
             reply_markup = InlineKeyboardMarkup(botoes) if botoes else None
-            msg_enviada = await update.message.reply_text(
-                msg_texto,
-                parse_mode="Markdown",
-                reply_markup=reply_markup
+            msg_enviada = await update.message.reply_text(msg_texto, parse_mode="Markdown", reply_markup=reply_markup)
+
+            if reply_markup:
+                mensagens_com_botoes.append(msg_enviada.message_id)
+
+        # 2. Exibição dos Boletos e Contas Fixas/Recorrentes
+        for m in outros_vencimentos:
+            try:
+                data_br = datetime.strptime(m["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
+            except Exception:
+                data_br = m["data"]
+
+            status_pago = m.get("pago", False)
+            status_txt = "✅ Pago" if status_pago else "⏳ Pendente"
+
+            msg_texto = (
+                f"📅 {data_br} — 📑 *{m.get('descricao', 'Sem descrição')}*\n"
+                f"💰 Valor: *R$ {float(m.get('valor', 0)):.2f}* ({status_txt})"
             )
+
+            botoes = []
+            if not status_pago:
+                botoes.append([InlineKeyboardButton("✅ Marcar como Pago", callback_data=f"pagar_{m['id']}")])
+
+            reply_markup = InlineKeyboardMarkup(botoes) if botoes else None
+            msg_enviada = await update.message.reply_text(msg_texto, parse_mode="Markdown", reply_markup=reply_markup)
 
             if reply_markup:
                 mensagens_com_botoes.append(msg_enviada.message_id)
@@ -1789,6 +1784,7 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logging.error(f"Erro ao listar vencimentos: {e}")
         await update.message.reply_text("❌ Erro ao buscar vencimentos no banco de dados.")
+
 
 
 def main():
