@@ -1508,6 +1508,35 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     usuario_id = dados_usuario["usuario_id"]
 
+    # --- SUPORTE AO PAGAR DESPESA (LISTAR_VENCIMENTOS) ---
+    if data.startswith("pagar_"):
+        mov_id = int(data.split("_")[1])
+        try:
+            def _update_pago():
+                return (
+                    supabase.table("movimentacoes")
+                    .update({"pago": True})
+                    .eq("id", mov_id)
+                    .eq("usuario_id", usuario_id)
+                    .execute()
+                )
+
+            res = await asyncio.to_thread(_update_pago)
+            if res.data:
+                texto_antigo = query.message.text
+                texto_atualizado = re.sub(r"\(⏳ Pendente\)", "(✅ Pago)", texto_antigo)
+                await query.edit_message_text(
+                    f"{texto_atualizado}\n\n✅ *STATUS ATUALIZADO: PAGO!*",
+                    parse_mode="Markdown"
+                )
+            else:
+                await query.edit_message_text("❌ Erro ao atualizar: lançamento não encontrado ou sem permissão.")
+        except Exception as e:
+            logging.error(f"Erro ao dar baixa na movimentação {mov_id}: {e}")
+            await query.edit_message_text(f"⚠️ Erro ao atualizar status: {e}")
+        return
+
+    # --- CÓDIGO EXISTENTE DE CLIENTES ---
     if data.startswith("cldel_"):
         cliente_id = int(data.split("_")[1])
         keyboard = [
@@ -1521,7 +1550,6 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     elif data.startswith("confdel_"):
         cliente_id = int(data.split("_")[1])
 
-        # Exclui apenas se o cliente pertencer ao usuário logado
         def _delete():
             return (
                 supabase.table("clientes")
@@ -1606,6 +1634,80 @@ async def alterar_data_comando(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception as e:
         await update.message.reply_text(f"⚠️ Erro ao atualizar: {e}")
 
+async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await limpar_botoes_anteriores(update, context)
+
+    telegram_id = update.effective_user.id
+    dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
+
+    if not dados_usuario:
+        await update.message.reply_text("🚫 Acesso não autorizado! Envie /start para configurar sua conta.")
+        return
+
+    usuario_id = dados_usuario["usuario_id"]
+
+    try:
+        agora = datetime.now(FUSO_BR)
+        mes_atual = agora.strftime("%m/%Y")
+
+        def _get_vencimentos():
+            return (
+                supabase.table("movimentacoes")
+                .select("*")
+                .eq("usuario_id", usuario_id)
+                .eq("tipo", "Despesa")
+                .eq("mes_fatura", mes_atual)
+                .order("data")
+                .execute()
+            )
+
+        res = await asyncio.to_thread(_get_vencimentos)
+        movimentacoes = res.data or []
+
+        if not movimentacoes:
+            await update.message.reply_text(f"📂 Nenhuma despesa/vencimento encontrado para o mês {mes_atual}.")
+            return
+
+        await update.message.reply_text(f"📋 *Vencimentos e Despesas de {mes_atual}:*", parse_mode="Markdown")
+
+        mensagens_com_botoes = context.user_data.get("mensagens_botoes_antigas", [])
+
+        for m in movimentacoes:
+            try:
+                data_br = datetime.strptime(m["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
+            except Exception:
+                data_br = m["data"]
+
+            status_pago = m.get("pago", False)
+            status_txt = "✅ Pago" if status_pago else "⏳ Pendente"
+
+            msg_texto = (
+                f"📝 *{m.get('descricao', 'Sem descrição')}*\n"
+                f"💰 Valor: R$ {float(m.get('valor', 0)):.2f}\n"
+                f"📅 Data: *{data_br}* ({status_txt})"
+            )
+
+            botoes = []
+            if not status_pago:
+                botoes.append([InlineKeyboardButton("✅ Marcar como Pago", callback_data=f"pagar_{m['id']}")])
+
+            reply_markup = InlineKeyboardMarkup(botoes) if botoes else None
+            msg_enviada = await update.message.reply_text(
+                msg_texto,
+                parse_mode="Markdown",
+                reply_markup=reply_markup
+            )
+            
+            if reply_markup:
+                mensagens_com_botoes.append(msg_enviada.message_id)
+
+        context.user_data["mensagens_botoes_antigas"] = mensagens_com_botoes
+
+    except Exception as e:
+        logging.error(f"Erro ao listar vencimentos: {e}")
+        await update.message.reply_text("❌ Erro ao buscar vencimentos no banco de dados.")
+
+
 
 def main():
     global supabase
@@ -1663,7 +1765,8 @@ def main():
     app.add_handler(CommandHandler("entrada", lancar_receita))
     app.add_handler(CommandHandler("testar_alertas", testar_alertas_cmd))
     app.add_handler(CommandHandler("resumo", handler_resumo))
-
+    app.add_handler(CommandHandler("vencimentos", listar_vencimentos))
+    
     # --- CLIENTES (LISTAGEM E ALTERAÇÃO DE DATA) ---
     app.add_handler(CommandHandler("clientes", listar_clientes_recorrentes))
     app.add_handler(CommandHandler("data", alterar_data_comando))
@@ -1684,6 +1787,7 @@ def main():
     # --- CALLBACKS DOS BOTÕES ---
     # Botões dos Clientes
     app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern="^(cldel_|cledit_|confdel_|cancel_action)"))
+    app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern="^(cldel_|cledit_|confdel_|cancel_action|pagar_)"))
     
     # Botões de Lançamentos Financeiros Gerais
     app.add_handler(CallbackQueryHandler(tratar_botoes_lancamento, pattern="^(del_|edit_)"))
