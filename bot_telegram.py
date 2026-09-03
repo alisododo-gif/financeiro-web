@@ -1664,6 +1664,14 @@ async def alterar_data_comando(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception as e:
         await update.message.reply_text(f"⚠️ Erro ao atualizar: {e}")
 
+import calendar
+import logging
+import asyncio
+import pandas as pd
+from datetime import datetime
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes
+
 async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await limpar_botoes_anteriores(update, context)
 
@@ -1699,7 +1707,12 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
         df_raw = pd.DataFrame(movimentacoes)
-        df_raw["pago"] = df_raw["pago"].fillna(False).astype(bool) if "pago" in df_raw.columns else False
+
+        # Trata coluna de pagamentos
+        if "pago" in df_raw.columns:
+            df_raw["pago"] = df_raw["pago"].fillna(False).astype(bool)
+        else:
+            df_raw["pago"] = False
 
         # Mapeamento de cartões do usuário
         lista_cartoes = dados_usuario.get("cartoes", [])
@@ -1723,10 +1736,14 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if any(x in fp for x in ["pix", "boleto", "debito", "débito", "dinheiro", "especie", "espécie", "transferencia", "transferência"]):
                 return False
 
-            if cid and cid in mapa_cartoes_info: return True
-            if any(x in fp for x in ["cart", "credito", "crédito", "fatura"]): return True
-            if any(x in desc for x in ["cartão", "cartao", "credito", "crédito", "fatura"]): return True
-            if any(x in cat for x in ["cartão", "cartao", "crédito"]): return True
+            if cid and cid != "none" and cid in mapa_cartoes_info:
+                return True
+            if any(x in fp for x in ["cart", "credito", "crédito", "fatura"]):
+                return True
+            if any(x in desc for x in ["cartão", "cartao", "credito", "crédito", "fatura"]):
+                return True
+            if any(x in cat for x in ["cartão", "cartao", "crédito"]):
+                return True
 
             return False
 
@@ -1755,7 +1772,7 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             df_outras_contas = df_outras_contas[df_outras_contas.apply(eh_boleto_ou_recorrente, axis=1)].copy()
             if not df_outras_contas.empty:
                 df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(lambda x: [x])
-                df_outras_contas["descricao_detalhada"] = df_outras_contas["descricao"]
+                df_outras_contas["descricao_detalhada"] = df_outras_contas["descricao"].apply(lambda x: [str(x)] if pd.notna(x) else [])
 
         # --- FILTRO 3: AGRUPAMENTO DE FATURAS DE CARTÃO ---
         df_credito = df_raw[cond_cartao].copy()
@@ -1802,9 +1819,13 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             df_faturas_agrupadas = (
                 df_credito.groupby(["nome_exibicao_cartao", "mes_fatura", "pago"], as_index=False)
                 .agg({
-                    "valor": "sum", "id": "first", "ids_compras": lambda x: list(x),
-                    "descricao": lambda x: list(x), "data": "first",
-                    "categoria": lambda x: "Fatura de Cartão", "forma_pagamento": lambda x: "Cartão de Crédito",
+                    "valor": "sum",
+                    "id": "first",
+                    "ids_compras": lambda x: list(x),
+                    "descricao": lambda x: [str(i) for i in x],
+                    "data": "first",
+                    "categoria": lambda x: "Fatura de Cartão",
+                    "forma_pagamento": lambda x: "Cartão de Crédito",
                 })
             )
             df_faturas_agrupadas["descricao_detalhada"] = df_faturas_agrupadas["descricao"]
@@ -1819,7 +1840,10 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 m_fat = str(row.get("mes_fatura") or "")
                 if "/" in m_fat:
                     p = m_fat.split("/")
-                    return int(p[0]) == mes_atual and int(p[1]) == ano_atual
+                    try:
+                        return int(p[0]) == mes_atual and int(p[1]) == ano_atual
+                    except ValueError:
+                        pass
                 if row.get("data"):
                     dt = pd.to_datetime(row["data"])
                     return dt.month == mes_atual and dt.year == ano_atual
@@ -1835,9 +1859,9 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
         df_pendentes = df_venc[df_venc["pago"] == False]
         df_pagos = df_venc[df_venc["pago"] == True]
 
-        total_pendente = df_pendentes["valor"].sum() if not df_pendentes.empty else 0.0
-        total_pago = df_pagos["valor"].sum() if not df_pagos.empty else 0.0
-        total_geral = df_venc["valor"].sum()
+        total_pendente = float(df_pendentes["valor"].sum()) if not df_pendentes.empty else 0.0
+        total_pago = float(df_pagos["valor"].sum()) if not df_pagos.empty else 0.0
+        total_geral = float(df_venc["valor"].sum())
 
         # ENVIAR CABEÇALHO COM VALORES
         msg_resumo = (
@@ -1860,18 +1884,19 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 lista_ids = row.get("ids_compras") if isinstance(row.get("ids_compras"), list) else [row["id"]]
                 ids_param = "-".join(map(str, lista_ids))
 
-                desc_item = row["descricao"]
+                desc_item = str(row["descricao"])
                 if "Fatura" not in desc_item and (row.get("recorrente") or row.get("fixo")):
                     desc_item += " (Recorrente)"
 
                 msg_txt = (
                     f"📅 *{dt_str}* — {desc_item}\n"
-                    f"💰 Valor: *R$ {row['valor']:.2f}* (⏳ Pendente)"
+                    f"💰 Valor: *R$ {float(row['valor']):.2f}* (⏳ Pendente)"
                 )
 
-                if isinstance(row.get("descricao_detalhada"), list):
-                    msg_txt += "\n🛒 *Compras:* " + ", ".join(row["descricao_detalhada"][:3])
-                    if len(row["descricao_detalhada"]) > 3:
+                detalhes = row.get("descricao_detalhada")
+                if isinstance(detalhes, list) and "Fatura" in desc_item and detalhes:
+                    msg_txt += "\n🛒 *Compras:* " + ", ".join(detalhes[:3])
+                    if len(detalhes) > 3:
                         msg_txt += "..."
 
                 btn_callback = f"pagarfat_{ids_param}" if "Fatura" in desc_item else f"pagar_{row['id']}"
@@ -1888,13 +1913,13 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
             for _, row in df_pagos.iterrows():
                 dt_str = pd.to_datetime(row["data"]).strftime("%d/%m/%Y")
-                desc_item = row["descricao"]
+                desc_item = str(row["descricao"])
                 if "Fatura" not in desc_item and (row.get("recorrente") or row.get("fixo")):
                     desc_item += " (Recorrente)"
 
                 msg_txt = (
                     f"✔️ *{dt_str}* — {desc_item}\n"
-                    f"💰 Valor: *R$ {row['valor']:.2f}* (✅ Pago)"
+                    f"💰 Valor: *R$ {float(row['valor']):.2f}* (✅ Pago)"
                 )
 
                 await update.message.reply_text(msg_txt, parse_mode="Markdown")
@@ -1902,8 +1927,8 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data["mensagens_botoes_antigas"] = mensagens_com_botoes
 
     except Exception as e:
-        logging.error(f"Erro ao listar vencimentos: {e}")
-        await update.message.reply_text("❌ Erro ao processar os vencimentos.")
+        logging.error(f"Erro ao listar vencimentos: {e}", exc_info=True)
+        await update.message.reply_text("❌ Erro ao processar os vencimentos no banco de dados.")
 
 
 
