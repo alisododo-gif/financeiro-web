@@ -603,6 +603,7 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `/clientes` (Visualizar, Editar ou Excluir Lançamentos de Clientes)\n\n"
             "• `/cadastrar` (Cadastrar Clientes)\n\n"
             "• `/listar` (Visualizar, Editar ou Excluir Lançamentos)\n\n"
+            "• `/vencimentos` (Visualizar e Gerenciar as Contas Vencimentos)\n\n"
             "• `resumo` (Exibe o Resumo Geral)",
             parse_mode="Markdown"
         )
