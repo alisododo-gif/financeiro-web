@@ -1675,21 +1675,19 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     usuario_id = dados_usuario["usuario_id"]
-    lista_cartoes = dados_usuario.get("cartoes", [])
-    mapa_cartoes = {c["id"]: c["nome_cartao"] for c in lista_cartoes}
 
     try:
         agora = datetime.now(FUSO_BR)
-        mes_atual = agora.strftime("%m/%Y")
+        mes_atual, ano_atual = agora.month, agora.year
+        mes_fatura_str = f"{mes_atual:02d}/{ano_atual}"
 
+        # 1. BUSCA REGISTROS NO SUPABASE
         def _get_vencimentos():
             return (
                 supabase.table("movimentacoes")
                 .select("*")
                 .eq("usuario_id", usuario_id)
                 .eq("tipo", "Despesa")
-                .eq("mes_fatura", mes_atual)
-                .order("data")
                 .execute()
             )
 
@@ -1697,93 +1695,215 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
         movimentacoes = res.data or []
 
         if not movimentacoes:
-            await update.message.reply_text(f"📂 Nenhuma despesa/vencimento encontrado para o mês {mes_atual}.")
+            await update.message.reply_text(f"📂 Nenhuma despesa/vencimento encontrado no banco de dados.")
             return
 
-        faturas_cartao = {}
-        outros_vencimentos = []
+        df_raw = pd.DataFrame(movimentacoes)
+        df_raw["pago"] = df_raw["pago"].fillna(False).astype(bool) if "pago" in df_raw.columns else False
 
-        for m in movimentacoes:
-            cartao_id = m.get("cartao_id")
-            forma_pagto = m.get("forma_pagamento", "")
+        # Mapeamento de cartões do usuário
+        lista_cartoes = dados_usuario.get("cartoes", [])
+        mapa_cartoes_info = {}
+        for c in lista_cartoes:
+            if isinstance(c, dict):
+                c_id = str(c.get("id", "")).split(".")[0]
+                mapa_cartoes_info[c_id] = {
+                    "nome": str(c.get("nome_cartao") or c.get("nome") or "Cartão"),
+                    "vencimento": int(c.get("dia_vencimento") or c.get("vencimento") or 15),
+                    "fechamento": int(c.get("dia_fechamento") or c.get("fechamento") or 8),
+                }
 
-            if cartao_id or forma_pagto == "Cartão de Crédito":
-                nome_cartao = mapa_cartoes.get(cartao_id, "Cartão de Crédito")
-                if nome_cartao not in faturas_cartao:
-                    faturas_cartao[nome_cartao] = {
-                        "valor_total": 0.0,
-                        "pago": True,
-                        "data_vencimento": m.get("data"),
-                        "ids": []
-                    }
-                
-                faturas_cartao[nome_cartao]["valor_total"] += float(m.get("valor", 0))
-                faturas_cartao[nome_cartao]["ids"].append(m["id"])
-                
-                if not m.get("pago", False):
-                    faturas_cartao[nome_cartao]["pago"] = False
-            else:
-                outros_vencimentos.append(m)
+        # --- FILTRO 1: IDENTIFICA CARTÕES ---
+        def eh_cartao(row):
+            cid = str(row.get("cartao_id") or "").split(".")[0]
+            fp = str(row.get("forma_pagamento") or "").lower()
+            desc = str(row.get("descricao") or "").lower()
+            cat = str(row.get("categoria") or "").lower()
 
-        await update.message.reply_text(f"📋 *Próximos Vencimentos - {mes_atual}:*", parse_mode="Markdown")
+            if any(x in fp for x in ["pix", "boleto", "debito", "débito", "dinheiro", "especie", "espécie", "transferencia", "transferência"]):
+                return False
+
+            if cid and cid in mapa_cartoes_info: return True
+            if any(x in fp for x in ["cart", "credito", "crédito", "fatura"]): return True
+            if any(x in desc for x in ["cartão", "cartao", "credito", "crédito", "fatura"]): return True
+            if any(x in cat for x in ["cartão", "cartao", "crédito"]): return True
+
+            return False
+
+        cond_cartao = df_raw.apply(eh_cartao, axis=1)
+
+        # --- FILTRO 2: BOLETOS E FIXOS/RECORRENTES ---
+        def eh_boleto_ou_recorrente(row):
+            fp = str(row.get("forma_pagamento") or "").lower()
+            desc = str(row.get("descricao") or "").lower()
+            cat = str(row.get("categoria") or "").lower()
+            tipo = str(row.get("tipo") or "").lower()
+
+            eh_boleto = "boleto" in fp or "boleto" in desc or "boleto" in cat
+            flag_recorrente = row.get("recorrente") or row.get("fixo") or row.get("e_fixo") or row.get("is_recorrente")
+            eh_fixo_recorrente = (
+                bool(flag_recorrente) is True
+                or any(x in fp for x in ["fixo", "recorrente"])
+                or any(x in desc for x in ["fixo", "recorrente", "assinatura", "mensalidade"])
+                or any(x in cat for x in ["fixo", "recorrente", "assinatura", "mensalidade"])
+                or any(x in tipo for x in ["fixo", "recorrente"])
+            )
+            return eh_boleto or eh_fixo_recorrente
+
+        df_outras_contas = df_raw[~cond_cartao].copy()
+        if not df_outras_contas.empty:
+            df_outras_contas = df_outras_contas[df_outras_contas.apply(eh_boleto_ou_recorrente, axis=1)].copy()
+            if not df_outras_contas.empty:
+                df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(lambda x: [x])
+                df_outras_contas["descricao_detalhada"] = df_outras_contas["descricao"]
+
+        # --- FILTRO 3: AGRUPAMENTO DE FATURAS DE CARTÃO ---
+        df_credito = df_raw[cond_cartao].copy()
+        df_faturas_agrupadas = pd.DataFrame()
+
+        if not df_credito.empty:
+            def resolver_datas_fatura(row):
+                cid = str(row.get("cartao_id") or "").split(".")[0]
+                info = mapa_cartoes_info.get(cid, {"vencimento": 15, "fechamento": 8})
+                dia_venc, dia_fech = info["vencimento"], info["fechamento"]
+
+                m_fat_val = row.get("mes_fatura")
+                if m_fat_val and "/" in str(m_fat_val):
+                    p = str(m_fat_val).split("/")
+                    mes_fatura, ano_fatura = int(p[0]), int(p[1])
+                else:
+                    dt_compra = pd.to_datetime(row.get("data") or pd.to_datetime("today"))
+                    ano, mes, dia_compra = dt_compra.year, dt_compra.month, dt_compra.day
+                    max_dias_mes_compra = calendar.monthrange(ano, mes)[1]
+                    dia_fech_real = min(dia_fech, max_dias_mes_compra)
+
+                    if dia_compra >= dia_fech_real:
+                        mes_fatura = mes + 1 if mes < 12 else 1
+                        ano_fatura = ano if mes < 12 else ano + 1
+                    else:
+                        mes_fatura, ano_fatura = mes, ano
+
+                mes_fat_str = f"{mes_fatura:02d}/{ano_fatura:04d}"
+                max_dias_mes_fatura = calendar.monthrange(ano_fatura, mes_fatura)[1]
+                dia_valido = min(dia_venc, max_dias_mes_fatura)
+                data_venc_str = f"{ano_fatura:04d}-{mes_fatura:02d}-{dia_valido:02d}"
+
+                nome_cartao = mapa_cartoes_info[cid]["nome"] if cid in mapa_cartoes_info else str(row.get("nome_cartao") or "Cartão")
+
+                return pd.Series([data_venc_str, mes_fat_str, nome_cartao])
+
+            df_credito[["data_venc_calculada", "mes_fatura_calculado", "nome_exibicao_cartao"]] = df_credito.apply(resolver_datas_fatura, axis=1)
+
+            df_credito["data"] = df_credito["data_venc_calculada"]
+            df_credito["mes_fatura"] = df_credito["mes_fatura_calculado"]
+            df_credito["ids_compras"] = df_credito["id"]
+            df_credito["descricao"] = df_credito["descricao"].fillna("Compra no Cartão")
+
+            df_faturas_agrupadas = (
+                df_credito.groupby(["nome_exibicao_cartao", "mes_fatura", "pago"], as_index=False)
+                .agg({
+                    "valor": "sum", "id": "first", "ids_compras": lambda x: list(x),
+                    "descricao": lambda x: list(x), "data": "first",
+                    "categoria": lambda x: "Fatura de Cartão", "forma_pagamento": lambda x: "Cartão de Crédito",
+                })
+            )
+            df_faturas_agrupadas["descricao_detalhada"] = df_faturas_agrupadas["descricao"]
+            df_faturas_agrupadas["descricao"] = df_faturas_agrupadas.apply(lambda r: f"💳 Fatura {r['nome_exibicao_cartao']} ({r['mes_fatura']})", axis=1)
+
+        # UNIFICA E FILTRA PELO MÊS ATUAL
+        dfs_concatenar = [df for df in [df_outras_contas, df_faturas_agrupadas] if not df.empty]
+        df_venc = pd.concat(dfs_concatenar, ignore_index=True) if dfs_concatenar else pd.DataFrame()
+
+        if not df_venc.empty:
+            def pertence_ao_mes_atual(row):
+                m_fat = str(row.get("mes_fatura") or "")
+                if "/" in m_fat:
+                    p = m_fat.split("/")
+                    return int(p[0]) == mes_atual and int(p[1]) == ano_atual
+                if row.get("data"):
+                    dt = pd.to_datetime(row["data"])
+                    return dt.month == mes_atual and dt.year == ano_atual
+                return False
+
+            df_venc = df_venc[df_venc.apply(pertence_ao_mes_atual, axis=1)].copy()
+
+        if df_venc.empty:
+            await update.message.reply_text(f"📂 Nenhum lançamento/vencimento encontrado para {mes_fatura_str}.")
+            return
+
+        df_venc = df_venc.sort_values(by="data").reset_index(drop=True)
+        df_pendentes = df_venc[df_venc["pago"] == False]
+        df_pagos = df_venc[df_venc["pago"] == True]
+
+        total_pendente = df_pendentes["valor"].sum() if not df_pendentes.empty else 0.0
+        total_pago = df_pagos["valor"].sum() if not df_pagos.empty else 0.0
+        total_geral = df_venc["valor"].sum()
+
+        # ENVIAR CABEÇALHO COM VALORES
+        msg_resumo = (
+            f"📊 *RESUMO DE VENCIMENTOS ({mes_fatura_str})*\n\n"
+            f"⏳ *Total Pendente:* R$ {total_pendente:.2f}\n"
+            f"✅ *Total Já Pago:* R$ {total_pago:.2f}\n"
+            f"💰 *Total Geral:* R$ {total_geral:.2f}\n"
+            f"───────────────"
+        )
+        await update.message.reply_text(msg_resumo, parse_mode="Markdown")
+
         mensagens_com_botoes = context.user_data.get("mensagens_botoes_antigas", [])
 
-        # 1. Exibição das Faturas de Cartão de Crédito (Agrupadas por Banco)
-        for nome_cartao, dados_fatura in faturas_cartao.items():
-            try:
-                data_br = datetime.strptime(dados_fatura["data_vencimento"], "%Y-%m-%d").strftime("%d/%m/%Y")
-            except Exception:
-                data_br = dados_fatura["data_vencimento"]
+        # --- 1. EXIBIÇÃO DAS CONTAS PENDENTES ---
+        if not df_pendentes.empty:
+            await update.message.reply_text("⏳ *CONTAS PENDENTES / A PAGAR:*", parse_mode="Markdown")
 
-            status_pago = dados_fatura["pago"]
-            status_txt = "✅ Pago" if status_pago else "⏳ Pendente"
+            for _, row in df_pendentes.iterrows():
+                dt_str = pd.to_datetime(row["data"]).strftime("%d/%m/%Y")
+                lista_ids = row.get("ids_compras") if isinstance(row.get("ids_compras"), list) else [row["id"]]
+                ids_param = "-".join(map(str, lista_ids))
 
-            msg_texto = (
-                f"📅 {data_br} — 💳 *Fatura {nome_cartao} ({mes_atual})*\n"
-                f"💰 Total da Fatura: *R$ {dados_fatura['valor_total']:.2f}* ({status_txt})"
-            )
+                desc_item = row["descricao"]
+                if "Fatura" not in desc_item and (row.get("recorrente") or row.get("fixo")):
+                    desc_item += " (Recorrente)"
 
-            botoes = []
-            if not status_pago:
-                ids_str = "-".join(str(i) for i in dados_fatura["ids"])
-                botoes.append([InlineKeyboardButton("✅ Quitar Fatura", callback_data=f"pagarfat_{ids_str}")])
+                msg_txt = (
+                    f"📅 *{dt_str}* — {desc_item}\n"
+                    f"💰 Valor: *R$ {row['valor']:.2f}* (⏳ Pendente)"
+                )
 
-            reply_markup = InlineKeyboardMarkup(botoes) if botoes else None
-            msg_enviada = await update.message.reply_text(msg_texto, parse_mode="Markdown", reply_markup=reply_markup)
+                if isinstance(row.get("descricao_detalhada"), list):
+                    msg_txt += "\n🛒 *Compras:* " + ", ".join(row["descricao_detalhada"][:3])
+                    if len(row["descricao_detalhada"]) > 3:
+                        msg_txt += "..."
 
-            if reply_markup:
-                mensagens_com_botoes.append(msg_enviada.message_id)
+                btn_callback = f"pagarfat_{ids_param}" if "Fatura" in desc_item else f"pagar_{row['id']}"
+                reply_markup = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("✅ Marcar como Pago", callback_data=btn_callback)
+                ]])
 
-        # 2. Exibição dos Boletos e Contas Fixas/Recorrentes
-        for m in outros_vencimentos:
-            try:
-                data_br = datetime.strptime(m["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
-            except Exception:
-                data_br = m["data"]
+                msg_env = await update.message.reply_text(msg_txt, parse_mode="Markdown", reply_markup=reply_markup)
+                mensagens_com_botoes.append(msg_env.message_id)
 
-            status_pago = m.get("pago", False)
-            status_txt = "✅ Pago" if status_pago else "⏳ Pendente"
+        # --- 2. EXIBIÇÃO DAS CONTAS JÁ PAGAS ---
+        if not df_pagos.empty:
+            await update.message.reply_text("✅ *CONTAS QUITADAS / PAGAS:*", parse_mode="Markdown")
 
-            msg_texto = (
-                f"📅 {data_br} — 📑 *{m.get('descricao', 'Sem descrição')}*\n"
-                f"💰 Valor: *R$ {float(m.get('valor', 0)):.2f}* ({status_txt})"
-            )
+            for _, row in df_pagos.iterrows():
+                dt_str = pd.to_datetime(row["data"]).strftime("%d/%m/%Y")
+                desc_item = row["descricao"]
+                if "Fatura" not in desc_item and (row.get("recorrente") or row.get("fixo")):
+                    desc_item += " (Recorrente)"
 
-            botoes = []
-            if not status_pago:
-                botoes.append([InlineKeyboardButton("✅ Marcar como Pago", callback_data=f"pagar_{m['id']}")])
+                msg_txt = (
+                    f"✔️ *{dt_str}* — {desc_item}\n"
+                    f"💰 Valor: *R$ {row['valor']:.2f}* (✅ Pago)"
+                )
 
-            reply_markup = InlineKeyboardMarkup(botoes) if botoes else None
-            msg_enviada = await update.message.reply_text(msg_texto, parse_mode="Markdown", reply_markup=reply_markup)
-
-            if reply_markup:
-                mensagens_com_botoes.append(msg_enviada.message_id)
+                await update.message.reply_text(msg_txt, parse_mode="Markdown")
 
         context.user_data["mensagens_botoes_antigas"] = mensagens_com_botoes
 
     except Exception as e:
         logging.error(f"Erro ao listar vencimentos: {e}")
-        await update.message.reply_text("❌ Erro ao buscar vencimentos no banco de dados.")
+        await update.message.reply_text("❌ Erro ao processar os vencimentos.")
 
 
 
