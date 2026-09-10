@@ -1902,7 +1902,7 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
                 btn_callback = f"pagarfat_{ids_param}" if "Fatura" in desc_item else f"pagar_{row['id']}"
                 reply_markup = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("✅ Marcar como Pago", callback_data=btn_callback)
+                    InlineKeyboardButton("🔴 Marcar como Pago", callback_data=btn_callback)
                 ]])
 
                 msg_env = await update.message.reply_text(msg_txt, parse_mode="Markdown", reply_markup=reply_markup)
