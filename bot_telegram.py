@@ -1929,7 +1929,7 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     except Exception as e:
         logging.error(f"Erro ao listar vencimentos: {e}", exc_info=True)
-        await update.message.reply_text("❌ Erro ao processar os vencimentos no banco de dadoss.")
+        await update.message.reply_text("❌ Erro ao processar os vencimentos no banco de dados.")
 
 
 
