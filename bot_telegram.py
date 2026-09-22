@@ -2038,7 +2038,13 @@ def main():
     # 2. Ações de Clientes, Contas a Receber e Pagamentos
     app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern="^(cldel_|cledit_|confdel_|cancel_action|pagar_|pagarfat_)"))
     
-    # 3. Fluxos temporários e gerais (Catch-all ordenado)
+    # 3. Fluxos de Contas a Receber
+    app.add_handler(CallbackQueryHandler(callback_geral, pattern="^pagar_rec_"))
+
+    # 4. Fluxos de Troca de Vencimento
+    app.add_handler(CallbackQueryHandler(callback_geral, pattern="^venc_"))
+
+    # 5. Catch-all / Demais botões temporários
     app.add_handler(CallbackQueryHandler(callback_geral))
 
     # --- MENSAGENS DE TEXTO E CONTATOS ---
