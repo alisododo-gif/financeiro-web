@@ -596,11 +596,11 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "⚠️ Formatos Aceitos!\n\n"
             "Exemplos aceitos:\n\n"
-            "• `10 salario receita` (Lança uma Receita)\n\n"
-            "• `120 Internet fixo` (Despesa Recorrente)\n\n"
+            "• `10 Salario Receita` (Lança uma Receita)\n\n"
+            "• `120 Internet Fixo` (Despesa Recorrente)\n\n"
             "• `50 Comida Crédito` (Despesa via Crédito)\n\n"
             "• `50 Comida Débito` (Despesa via Débito)\n\n"
-            "• `290 Alison receber 15/08` (Cria Conta a Receber)\n\n"
+            "• `290 Alison Receber 15/08` (Cria Conta a Receber)\n\n"
             "• `50 Comida Pix` (Despesa via Pix)\n\n"
             "• Consultar Pendentes a Receber: Digite: `receber ou pendentes`\n\n"
             "• `/clientes` (Visualizar, Editar ou Excluir Lançamentos de Clientes)\n\n"
@@ -949,6 +949,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     action = query.data
 
+    # --- 1. CALLBACKS DIRETOS QUE NÃO DEPENDEM DE SESSION_ID NO FINAL ---
     if action.startswith("venc_hoje_"):
         session_id = action.replace("venc_hoje_", "")
         await perguntar_forma_pagamento_recorrente(update, context, session_id)
@@ -984,7 +985,14 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"⚠️ Erro ao atualizar status: {e}")
             return
 
-    # Extrai o session_id do final do callback_data
+    # --- 2. VALIDAÇÃO DE SEGURANÇA E EXTRAÇÃO DE SESSION_ID ---
+    if "_" not in action:
+        return
+
+    # Evita erros caso callbacks de edição/exclusão cheguem aqui por engano
+    if action.startswith(("del_", "edit_", "cldel_", "cledit_")):
+        return
+
     partes = action.split("_")
     session_id = partes[-1]
     
@@ -997,6 +1005,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados_usuario = await asyncio.to_thread(buscar_dados_usuario, query.from_user.id)
     lista_cartoes = dados_usuario["cartoes"] if dados_usuario else []
 
+    # --- 3. FLUXOS DE PARCELAMENTO E RECORRÊNCIA ---
     if action.startswith("c_parcelado_menu_"):
         botoes = []
         val_base = dados_temp["valor"]
@@ -1162,6 +1171,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes, session_id)
             return
 
+    # --- 4. SELEÇÃO DE CONTA OU CARTÃO ---
     if action.startswith("cnt_"):
         conta_id = int(partes[1])
         mes_fatura_calc = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%m/%Y")
@@ -1198,10 +1208,12 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.get("lancamentos_temp", {}).pop(session_id, None)
         except Exception as e:
             await query.edit_message_text(f"⚠️ Erro ao salvar no Supabase: {e}")
+        return
 
-    elif action.startswith("crt_"):
+    if action.startswith("crt_"):
         cartao_id = int(partes[1])
         await processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes, session_id)
+        return
 
 
 async def testar_alertas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2004,15 +2016,16 @@ def main():
     )
     app.add_handler(conv_handler_cliente)
 
-   # --- CALLBACKS DOS BOTÕES (Organizados por padrão sem sobreposição) ---
-    # 1. Ações de Clientes e Pagamentos da Fatura/Vencimentos
-    app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern="^(cldel_|cledit_|confdel_|cancel_action|pagar_|pagarfat_)"))
+   # --- CALLBACKS DOS BOTÕES (Organizados com padrões explícitos) ---
     
-    # 2. Ações de Edição e Exclusão da lista diária (/listar)
+    # 1. Ações da lista diária (/listar) - Editar e Excluir
     app.add_handler(CallbackQueryHandler(tratar_botoes_lancamento, pattern="^(del_|edit_)"))
     
-    # 3. Fluxos temporários de lançamentos (Geral)
-    app.add_handler(CallbackQueryHandler(callback_geral))
+    # 2. Ações de Clientes, Contas a Receber e Pagamentos
+    app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern="^(cldel_|cledit_|confdel_|cancel_action|pagar_|pagarfat_)"))
+    
+    # 3. Fluxos temporários de lançamentos (Cartões, Parcelamento e Recorrentes)
+    app.add_handler(CallbackQueryHandler(callback_geral, pattern="^(venc_|c_|cnt_|crt_|parc_)"))
 
     # --- MENSAGENS DE TEXTO E CONTATOS ---
     app.add_handler(
