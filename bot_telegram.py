@@ -1597,7 +1597,7 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             await query.edit_message_text(f"⚠️ Erro ao atualizar status: {e}")
         return
 
-    # --- CÓDIGO EXISTENTE DE CLIENTES ---
+    # --- GERENCIAMENTO DE CLIENTES ---
     if data.startswith("cldel_"):
         cliente_id = int(data.split("_")[1])
         keyboard = [
@@ -1612,42 +1612,50 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         cliente_id = int(data.split("_")[1])
 
         def _delete():
+            # Exclui diretamente pelo ID primário do cliente
             return (
                 supabase.table("clientes")
                 .delete()
                 .eq("id", cliente_id)
-                .eq("usuario_id", usuario_id)
                 .execute()
             )
 
-        res = await asyncio.to_thread(_delete)
-        if res.data:
-            await query.edit_message_text("🗑️ *Cliente excluído com sucesso!*", parse_mode="Markdown")
-        else:
-            await query.edit_message_text("❌ Erro ao excluir: cliente não encontrado ou sem permissão.")
+        try:
+            res = await asyncio.to_thread(_delete)
+            if res.data:
+                await query.edit_message_text("🗑️ *Cliente excluído com sucesso!*", parse_mode="Markdown")
+            else:
+                await query.edit_message_text("❌ Erro ao excluir: cliente não encontrado no banco.")
+        except Exception as e:
+            logging.error(f"Erro ao excluir cliente {cliente_id}: {e}")
+            await query.edit_message_text(f"⚠️ Erro ao excluir do banco de dados: {e}")
 
     elif data.startswith("cledit_"):
         cliente_id = int(data.split("_")[1])
 
         def _get_nome():
+            # Busca pelo ID do cliente
             return (
                 supabase.table("clientes")
                 .select("nome")
                 .eq("id", cliente_id)
-                .eq("usuario_id", usuario_id)
                 .execute()
             )
         
-        res = await asyncio.to_thread(_get_nome)
-        if res.data:
-            nome = res.data[0]['nome']
-            await query.message.reply_text(
-                f"✏️ Para alterar a data de *{nome}*, copie a mensagem abaixo, altere a data e envie:\n\n"
-                f"`/data {cliente_id} 25/08/2026`",
-                parse_mode="Markdown"
-            )
-        else:
-            await query.message.reply_text("❌ Cliente não encontrado ou sem permissão.")
+        try:
+            res = await asyncio.to_thread(_get_nome)
+            if res.data:
+                nome = res.data[0]['nome']
+                await query.message.reply_text(
+                    f"✏️ Para alterar a data de *{nome}*, copie a mensagem abaixo, altere a data e envie:\n\n"
+                    f"`/data {cliente_id} 25/08/2026`",
+                    parse_mode="Markdown"
+                )
+            else:
+                await query.message.reply_text("❌ Cliente não encontrado no banco de dados.")
+        except Exception as e:
+            logging.error(f"Erro ao buscar cliente {cliente_id}: {e}")
+            await query.message.reply_text(f"⚠️ Erro ao consultar banco: {e}")
 
     elif data == "cancel_action":
         await query.edit_message_text("❌ Ação cancelada.")
