@@ -392,13 +392,23 @@ async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT
     dados = query.data
     logging.info(f"Recebido em tratar_botoes_lancamento: {dados}")
 
+    dados_usuario = await asyncio.to_thread(buscar_dados_usuario, query.from_user.id)
+    if not dados_usuario:
+        await query.message.reply_text("🚫 Acesso não autorizado. Envie /start para vincular sua conta.")
+        return
+    usuario_id = dados_usuario["usuario_id"]
+
     if dados.startswith("del_"):
-        mov_id_raw = dados.replace("del_", "")
+        mov_id_raw = dados.removeprefix("del_")
         try:
-            mov_id = int(mov_id_raw)
-            await asyncio.to_thread(
-                lambda: supabase.table("movimentacoes").delete().eq("id", mov_id).execute()
+            res = await asyncio.to_thread(
+                lambda: supabase.table("movimentacoes").delete()
+                .eq("id", mov_id_raw).eq("usuario_id", usuario_id).execute()
             )
+
+            if not res.data:
+                await query.message.reply_text("❌ Lançamento não encontrado ou sem permissão.")
+                return
 
             await query.edit_message_text(
                 text="🗑️ *Lançamento excluído com sucesso!*", 
@@ -410,13 +420,19 @@ async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT
         return
 
     if dados.startswith("edit_"):
-        mov_id_raw = dados.replace("edit_", "")
+        mov_id_raw = dados.removeprefix("edit_")
         try:
-            mov_id = int(mov_id_raw)
-            context.user_data["edit_mov_id"] = mov_id
+            res = await asyncio.to_thread(
+                lambda: supabase.table("movimentacoes").select("id")
+                .eq("id", mov_id_raw).eq("usuario_id", usuario_id).limit(1).execute()
+            )
+            if not res.data:
+                await query.message.reply_text("❌ Lançamento não encontrado ou sem permissão.")
+                return
+            context.user_data["edit_mov_id"] = mov_id_raw
             
             await query.message.reply_text(
-                text=f"✏️ *Modo de Edição (ID: {mov_id})*\n\nDigite o novo valor para este lançamento (ex: `45.50`):\n_(Ou envie /cancelar para desistir)_",
+                text=f"✏️ *Modo de Edição (ID: {mov_id_raw})*\n\nDigite o novo valor para este lançamento (ex: `45,50`):\n_(Ou envie /cancelar para desistir)_",
                 parse_mode="Markdown"
             )
         except Exception as e:
@@ -534,18 +550,30 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Tratamento de Edição
     if "edit_mov_id" in context.user_data:
-        mov_id = context.user_data.pop("edit_mov_id")
+        mov_id = context.user_data["edit_mov_id"]
         texto_digitado = update.message.text.strip()
         try:
             novo_valor = sanitizar_valor(texto_digitado)
+            dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
+            if not dados_usuario:
+                await update.message.reply_text("🚫 Acesso não autorizado. Envie /start para vincular sua conta.")
+                return
 
             def _update_valor():
-                return supabase.table("movimentacoes").update({"valor": novo_valor}).eq("id", mov_id).execute()
+                return (supabase.table("movimentacoes").update({"valor": novo_valor})
+                        .eq("id", mov_id).eq("usuario_id", dados_usuario["usuario_id"]).execute())
 
-            await asyncio.to_thread(_update_valor)
-            await update.message.reply_text(f"✅ *Lançamento atualizado para R$ {novo_valor:.2f}!*", parse_mode="Markdown")
+            res = await asyncio.to_thread(_update_valor)
+            context.user_data.pop("edit_mov_id", None)
+            if res.data:
+                await update.message.reply_text(f"✅ *Lançamento atualizado para R$ {novo_valor:.2f}!*", parse_mode="Markdown")
+            else:
+                await update.message.reply_text("❌ Lançamento não encontrado ou sem permissão.")
         except ValueError:
-            await update.message.reply_text("❌ Valor inválido. A edição foi cancelada. Tente usar `/listar` novamente.")
+            await update.message.reply_text("❌ Valor inválido. Envie um número, por exemplo 45,50, ou /cancelar.")
+        except Exception as e:
+            logging.exception("Erro ao atualizar lançamento %s", mov_id)
+            await update.message.reply_text("❌ Erro ao atualizar o lançamento. Tente novamente ou envie /cancelar.")
         return
 
     dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
@@ -1521,6 +1549,7 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 supabase.table("clientes")
                 .delete()
                 .eq("id", cliente_id)
+                .eq("usuario_id", usuario_id)
                 .execute()
             )
 
@@ -1542,6 +1571,7 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 supabase.table("clientes")
                 .select("nome")
                 .eq("id", cliente_id)
+                .eq("usuario_id", usuario_id)
                 .execute()
             )
         
@@ -1567,6 +1597,10 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 async def alterar_data_comando(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await limpar_botoes_anteriores(update, context)
     try:
+        dados_usuario = await asyncio.to_thread(buscar_dados_usuario, update.effective_user.id)
+        if not dados_usuario:
+            await update.message.reply_text("🚫 Acesso não autorizado. Envie /start para vincular sua conta.")
+            return
         args = context.args
         if len(args) < 2:
             await update.message.reply_text("❌ Use assim: `/data ID DATA` (Ex: `/data 5 25/08/2026`)", parse_mode="Markdown")
@@ -1584,7 +1618,8 @@ async def alterar_data_comando(update: Update, context: ContextTypes.DEFAULT_TYP
         data_br = dt.strftime("%d/%m/%Y")
 
         def _update():
-            return supabase.table("clientes").update({"data_vencimento": data_iso}).eq("id", cliente_id).execute()
+            return (supabase.table("clientes").update({"data_vencimento": data_iso})
+                    .eq("id", cliente_id).eq("usuario_id", dados_usuario["usuario_id"]).execute())
 
         res = await asyncio.to_thread(_update)
 
