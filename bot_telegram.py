@@ -126,6 +126,13 @@ def buscar_dados_usuario(telegram_id, forcar_atualizacao=False):
     return None
 
 
+def buscar_usuario_id(telegram_id):
+    """Consulta só o vínculo necessário para autorizar alterações."""
+    res = (supabase.table("usuarios").select("id")
+           .eq("telegram_id", int(telegram_id)).limit(1).execute())
+    return res.data[0]["id"] if res.data else None
+
+
 def calcular_mes_fatura(data_compra, dia_fechamento):
     if not dia_fechamento:
         return data_compra.strftime("%m/%Y")
@@ -387,16 +394,23 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except TelegramError:
+        logging.warning("Não foi possível confirmar o clique no botão", exc_info=True)
 
     dados = query.data
     logging.info(f"Recebido em tratar_botoes_lancamento: {dados}")
 
-    dados_usuario = await asyncio.to_thread(buscar_dados_usuario, query.from_user.id)
-    if not dados_usuario:
+    try:
+        usuario_id = await asyncio.to_thread(buscar_usuario_id, query.from_user.id)
+    except Exception:
+        logging.exception("Falha ao consultar usuário do botão %s", dados)
+        await query.message.reply_text("❌ Falha ao consultar seu cadastro. Confira o erro no log do bot.")
+        return
+    if usuario_id is None:
         await query.message.reply_text("🚫 Acesso não autorizado. Envie /start para vincular sua conta.")
         return
-    usuario_id = dados_usuario["usuario_id"]
 
     if dados.startswith("del_"):
         mov_id_raw = dados.removeprefix("del_")
@@ -414,9 +428,9 @@ async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT
                 text="🗑️ *Lançamento excluído com sucesso!*", 
                 parse_mode="Markdown"
             )
-        except Exception as e:
-            logging.error(f"Erro ao excluir ID {mov_id_raw}: {e}")
-            await query.message.reply_text("❌ Erro ao tentar excluir o lançamento.")
+        except Exception:
+            logging.exception("Erro ao excluir lançamento %s", mov_id_raw)
+            await query.message.reply_text("❌ Falha ao excluir. Confira o erro no log do bot.")
         return
 
     if dados.startswith("edit_"):
@@ -435,9 +449,9 @@ async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT
                 text=f"✏️ *Modo de Edição (ID: {mov_id_raw})*\n\nDigite o novo valor para este lançamento (ex: `45,50`):\n_(Ou envie /cancelar para desistir)_",
                 parse_mode="Markdown"
             )
-        except Exception as e:
-            logging.error(f"Erro ao editar ID {mov_id_raw}: {e}")
-            await query.message.reply_text("❌ Erro ao iniciar a edição.")
+        except Exception:
+            logging.exception("Erro ao iniciar edição do lançamento %s", mov_id_raw)
+            await query.message.reply_text("❌ Falha ao iniciar a edição. Confira o erro no log do bot.")
         return
 
 
@@ -554,14 +568,14 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto_digitado = update.message.text.strip()
         try:
             novo_valor = sanitizar_valor(texto_digitado)
-            dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
-            if not dados_usuario:
+            usuario_id = await asyncio.to_thread(buscar_usuario_id, telegram_id)
+            if usuario_id is None:
                 await update.message.reply_text("🚫 Acesso não autorizado. Envie /start para vincular sua conta.")
                 return
 
             def _update_valor():
                 return (supabase.table("movimentacoes").update({"valor": novo_valor})
-                        .eq("id", mov_id).eq("usuario_id", dados_usuario["usuario_id"]).execute())
+                        .eq("id", mov_id).eq("usuario_id", usuario_id).execute())
 
             res = await asyncio.to_thread(_update_valor)
             context.user_data.pop("edit_mov_id", None)
@@ -1594,6 +1608,17 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text("❌ Ação cancelada.")
 
 
+async def registrar_erro_bot(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logging.error("Erro não tratado no bot", exc_info=context.error)
+    if isinstance(update, Update) and update.callback_query:
+        try:
+            await update.callback_query.message.reply_text(
+                "❌ O botão falhou. Confira o erro no log do bot."
+            )
+        except TelegramError:
+            logging.exception("Não foi possível enviar aviso de erro no Telegram")
+
+
 async def alterar_data_comando(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await limpar_botoes_anteriores(update, context)
     try:
@@ -1974,6 +1999,8 @@ def main():
     )
     app.add_handler(MessageHandler(filters.CONTACT, receber_contato))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), registrar_gastos))
+
+    app.add_error_handler(registrar_erro_bot)
 
     app.run_polling()
 
