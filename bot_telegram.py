@@ -5,6 +5,7 @@ import os
 import re
 import calendar
 import html
+import pandas as pd
 import httpx
 import sys
 import uuid
@@ -1667,13 +1668,6 @@ async def alterar_data_comando(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception as e:
         await update.message.reply_text(f"⚠️ Erro ao atualizar: {e}")
 
-import calendar
-import logging
-import asyncio
-import pandas as pd
-from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
 
 async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await limpar_botoes_anteriores(update, context)
