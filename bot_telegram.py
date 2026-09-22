@@ -387,36 +387,44 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await query.answer() # Fecha o estado de carregamento no Telegram
 
     dados = query.data
+    logging.info(f"Recebido em tratar_botoes_lancamento: {dados}")
 
     if dados.startswith("del_"):
         mov_id_raw = dados.replace("del_", "")
         try:
             mov_id = int(mov_id_raw)
-            def _delete_mov():
-                return supabase.table("movimentacoes").delete().eq("id", mov_id).execute()
+            
+            # Apaga no Supabase em thread separada para não bloquear
+            await asyncio.to_thread(
+                lambda: supabase.table("movimentacoes").delete().eq("id", mov_id).execute()
+            )
 
-            await asyncio.to_thread(_delete_mov)
-            await query.edit_message_text(text="🗑️ *Lançamento excluído com sucesso!*", parse_mode="Markdown")
+            await query.edit_message_text(
+                text="🗑️ *Lançamento excluído com sucesso!*", 
+                parse_mode="Markdown"
+            )
         except Exception as e:
-            logging.error(f"Erro ao excluir lançamento {mov_id_raw}: {e}")
-            await query.edit_message_text(text="❌ Erro ao tentar excluir o lançamento.")
+            logging.error(f"Erro ao excluir ID {mov_id_raw}: {e}")
+            await query.message.reply_text("❌ Erro ao tentar excluir o lançamento.")
         return
 
     if dados.startswith("edit_"):
         mov_id_raw = dados.replace("edit_", "")
         try:
             mov_id = int(mov_id_raw)
+            # Salva o ID na sessão do usuário
             context.user_data["edit_mov_id"] = mov_id
+            
             await query.message.reply_text(
                 text=f"✏️ *Modo de Edição (ID: {mov_id})*\n\nDigite o novo valor para este lançamento (ex: `45.50`):\n_(Ou envie /cancelar para desistir)_",
                 parse_mode="Markdown"
             )
         except Exception as e:
-            logging.error(f"Erro ao iniciar edição {mov_id_raw}: {e}")
-            await query.edit_message_text(text="❌ Erro ao processar edição.")
+            logging.error(f"Erro ao editar ID {mov_id_raw}: {e}")
+            await query.message.reply_text("❌ Erro ao iniciar a edição.")
         return
 
 
@@ -2023,7 +2031,7 @@ def main():
     )
     app.add_handler(conv_handler_cliente)
 
-   # --- CALLBACKS DOS BOTÕES ---
+    # --- CALLBACKS DOS BOTÕES ---
     # 1. Ações da lista diária (/listar) - Editar e Excluir
     app.add_handler(CallbackQueryHandler(tratar_botoes_lancamento, pattern="^(del_|edit_)"))
     
@@ -2032,6 +2040,7 @@ def main():
     
     # 3. Fluxos temporários e gerais (Catch-all ordenado)
     app.add_handler(CallbackQueryHandler(callback_geral))
+
     # --- MENSAGENS DE TEXTO E CONTATOS ---
     app.add_handler(
         MessageHandler(
