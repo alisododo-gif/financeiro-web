@@ -389,7 +389,9 @@ async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
 
     dados = query.data
-    acao, mov_id = dados.split("_")
+    partes = dados.split("_")
+    acao = partes[0]
+    mov_id = partes[1]
 
     if acao == "del":
         try:
@@ -404,8 +406,8 @@ async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT
 
     elif acao == "edit":
         context.user_data["edit_mov_id"] = mov_id
-        await query.edit_message_text(
-            text="✏️ *Modo de Edição*\n\nDigite o novo valor para este lançamento (ex: `45.50`):\n_(Ou envie /cancelar para desistir)_",
+        await query.message.reply_text(
+            text=f"✏️ *Modo de Edição (ID: {mov_id})*\n\nDigite o novo valor para este lançamento (ex: `45.50`):\n_(Ou envie /cancelar para desistir)_",
             parse_mode="Markdown"
         )
 
@@ -2008,13 +2010,14 @@ def main():
     )
     app.add_handler(conv_handler_cliente)
 
-    # --- CALLBACKS DOS BOTÕES ---
-    # Botões dos Clientes
-    app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern="^(cldel_|cledit_|confdel_|cancel_action)"))
+   # --- CALLBACKS DOS BOTÕES (Organizados por padrão sem sobreposição) ---
+    # 1. Ações de Clientes e Pagamentos da Fatura/Vencimentos
     app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern="^(cldel_|cledit_|confdel_|cancel_action|pagar_|pagarfat_)"))
     
-    # Botões de Lançamentos Financeiros Gerais
+    # 2. Ações de Edição e Exclusão da lista diária (/listar)
     app.add_handler(CallbackQueryHandler(tratar_botoes_lancamento, pattern="^(del_|edit_)"))
+    
+    # 3. Fluxos temporários de lançamentos (Geral)
     app.add_handler(CallbackQueryHandler(callback_geral))
 
     # --- MENSAGENS DE TEXTO E CONTATOS ---
