@@ -390,27 +390,34 @@ async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
 
     dados = query.data
-    partes = dados.split("_")
-    acao = partes[0]
-    mov_id = partes[1]
 
-    if acao == "del":
+    if dados.startswith("del_"):
+        mov_id_raw = dados.replace("del_", "")
         try:
+            mov_id = int(mov_id_raw)
             def _delete_mov():
                 return supabase.table("movimentacoes").delete().eq("id", mov_id).execute()
 
             await asyncio.to_thread(_delete_mov)
             await query.edit_message_text(text="🗑️ *Lançamento excluído com sucesso!*", parse_mode="Markdown")
         except Exception as e:
-            logging.error(f"Erro ao excluir lançamento {mov_id}: {e}")
+            logging.error(f"Erro ao excluir lançamento {mov_id_raw}: {e}")
             await query.edit_message_text(text="❌ Erro ao tentar excluir o lançamento.")
+        return
 
-    elif acao == "edit":
-        context.user_data["edit_mov_id"] = mov_id
-        await query.message.reply_text(
-            text=f"✏️ *Modo de Edição (ID: {mov_id})*\n\nDigite o novo valor para este lançamento (ex: `45.50`):\n_(Ou envie /cancelar para desistir)_",
-            parse_mode="Markdown"
-        )
+    if dados.startswith("edit_"):
+        mov_id_raw = dados.replace("edit_", "")
+        try:
+            mov_id = int(mov_id_raw)
+            context.user_data["edit_mov_id"] = mov_id
+            await query.message.reply_text(
+                text=f"✏️ *Modo de Edição (ID: {mov_id})*\n\nDigite o novo valor para este lançamento (ex: `45.50`):\n_(Ou envie /cancelar para desistir)_",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logging.error(f"Erro ao iniciar edição {mov_id_raw}: {e}")
+            await query.edit_message_text(text="❌ Erro ao processar edição.")
+        return
 
 
 async def cancelar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2016,17 +2023,15 @@ def main():
     )
     app.add_handler(conv_handler_cliente)
 
-   # --- CALLBACKS DOS BOTÕES (Organizados com padrões explícitos) ---
-    
+   # --- CALLBACKS DOS BOTÕES ---
     # 1. Ações da lista diária (/listar) - Editar e Excluir
     app.add_handler(CallbackQueryHandler(tratar_botoes_lancamento, pattern="^(del_|edit_)"))
     
     # 2. Ações de Clientes, Contas a Receber e Pagamentos
     app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern="^(cldel_|cledit_|confdel_|cancel_action|pagar_|pagarfat_)"))
     
-    # 3. Fluxos temporários de lançamentos (Cartões, Parcelamento e Recorrentes)
-    app.add_handler(CallbackQueryHandler(callback_geral, pattern="^(venc_|c_|cnt_|crt_|parc_)"))
-
+    # 3. Fluxos temporários e gerais (Catch-all ordenado)
+    app.add_handler(CallbackQueryHandler(callback_geral))
     # --- MENSAGENS DE TEXTO E CONTATOS ---
     app.add_handler(
         MessageHandler(
