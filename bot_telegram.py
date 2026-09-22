@@ -56,6 +56,7 @@ logging.basicConfig(level=logging.INFO)
 
 CACHE_USUARIOS = {}
 FUSO_BR = pytz.timezone("America/Sao_Paulo")
+VERSAO_BOT = "botoes-2026-09-22-03"
 
 
 def sanitizar_valor(valor_raw: str) -> float:
@@ -453,6 +454,22 @@ async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT
             logging.exception("Erro ao iniciar edição do lançamento %s", mov_id_raw)
             await query.message.reply_text("❌ Falha ao iniciar a edição. Confira o erro no log do bot.")
         return
+
+
+async def diagnostico_botoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"Diagnóstico do bot: {VERSAO_BOT}\nToque no botão abaixo.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+            "Testar botão", callback_data="diagnostico_botoes"
+        )]])
+    )
+
+
+async def responder_diagnostico(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    logging.info("Botão de diagnóstico recebido: usuário=%s versão=%s", query.from_user.id, VERSAO_BOT)
+    await query.answer("Clique recebido")
+    await query.message.reply_text(f"✅ Clique recebido pela versão {VERSAO_BOT}.")
 
 
 async def cancelar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1957,6 +1974,7 @@ def main():
     app.add_handler(CommandHandler("status", consultar_contas_receber))
     app.add_handler(CommandHandler("receber", consultar_contas_receber))
     app.add_handler(CommandHandler("cancelar", cancelar_edicao))
+    app.add_handler(CommandHandler("diagnostico", diagnostico_botoes))
 
     app.add_handler(CommandHandler(["listar", "lancamentos"], listar_lancamentos))
     app.add_handler(CommandHandler("receita", lancar_receita))
@@ -1981,6 +1999,7 @@ def main():
     app.add_handler(conv_handler_cliente)
 
     # --- CALLBACKS DOS BOTÕES ---
+    app.add_handler(CallbackQueryHandler(responder_diagnostico, pattern="^diagnostico_botoes$"))
     app.add_handler(CallbackQueryHandler(tratar_botoes_lancamento, pattern="^(del_|edit_)"))
     
     # Ajuste do regex para não capturar "pagar_rec_" nesta função
