@@ -387,7 +387,7 @@ async def listar_lancamentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer() # Fecha o estado de carregamento no Telegram
+    await query.answer()
 
     dados = query.data
     logging.info(f"Recebido em tratar_botoes_lancamento: {dados}")
@@ -396,8 +396,6 @@ async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT
         mov_id_raw = dados.replace("del_", "")
         try:
             mov_id = int(mov_id_raw)
-            
-            # Apaga no Supabase em thread separada para não bloquear
             await asyncio.to_thread(
                 lambda: supabase.table("movimentacoes").delete().eq("id", mov_id).execute()
             )
@@ -415,7 +413,6 @@ async def tratar_botoes_lancamento(update: Update, context: ContextTypes.DEFAULT
         mov_id_raw = dados.replace("edit_", "")
         try:
             mov_id = int(mov_id_raw)
-            # Salva o ID na sessão do usuário
             context.user_data["edit_mov_id"] = mov_id
             
             await query.message.reply_text(
@@ -763,7 +760,6 @@ async def registrar_gastos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     mes_fatura_calc = datetime.strptime(data_final, "%Y-%m-%d").strftime("%m/%Y")
 
-    # Utiliza um ID único para cada sessão de lançamento evitado sobrescritas concorrentes
     session_id = str(uuid.uuid4())[:8]
     if "lancamentos_temp" not in context.user_data:
         context.user_data["lancamentos_temp"] = {}
@@ -964,7 +960,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     action = query.data
 
-    # --- 1. CALLBACKS DIRETOS QUE NÃO DEPENDEM DE SESSION_ID NO FINAL ---
     if action.startswith("venc_hoje_"):
         session_id = action.replace("venc_hoje_", "")
         await perguntar_forma_pagamento_recorrente(update, context, session_id)
@@ -1000,11 +995,9 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"⚠️ Erro ao atualizar status: {e}")
             return
 
-    # --- 2. VALIDAÇÃO DE SEGURANÇA E EXTRAÇÃO DE SESSION_ID ---
     if "_" not in action:
         return
 
-    # Evita erros caso callbacks de edição/exclusão cheguem aqui por engano
     if action.startswith(("del_", "edit_", "cldel_", "cledit_")):
         return
 
@@ -1020,7 +1013,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados_usuario = await asyncio.to_thread(buscar_dados_usuario, query.from_user.id)
     lista_cartoes = dados_usuario["cartoes"] if dados_usuario else []
 
-    # --- 3. FLUXOS DE PARCELAMENTO E RECORRÊNCIA ---
     if action.startswith("c_parcelado_menu_"):
         botoes = []
         val_base = dados_temp["valor"]
@@ -1052,7 +1044,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         num_parcelas = int(partes[1])
         dados_temp["parcelas"] = num_parcelas
 
-        # CASO 1: FIXO / RECORRENTE
         if dados_temp.get("e_recorrente"):
             valor_parcela = dados_temp["valor"]
             valor_total = valor_parcela * num_parcelas
@@ -1103,7 +1094,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(f"⚠️ Erro ao salvar no banco: {e}")
             return
 
-        # CASO 2: CARTÃO DE CRÉDITO PARCELADO
         else:
             if len(lista_cartoes) > 1:
                 botoes = []
@@ -1186,7 +1176,6 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await processar_lancamento_cartao(query, context, cartao_id, dados_temp, lista_cartoes, session_id)
             return
 
-    # --- 4. SELEÇÃO DE CONTA OU CARTÃO ---
     if action.startswith("cnt_"):
         conta_id = int(partes[1])
         mes_fatura_calc = datetime.strptime(dados_temp["data"], "%Y-%m-%d").strftime("%m/%Y")
@@ -1272,83 +1261,19 @@ async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT
 
 
 async def handler_resumo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Limpa os botões antigos antes de acionar o resumo mensal."""
     await limpar_botoes_anteriores(update, context)
     await enviar_resumo_mensal_telegram(update, context)        
 
 
 async def job_resumo_mensal(context: ContextTypes.DEFAULT_TYPE):
-    """Wrapper para a Job Queue chamar a função do resumo mensal de forma segura."""
     await enviar_resumo_mensal_telegram(None, context)
 
-# --- NOVAS FUNÇÕES: GESTÃO DE CLIENTES RECORRENTES ---
 
-async def cadastrar_cliente_recorrente(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Cadastra cliente na tabela 'clientes'.
-    Uso: /cadastrar Nome | 5565999999999 | 150.00 | 10
-    """
-    try:
-        texto = " ".join(context.args)
-        if not texto or "|" not in texto:
-            await update.message.reply_text(
-                "❌ *Formato incorreto!*\n\n"
-                "Use assim:\n`/cadastrar Nome | TelefoneComDDD | Valor | DiaVencimento`\n\n"
-                "*Exemplo:*\n`/cadastrar João Silva | 5565999999999 | 150.00 | 10`",
-                parse_mode="Markdown"
-            )
-            return
+# --- GESTÃO DE CLIENTES & COBRANÇAS ---
 
-        dados = [d.strip() for d in texto.split("|")]
-        if len(dados) < 4:
-            await update.message.reply_text("❌ Preencha todos os 4 campos separados por `|`.", parse_mode="Markdown")
-            return
-
-        nome, telefone, valor_raw, dia_raw = dados[0], dados[1], dados[2], dados[3]
-        valor = sanitizar_valor(valor_raw)
-        dia = int(dia_raw)
-
-        if not (1 <= dia <= 31):
-            await update.message.reply_text("⚠️ O dia de vencimento deve ser entre 1 e 31.")
-            return
-
-        payload = {
-            "nome": nome,
-            "telefone": re.sub(r"\D", "", telefone),
-            "valor": valor,
-            "dia_vencimento": dia,
-            "status": "Pendente"
-        }
-
-        def _insert_cliente():
-            return supabase.table("clientes").insert(payload).execute()
-
-        res = await asyncio.to_thread(_insert_cliente)
-
-        if res.data:
-            await update.message.reply_text(
-                f"✅ *Cliente Cadastrado com Sucesso!*\n\n"
-                f"👤 *Nome:* {nome}\n"
-                f"📱 *Telefone:* {payload['telefone']}\n"
-                f"💰 *Valor:* R$ {valor:.2f}\n"
-                f"📅 *Vence todo dia:* {dia}",
-                parse_mode="Markdown"
-            )
-        else:
-            await update.message.reply_text("❌ Erro ao cadastrar cliente no banco de dados.")
-
-    except Exception as e:
-        logging.error(f"Erro ao cadastrar cliente: {e}")
-        await update.message.reply_text(f"⚠️ Erro ao processar comando: {e}")
-
-
-# --- NOVAS FUNÇÕES: GESTÃO DE CLIENTES & COBRANÇAS ---
-
-# --- ETAPAS DA CONVERSA (/cadastrar) ---
 NOME, TELEFONE, VALOR, DATA = range(4)
 
 async def iniciar_cadastro(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Inicia o fluxo de cadastro validando a autorização do usuário."""
     await limpar_botoes_anteriores(update, context)
     
     telegram_id = update.effective_user.id
@@ -1363,20 +1288,17 @@ async def iniciar_cadastro(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return NOME
 
 async def receber_nome(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recebe o Nome e pede o Telefone."""
     context.user_data['cad_nome'] = update.message.text.strip()
     await update.message.reply_text("📱 **Qual o telefone do cliente com DDD?**\n_(Exemplo: 556599999999) (Sem o 9)_", parse_mode="Markdown")
     return TELEFONE
 
 async def receber_telefone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recebe o Telefone e pede o Valor."""
     telefone_limpo = re.sub(r"\D", "", update.message.text)
     context.user_data['cad_telefone'] = telefone_limpo
     await update.message.reply_text("💰 **Qual o valor da mensalidade/cobrança?**\n_(Exemplo: 150,00)_", parse_mode="Markdown")
     return VALOR
 
 async def receber_valor(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recebe o Valor e pede a Data de Vencimento."""
     try:
         valor = sanitizar_valor(update.message.text)
         context.user_data['cad_valor'] = valor
@@ -1387,7 +1309,6 @@ async def receber_valor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return VALOR
 
 async def receber_data_e_salvar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recebe a Data, grava no Supabase com o vínculo do usuário e finaliza a conversa."""
     texto_data = update.message.text.strip()
     
     try:
@@ -1442,7 +1363,6 @@ async def receber_data_e_salvar(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def cancelar_cadastro(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await limpar_botoes_anteriores(update, context)
-    """Cancela o processo de cadastro."""
     context.user_data.clear()
     await update.message.reply_text("❌ Cadastro cancelado.")
     return ConversationHandler.END
@@ -1450,11 +1370,6 @@ async def cancelar_cadastro(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await limpar_botoes_anteriores(update, context)
-
-    """
-    Lista os clientes pertencentes ao usuário atual com botões de Editar e Excluir.
-    Uso: /clientes
-    """
 
     telegram_id = update.effective_user.id
     dados_usuario = await asyncio.to_thread(buscar_dados_usuario, telegram_id)
@@ -1484,7 +1399,6 @@ async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFA
 
         await update.message.reply_text("📋 *Sua Lista de Clientes Cadastrados:*", parse_mode="Markdown")
 
-        # Recupera a lista de IDs ou cria uma nova se não existir
         mensagens_com_botoes = context.user_data.get("mensagens_botoes_antigas", [])
 
         for c in clientes:
@@ -1501,7 +1415,6 @@ async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFA
                 f"📅 Vencimento: *{data_br}* ({status_emoji} {c.get('status', 'Pendente')})"
             )
 
-            # Botões inline específicos para este cliente
             keyboard = [
                 [
                     InlineKeyboardButton("✏️ Editar", callback_data=f"cledit_{c['id']}"),
@@ -1510,20 +1423,15 @@ async def listar_clientes_recorrentes(update: Update, context: ContextTypes.DEFA
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-            # Envia a mensagem e captura a resposta para extrair o ID
             msg_enviada = await update.message.reply_text(msg_texto, parse_mode="Markdown", reply_markup=reply_markup)
-            
-            # Guarda o ID da mensagem para poder fechar/limpar depois
             mensagens_com_botoes.append(msg_enviada.message_id)
 
-        # Atualiza a lista no context
         context.user_data["mensagens_botoes_antigas"] = mensagens_com_botoes
 
     except Exception as e:
         logging.error(f"Erro ao listar clientes: {e}")
         await update.message.reply_text("❌ Erro ao buscar a lista de clientes no Supabase.")
 
-# --- TRATAMENTO DOS BOTÕES DE AÇÃO (EXCLUSÃO E EDICAO DE DATA) ---
 
 async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1539,7 +1447,6 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     usuario_id = dados_usuario["usuario_id"]
 
-    # --- SUPORTE A QUITAÇÃO DE FATURA AGRUPADA ---
     if data.startswith("pagarfat_"):
         ids_raw = data.replace("pagarfat_", "").split("-")
         ids_movs = [int(i) for i in ids_raw if i.isdigit()]
@@ -1569,7 +1476,6 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             await query.edit_message_text(f"⚠️ Erro ao atualizar status: {e}")
         return
 
-    # --- SUPORTE AO PAGAR DESPESA INDIVIDUAL (BOLETOS / FIXOS) ---
     if data.startswith("pagar_"):
         mov_id = int(data.split("_")[1])
         try:
@@ -1597,7 +1503,6 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             await query.edit_message_text(f"⚠️ Erro ao atualizar status: {e}")
         return
 
-    # --- GERENCIAMENTO DE CLIENTES ---
     if data.startswith("cldel_"):
         cliente_id = int(data.split("_")[1])
         keyboard = [
@@ -1612,7 +1517,6 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         cliente_id = int(data.split("_")[1])
 
         def _delete():
-            # Exclui diretamente pelo ID primário do cliente
             return (
                 supabase.table("clientes")
                 .delete()
@@ -1634,7 +1538,6 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         cliente_id = int(data.split("_")[1])
 
         def _get_nome():
-            # Busca pelo ID do cliente
             return (
                 supabase.table("clientes")
                 .select("nome")
@@ -1661,14 +1564,8 @@ async def botao_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text("❌ Ação cancelada.")
 
 
-# --- COMANDO PARA SALVAR A NOVA DATA ---
-
 async def alterar_data_comando(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await limpar_botoes_anteriores(update, context)
-    """
-    Atualiza a data do cliente no Supabase.
-    Uso: /data ID DD/MM/AAAA
-    """
     try:
         args = context.args
         if len(args) < 2:
@@ -1678,7 +1575,6 @@ async def alterar_data_comando(update: Update, context: ContextTypes.DEFAULT_TYP
         cliente_id = int(args[0])
         data_raw = args[1]
 
-        # Tratamento do formato da data
         if "/" in data_raw:
             dt = datetime.strptime(data_raw, "%d/%m/%Y")
         else:
@@ -1687,7 +1583,6 @@ async def alterar_data_comando(update: Update, context: ContextTypes.DEFAULT_TYP
         data_iso = dt.strftime("%Y-%m-%d")
         data_br = dt.strftime("%d/%m/%Y")
 
-        # Atualiza apenas a data no Supabase pelo ID do cliente
         def _update():
             return supabase.table("clientes").update({"data_vencimento": data_iso}).eq("id", cliente_id).execute()
 
@@ -1721,7 +1616,6 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
         mes_atual, ano_atual = agora.month, agora.year
         mes_fatura_str = f"{mes_atual:02d}/{ano_atual}"
 
-        # 1. BUSCA REGISTROS NO SUPABASE
         def _get_vencimentos():
             return (
                 supabase.table("movimentacoes")
@@ -1735,18 +1629,16 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
         movimentacoes = res.data or []
 
         if not movimentacoes:
-            await update.message.reply_text(f"📂 Nenhuma despesa/vencimento encontrado no banco de dados.")
+            await update.message.reply_text("📂 Nenhuma despesa/vencimento encontrado no banco de dados.")
             return
 
         df_raw = pd.DataFrame(movimentacoes)
 
-        # Trata coluna de pagamentos
         if "pago" in df_raw.columns:
             df_raw["pago"] = df_raw["pago"].fillna(False).astype(bool)
         else:
             df_raw["pago"] = False
 
-        # Mapeamento de cartões do usuário
         lista_cartoes = dados_usuario.get("cartoes", [])
         mapa_cartoes_info = {}
         for c in lista_cartoes:
@@ -1758,7 +1650,6 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     "fechamento": int(c.get("dia_fechamento") or c.get("fechamento") or 8),
                 }
 
-        # --- FILTRO 1: IDENTIFICA CARTÕES ---
         def eh_cartao(row):
             cid = str(row.get("cartao_id") or "").split(".")[0]
             fp = str(row.get("forma_pagamento") or "").lower()
@@ -1781,7 +1672,6 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         cond_cartao = df_raw.apply(eh_cartao, axis=1)
 
-        # --- FILTRO 2: BOLETOS E FIXOS/RECORRENTES ---
         def eh_boleto_ou_recorrente(row):
             fp = str(row.get("forma_pagamento") or "").lower()
             desc = str(row.get("descricao") or "").lower()
@@ -1806,7 +1696,6 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 df_outras_contas["ids_compras"] = df_outras_contas["id"].apply(lambda x: [x])
                 df_outras_contas["descricao_detalhada"] = df_outras_contas["descricao"].apply(lambda x: [str(x)] if pd.notna(x) else [])
 
-        # --- FILTRO 3: AGRUPAMENTO DE FATURAS DE CARTÃO ---
         df_credito = df_raw[cond_cartao].copy()
         df_faturas_agrupadas = pd.DataFrame()
 
@@ -1863,7 +1752,6 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
             df_faturas_agrupadas["descricao_detalhada"] = df_faturas_agrupadas["descricao"]
             df_faturas_agrupadas["descricao"] = df_faturas_agrupadas.apply(lambda r: f"💳 Fatura {r['nome_exibicao_cartao']} ({r['mes_fatura']})", axis=1)
 
-        # UNIFICA E FILTRA PELO MÊS ATUAL
         dfs_concatenar = [df for df in [df_outras_contas, df_faturas_agrupadas] if not df.empty]
         df_venc = pd.concat(dfs_concatenar, ignore_index=True) if dfs_concatenar else pd.DataFrame()
 
@@ -1895,7 +1783,6 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
         total_pago = float(df_pagos["valor"].sum()) if not df_pagos.empty else 0.0
         total_geral = float(df_venc["valor"].sum())
 
-        # ENVIAR CABEÇALHO COM VALORES
         msg_resumo = (
             f"📊 *RESUMO DE VENCIMENTOS ({mes_fatura_str})*\n\n"
             f"⏳ *Total Pendente:* R$ {total_pendente:.2f}\n"
@@ -1907,7 +1794,6 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         mensagens_com_botoes = context.user_data.get("mensagens_botoes_antigas", [])
 
-        # --- 1. EXIBIÇÃO DAS CONTAS PENDENTES ---
         if not df_pendentes.empty:
             await update.message.reply_text("⏳ *CONTAS PENDENTES / A PAGAR:*", parse_mode="Markdown")
 
@@ -1939,7 +1825,6 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 msg_env = await update.message.reply_text(msg_txt, parse_mode="Markdown", reply_markup=reply_markup)
                 mensagens_com_botoes.append(msg_env.message_id)
 
-        # --- 2. EXIBIÇÃO DAS CONTAS JÁ PAGAS ---
         if not df_pagos.empty:
             await update.message.reply_text("✅ *CONTAS QUITADAS / PAGAS:*", parse_mode="Markdown")
 
@@ -1963,11 +1848,9 @@ async def listar_vencimentos(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Erro ao processar os vencimentos no banco de dados.")
 
 
-
 def main():
     global supabase
 
-    # Validação rigorosa das variáveis de ambiente na inicialização
     if not TELEGRAM_TOKEN:
         logging.critical("❌ Erro: Variável TELEGRAM_TOKEN não configurada no arquivo .env!")
         sys.exit(1)
@@ -2022,11 +1905,9 @@ def main():
     app.add_handler(CommandHandler("resumo", handler_resumo))
     app.add_handler(CommandHandler("vencimentos", listar_vencimentos))
     
-    # --- CLIENTES (LISTAGEM E ALTERAÇÃO DE DATA) ---
     app.add_handler(CommandHandler("clientes", listar_clientes_recorrentes))
     app.add_handler(CommandHandler("data", alterar_data_comando))
 
-    # Handlers da conversa do /cadastrar
     conv_handler_cliente = ConversationHandler(
         entry_points=[CommandHandler("cadastrar", iniciar_cadastro)],
         states={
@@ -2040,19 +1921,13 @@ def main():
     app.add_handler(conv_handler_cliente)
 
     # --- CALLBACKS DOS BOTÕES ---
-    # 1. Ações da lista diária (/listar) - Editar e Excluir
     app.add_handler(CallbackQueryHandler(tratar_botoes_lancamento, pattern="^(del_|edit_)"))
     
-    # 2. Ações de Clientes, Contas a Receber e Pagamentos
-    app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern="^(cldel_|cledit_|confdel_|cancel_action|pagar_|pagarfat_)"))
+    # Ajuste do regex para não capturar "pagar_rec_" nesta função
+    app.add_handler(CallbackQueryHandler(botao_callback_handler, pattern="^(cldel_|cledit_|confdel_|cancel_action|(?!pagar_rec_)pagar_|pagarfat_)"))
     
-    # 3. Fluxos de Contas a Receber
     app.add_handler(CallbackQueryHandler(callback_geral, pattern="^pagar_rec_"))
-
-    # 4. Fluxos de Troca de Vencimento
     app.add_handler(CallbackQueryHandler(callback_geral, pattern="^venc_"))
-
-    # 5. Catch-all / Demais botões temporários
     app.add_handler(CallbackQueryHandler(callback_geral))
 
     # --- MENSAGENS DE TEXTO E CONTATOS ---
