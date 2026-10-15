@@ -41,7 +41,10 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-STREAMLIT_URL = "https://financeiro-web-2-0.streamlit.app/?uid=1"
+# The URL never conveys a user identity; the web app requires its own login.
+FINANCEIROPRO_WEB_URL = os.getenv(
+    "FINANCEIROPRO_WEB_URL", "https://financeiroproweb.alisododo.workers.dev/financeiro"
+)
 
 # Cache TTL em segundos (ex: 600 segundos = 10 minutos)
 CACHE_TTL = 600
@@ -79,21 +82,21 @@ def buscar_dados_usuario(telegram_id, forcar_atualizacao=False):
         return None
 
     now = datetime.now()
-    if not forcar_atualizacao and telegram_id_int in CACHE_USUARIOS:
-        cached_data, timestamp = CACHE_USUARIOS[telegram_id_int]
-        if (now - timestamp).total_seconds() < CACHE_TTL:
-            return cached_data
-
     try:
         res_user = (
             supabase.table("usuarios")
             .select("id")
             .eq("telegram_id", telegram_id_int)
+            .eq("status", "ativo")
             .execute()
         )
 
         if res_user.data:
             usuario_db_id = res_user.data[0]["id"]
+            if not forcar_atualizacao and telegram_id_int in CACHE_USUARIOS:
+                cached_data, timestamp = CACHE_USUARIOS[telegram_id_int]
+                if cached_data.get("usuario_id") == usuario_db_id and (now - timestamp).total_seconds() < CACHE_TTL:
+                    return cached_data
 
             res_contas = (
                 supabase.table("contas")
@@ -129,7 +132,7 @@ def buscar_dados_usuario(telegram_id, forcar_atualizacao=False):
 def buscar_usuario_id(telegram_id):
     """Consulta só o vínculo necessário para autorizar alterações."""
     res = (supabase.table("usuarios").select("id")
-           .eq("telegram_id", int(telegram_id)).limit(1).execute())
+           .eq("telegram_id", int(telegram_id)).eq("status", "ativo").limit(1).execute())
     return res.data[0]["id"] if res.data else None
 
 
@@ -183,6 +186,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def receber_contato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await limpar_botoes_anteriores(update, context)
     contato = update.message.contact
+    if contato is None or contato.user_id != update.effective_user.id:
+        await update.message.reply_text("🚫 Compartilhe seu próprio contato pelo botão do Telegram para vincular sua conta.")
+        return
     telefone_telegram = re.sub(r"\D", "", contato.phone_number)
     telegram_id = int(update.effective_user.id)
     nome_telegram = update.effective_user.first_name or "Usuário"
@@ -1018,12 +1024,20 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if action.startswith("pagar_rec_"):
-        receber_id = int(action.replace("pagar_rec_", ""))
         try:
+            usuario_id = await asyncio.to_thread(buscar_usuario_id, query.from_user.id)
+            if usuario_id is None:
+                await query.edit_message_text("🚫 Operação não autorizada. Vincule uma conta ativa pelo /start.")
+                return
+            receber_id = int(action.removeprefix("pagar_rec_"))
             def _update_rec():
-                return supabase.table("contas_receber").update({"recebido": True}).eq("id", receber_id).execute()
+                return (supabase.table("contas_receber").update({"recebido": True})
+                        .eq("id", receber_id).eq("usuario_id", usuario_id).execute())
 
-            await asyncio.to_thread(_update_rec)
+            result = await asyncio.to_thread(_update_rec)
+            if not result.data:
+                await query.edit_message_text("❌ Recebimento não encontrado ou sem permissão.")
+                return
             
             texto_antigo = query.message.text
             await query.edit_message_text(
@@ -1034,7 +1048,7 @@ async def callback_geral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         except Exception as e:
             logging.error(f"Erro ao dar baixa em conta a receber: {e}")
-            await query.edit_message_text(f"⚠️ Erro ao atualizar status: {e}")
+            await query.edit_message_text("⚠️ Não foi possível atualizar o recebimento. Tente novamente.")
             return
 
     if "_" not in action:
@@ -1268,15 +1282,15 @@ async def testar_alertas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await limpar_botoes_anteriores(update, context)
 
 
-async def ping_streamlit(context: ContextTypes.DEFAULT_TYPE):
+async def ping_web_app(context: ContextTypes.DEFAULT_TYPE):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
         async with httpx.AsyncClient() as client:
-            response = await client.get(STREAMLIT_URL, headers=headers, timeout=10)
+            response = await client.get(FINANCEIROPRO_WEB_URL, headers=headers, timeout=10)
             if response.status_code == 200:
-                logging.info("🟢 Ping enviado com sucesso para o Streamlit!")
+                logging.info("🟢 Aplicação web FinanceiroPro acessível.")
     except Exception as e:
-        logging.error(f"⚠️ Erro ao enviar ping para o Streamlit: {e}")
+        logging.error(f"⚠️ Erro ao consultar aplicação web: {e}")
 
 
 async def limpar_botoes_anteriores(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1941,7 +1955,7 @@ def main():
     )
 
     app.job_queue.run_repeating(
-        ping_streamlit,
+        ping_web_app,
         interval=18000,
         first=18000
     )
