@@ -1,19 +1,4 @@
-# Framework e Manipulação de Dados
-streamlit>=1.30.0
-pandas>=2.0.0
-pyarrow<25
-openpyxl
-
-# Banco de Dados e Integrações
-supabase
-python-dotenv
-psycopg2-binary
-
-# Requisições e Utilitários
-requests
-pytz
-python-telegram-bot[job-queue]>=20.0
-
-# Relatórios e Visualização
-plotly
-reportlab
+python-telegram-bot[job-queue]==22.8
+supabase==2.32.0
+python-dotenv==1.2.4
+pytz==2025.2

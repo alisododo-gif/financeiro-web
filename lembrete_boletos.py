@@ -63,7 +63,10 @@ def consultar_view(nome_view: str, filtrar_pago: bool = True):
         if filtrar_pago:
             query = query.eq("pago", False)
         resposta = query.execute()
-        return resposta.data or []
+        active=supabase.table('usuarios').select('id,telegram_id').eq('status','ativo').execute().data or []
+        links={u['id']:u.get('telegram_id') for u in active}
+        counts={tid:sum(1 for u in active if u.get('telegram_id')==tid) for tid in links.values() if tid}
+        return [r for r in (resposta.data or []) if links.get(r.get('usuario_id')) and links.get(r.get('usuario_id'))==r.get('telegram_id') and counts.get(r.get('telegram_id'))==1]
     except Exception as e:
         logging.error(f"Erro ao consultar {nome_view}: {e}")
         return []
@@ -282,6 +285,7 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 supabase.table("usuarios")
                 .select("id, usuario, telegram_id")
                 .eq("telegram_id", chat_id_solicitante)
+                .eq("status", "ativo")
                 .execute()
             )
         else:
@@ -289,6 +293,7 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
                 supabase.table("usuarios")
                 .select("id, usuario, telegram_id")
                 .not_.is_("telegram_id", "null")
+                .eq("status", "ativo")
                 .execute()
             )
 
