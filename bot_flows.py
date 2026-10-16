@@ -170,7 +170,7 @@ class FinanceFlow:
     def enter(self, telegram_id, command='menu'):
         s = self.session(telegram_id)
         aliases = {'start':'menu','cancelar':'menu','listar':'movimentacoes','lancamentos':'movimentacoes',
-                   'receber':'contas_receber','status':'contas_receber','cadastrar':'clientes','resumo':'summary','vencimentos':'due',
+                   'receber':'contas_receber','status':'contas_receber','cadastrar':'clientes','data':'clientes','resumo':'summary','vencimentos':'due',
                    'receita':'new_income','entrada':'new_income','despesa':'new_expense'}
         action = aliases.get(command, command)
         if command=='cadastrar':
@@ -204,10 +204,13 @@ class FinanceFlow:
             return self.dispatch(s,(args[1],))
         if name == 'record_action':
             table,identifier,operation,*destination=args
-            s.after_save='due' if destination==['due'] and operation=='pay' else ''
+            s.after_save='due' if destination==['due'] and operation in ('pay','unpay') else ''
             if table not in ('movimentacoes','cartoes'): raise FlowError('Opção inválida.')
             s.table=table
             self.detail(s,identifier)
+            if operation=='unpay':
+                if table!='movimentacoes' or s.row.get('tipo')!='Despesa' or not s.row.get('pago'): raise FlowError('Este registro não tem pagamento para desfazer.')
+                return self.confirm(s,'editar',{'pago':False})
             if operation=='pay':
                 if table=='cartoes':
                     s.card=identifier;s.invoice_page=0
@@ -224,6 +227,10 @@ class FinanceFlow:
             s.draft = {'tipo':'Receita' if name == 'new_income' else 'Despesa'}
             s.step = 'amount'
             return self.screen(s, 'Qual é o valor da '+s.draft['tipo'].lower()+'?\nExemplo: 10,50')
+        if name=='goal_amount':
+            if s.table!='metas' or not s.row or args[0] not in ('deposit','withdraw'): raise FlowError('Abra a meta novamente.')
+            s.step='goal_amount';s.draft={'_goal_action':args[0]}
+            return self.screen(s,'Qual valor deseja '+('depositar' if args[0]=='deposit' else 'resgatar')+'?\nIsso atualiza o progresso da meta, sem transferência bancária.')
         if name == 'method':
             if args[0] not in dict(METHODS).values() or ((s.draft.get('tipo') or (s.row or {}).get('tipo')) == 'Receita' and args[0]=='Cartão de Crédito'):
                 raise FlowError('Forma de pagamento inválida.')
@@ -305,6 +312,12 @@ class FinanceFlow:
         if text.strip().lower() in ('menu','cancelar','início','inicio'): return self.menu(s)
         if s.step=='amount':
             s.draft['valor']=amount(text);return self.payment(s)
+        if s.step=='goal_amount':
+            value=Decimal(str(amount(text)));saved=Decimal(str(s.row.get('valor_poupado') or 0))
+            next_value=saved+value if s.draft['_goal_action']=='deposit' else saved-value
+            if next_value<0: raise FlowError('O resgate é maior que o valor guardado.')
+            if next_value>1000000: raise FlowError('O valor guardado excede o limite permitido.')
+            return self.confirm(s,'editar',{'valor_poupado':float(next_value)})
         if s.step=='count':
             if not text.strip().isdigit(): raise FlowError('Digite apenas a quantidade, como 3.')
             return self.set_count(s,int(text.strip()))
@@ -420,6 +433,7 @@ class FinanceFlow:
 
     def commit(self,s):
         if s.step!='confirm' or not s.command: raise FlowError('Essa confirmação já foi usada. Abra o menu.')
+        undone=s.command.get('dados',{}).get('pago') is False
         try:
             self.repo.command(s.owner,s.command)
         except FlowError as error:
@@ -428,7 +442,7 @@ class FinanceFlow:
         if s.after_save=='due':
             s.after_save=''
             result=self.due(s)
-            result.text='✅ Pagamento registrado.\n\n'+result.text
+            result.text=('↩️ Pagamento desfeito.' if undone else '✅ Pagamento registrado.')+'\n\n'+result.text
             return result
         return self.screen(s,'Operação concluída com sucesso.',[('Ver registros',('module',s.table)),('Novo lançamento',('new_expense',))])
 
@@ -558,6 +572,8 @@ class FinanceFlow:
         actions=[('✏️ Editar',('record_action','movimentacoes',row['id'],'edit')),('🗑️ Excluir',('record_action','movimentacoes',row['id'],'delete'))]
         if row.get('tipo')=='Despesa' and not row.get('pago') and row.get('forma_pagamento')!='Cartão de Crédito':
             actions.insert(0,('✅ Pagar',('record_action','movimentacoes',row['id'],'pay')))
+        elif row.get('tipo')=='Despesa' and row.get('pago') and row.get('forma_pagamento')!='Cartão de Crédito':
+            actions.insert(0,('↩️ Desfazer pagamento',('record_action','movimentacoes',row['id'],'unpay')))
         self.tile(s,result,'🧾 '+title(row)[:200]+'\n'+str(row.get('tipo') or '')+' · '+money(row.get('valor'))+'\n📅 '+when+'\nPagamento: '+str(row.get('forma_pagamento') or 'Não informado')+'\n'+('✅ Pago / recebido' if row.get('pago') else '⏳ Pendente'),actions)
 
     def detail(self,s,identifier):
@@ -574,6 +590,7 @@ class FinanceFlow:
             choices.insert(0,('Consultar fatura e limite',('invoice',row['id'])))
         if s.table=='metas':
             lines.append('Falta poupar: '+money(max(0,row['valor_alvo']-row['valor_poupado'])))
+            choices[:0]=[('Depositar',('goal_amount','deposit')),('Resgatar',('goal_amount','withdraw'))]
         if s.table=='orcamentos':
             movements=self.repo.rows(s.owner,'movimentacoes')
             spent=sum(Decimal(str(m['valor'])) for m in movements if m['tipo']=='Despesa' and str(m.get('data','')).startswith(s.month) and (not row.get('categoria') or m.get('categoria')==row['categoria']))
@@ -672,6 +689,6 @@ class FinanceFlow:
             else: self.movement_tile(s,result,row)
             for index in range(start,len(s.actions)):
                 label,action=s.actions[index]
-                if action[0]=='record_action' and action[3]=='pay': s.actions[index]=(label,action+('due',))
+                if action[0]=='record_action' and action[3] in ('pay','unpay'): s.actions[index]=(label,action+('due',))
         result.text+=f'\n{len(entries)} vencimento(s).' if entries else '\nNenhum vencimento neste mês.'
         return result
