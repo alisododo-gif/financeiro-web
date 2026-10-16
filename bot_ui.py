@@ -23,6 +23,9 @@ class TelegramFinance:
             await update.callback_query.edit_message_text(screen.text,reply_markup=keyboard)
         else:
             await update.effective_message.reply_text(screen.text,reply_markup=keyboard)
+        for text,buttons in screen.cards:
+            markup=InlineKeyboardMarkup([[InlineKeyboardButton(label,callback_data=value) for label,value in buttons]]) if buttons else None
+            await update.effective_message.reply_text(text,reply_markup=markup)
 
     async def unlinked(self, update):
         await update.effective_message.reply_text('FinanceiroPro Web\nCompartilhe seu próprio contato pelo botão para vincular a conta ativa. Você não precisa enviar senha.',reply_markup=ReplyKeyboardMarkup([[KeyboardButton('Vincular minha conta',request_contact=True)]],resize_keyboard=True,one_time_keyboard=True))
@@ -88,6 +91,7 @@ def install(application, client):
     adapter=TelegramFinance(client)
     commands=['start','menu','cancelar','despesa','receita','entrada','resumo','listar','lancamentos','receber','status','clientes','cadastrar','contas','cartoes','metas','orcamentos','vencimentos','data']
     application.add_handler(CommandHandler(commands,adapter.command))
+    application.add_handler(MessageHandler(filters.COMMAND,adapter.command))
     application.add_handler(CallbackQueryHandler(adapter.callback))
     application.add_handler(MessageHandler(filters.CONTACT,adapter.contact))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,adapter.text))

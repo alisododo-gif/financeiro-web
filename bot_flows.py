@@ -98,6 +98,7 @@ def title(row):
 class Screen:
     text: str
     buttons: list[tuple[str, str]]
+    cards: list = field(default_factory=list)
 
 @dataclass
 class Session:
@@ -152,7 +153,16 @@ class FinanceFlow:
         choices = [('Nova despesa', ('new_expense',)), ('Nova receita', ('new_income',)),
                    ('Resumo do mês', ('summary',)), ('Vencimentos', ('due',))]
         choices += [(label, ('module', table)) for table, label in TABLES.items()]
-        return self.screen(s, 'FinanceiroPro Web\n\nO que deseja fazer?\nPara uma despesa rápida, envie apenas o valor, como 10.', choices, False)
+        return self.screen(s, 'FinanceiroPro Web\n\nO que deseja fazer?\nEnvie um valor, como 10, e escolha Receita ou Despesa.', choices, False)
+
+    def help(self,s):
+        return self.screen(s,'Não reconheci esse comando. Veja como usar:\n\n'
+            '/menu — abrir todas as opções\n/receita — registrar uma entrada\n/despesa — registrar uma saída\n'
+            '/resumo — relatório financeiro do mês\n/cartoes — cartões, faturas e vencimentos\n'
+            '/clientes — ver, editar e excluir clientes\n/cadastrar — cadastrar cliente\n'
+            '/listar — consultar lançamentos\n/receber — contas a receber\n/vencimentos — pendências do mês\n'
+            '/contas — gerenciar contas\n/metas — objetivos\n/orcamentos — limites de gastos\n'
+            '/cancelar — cancelar e voltar ao menu\n\nVocê também pode enviar 10 ou 10,50. Primeiro perguntarei se é receita ou despesa.', [('Abrir menu',('menu',))],False)
 
     def enter(self, telegram_id, command='menu'):
         s = self.session(telegram_id)
@@ -160,6 +170,11 @@ class FinanceFlow:
                    'receber':'contas_receber','status':'contas_receber','cadastrar':'clientes','resumo':'summary','vencimentos':'due',
                    'receita':'new_income','entrada':'new_income','despesa':'new_expense'}
         action = aliases.get(command, command)
+        if command=='cadastrar':
+            s.table='clientes'
+            return self.dispatch(s,('new',))
+        if action not in TABLES and action not in ('menu','summary','due','new_income','new_expense'):
+            return self.help(s)
         if action in TABLES:
             return self.module(s, action)
         return self.dispatch(s, (action,)) if action in ('summary','due','new_income','new_expense') else self.menu(s)
@@ -176,6 +191,14 @@ class FinanceFlow:
         name, *args = action
         if name == 'menu': return self.menu(s)
         if name == 'module': return self.module(s, args[0])
+        if name == 'kind':
+            if s.step!='kind' or args[0] not in ('Receita','Despesa'): raise FlowError('Escolha receita ou despesa pelo menu atual.')
+            s.draft['tipo']=args[0]
+            return self.payment(s)
+        if name == 'client_action':
+            s.table='clientes'
+            self.detail(s,args[0])
+            return self.dispatch(s,(args[1],))
         if name == 'new_expense' or name == 'new_income':
             s.table, s.row, s.command = 'movimentacoes', None, None
             s.draft = {'tipo':'Receita' if name == 'new_income' else 'Despesa'}
@@ -273,9 +296,9 @@ class FinanceFlow:
         if s.step=='search': s.search=text.strip().casefold();s.page=0;s.step='';return self.list_rows(s)
         if re.fullmatch(r'(?:R\$\s*)?\d[\d., ]*',text.strip()):
             s.table,s.row,s.command='movimentacoes',None,None
-            s.draft={'tipo':'Despesa','valor':amount(text)}
-            return self.payment(s)
-        return self.screen(s,'Para lançar uma despesa, envie só o valor: 10 ou 10,50.\nPara as outras operações, use os botões.', [('Abrir menu',('menu',))],False)
+            s.draft={'valor':amount(text)};s.step='kind'
+            return self.screen(s,'Valor: '+money(s.draft['valor'])+'\nÉ uma receita ou uma despesa?', [('Receita',('kind','Receita')),('Despesa',('kind','Despesa'))])
+        return self.help(s)
 
     def payment(self,s):
         s.step='payment'
@@ -416,12 +439,37 @@ class FinanceFlow:
             value=r.get('valor',r.get('saldo',r.get('limite',r.get('valor_alvo',0))))
             lines.append(f'{title(r)[:90]} · {money(value)}')
             choices.append((title(r)[:38]+' · '+money(value),('open',r['id'])))
+        if s.table=='cartoes':
+            movements=self.repo.rows(s.owner,'movimentacoes')
+            for c in rows[s.page*6:s.page*6+6]:
+                invoice=[m for m in movements if m.get('cartao_id')==c['id'] and m.get('tipo')=='Despesa' and m.get('forma_pagamento')=='Cartão de Crédito' and m.get('mes_fatura')==self.competence(s)]
+                total=sum(Decimal(str(m['valor'])) for m in invoice)
+                pending=sum(Decimal(str(m['valor'])) for m in invoice if not m.get('pago'))
+                lines.append('💳 '+title(c)+'\nVencimento: '+self.card_due(s,c)+'\nFatura do mês: '+money(total)+' · A pagar: '+money(pending))
         if s.page: choices.append(('Anterior',('page',s.page-1)))
         if (s.page+1)*6<len(rows): choices.append(('Próxima',('page',s.page+1)))
         choices += [('Novo cadastro' if s.table!='movimentacoes' else 'Nova despesa',('new',)),('Buscar',('search',))]
-        if s.table in ('movimentacoes','contas_receber'): choices.append(('Alterar mês',('period','list')))
+        if s.table in ('movimentacoes','contas_receber','cartoes'): choices.append(('Alterar mês',('period','list')))
         if s.search: choices.append(('Limpar busca',('all',)))
+        if s.table=='clientes':
+            # One revision for all cards: each button resolves an owned row again.
+            choices=[c for c in choices if c[1][0]!='open']
+            result=self.screen(s,TABLES[s.table]+f'\n{len(rows)} cliente(s) · Página {s.page+1}',choices)
+            for r in rows[s.page*6:s.page*6+6]:
+                buttons=[]
+                for label,action in [('✏️ Editar','edit'),('🗑️ Excluir','delete')]:
+                    index=len(s.actions);s.actions.append((label,('client_action',r['id'],action)))
+                    buttons.append((label,f'fp:{s.token}:{s.turn}:{index}'))
+                due=str(r.get('data_vencimento') or 'Não informado')
+                if re.fullmatch(r'\d{4}-\d{2}-\d{2}',due): due='/'.join(reversed(due.split('-')))
+                result.cards.append(('👤 '+title(r)[:200]+'\n📱 '+str(r.get('telefone') or 'Não informado')+'\n💰 '+money(r.get('valor'))+'\n📅 Vencimento: '+due+'\nSituação: '+str(r.get('status') or 'Pendente'),buttons))
+            return result
         return self.screen(s,'\n'.join(lines),choices)
+
+    def card_due(self,s,card):
+        year,month=map(int,s.month.split('-'))
+        day=max(1,min(int(card.get('dia_vencimento') or 1),calendar.monthrange(year,month)[1]))
+        return f'{day:02}/{month:02}/{year}'
 
     def detail(self,s,identifier):
         row=next((r for r in self.repo.rows(s.owner,s.table) if r['id']==identifier),None)
@@ -462,6 +510,7 @@ class FinanceFlow:
         current_pending=sum(Decimal(str(r['valor'])) for r in snapshot['registros'] if not r.get('pago'))
         s.draft={'_invoice':snapshot}
         lines=[title(card)+' · Fatura '+self.competence(s),'Gasto do mês: '+money(total),'Pendente na fatura: '+money(current_pending),'Limite total: '+money(card['limite']),'Limite disponível: '+money(Decimal(str(card['limite']))-pending),'Disponível considera todas as parcelas pendentes, inclusive futuras.']
+        lines.insert(1,'Vencimento: '+self.card_due(s,card))
         choices=[('Alterar mês',('period','invoice'))]
         s.invoice_page=max(0,min(s.invoice_page,max(0,(len(snapshot['registros'])-1)//6)))
         for r in snapshot['registros'][s.invoice_page*6:s.invoice_page*6+6]:
@@ -474,11 +523,37 @@ class FinanceFlow:
 
     def summary(self,s):
         rows=self.repo.rows(s.owner,'movimentacoes')
-        # Credit follows invoice competence; other methods follow transaction date.
-        selected=[r for r in rows if (r.get('mes_fatura')==self.competence(s) if r.get('forma_pagamento')=='Cartão de Crédito' and r['tipo']=='Despesa' else str(r.get('data','')).startswith(s.month))]
+        cards={c['id']:c for c in self.repo.rows(s.owner,'cartoes')}
+        def credit(r):
+            method=str(r.get('forma_pagamento') or '').casefold()
+            return r.get('tipo')=='Despesa' and (r.get('cartao_id') is not None or method in ('cartão de crédito','cartao de credito','crédito','credito') or (not method and bool(re.search(r'cart[aã]o|fatura|anuidade',str(r.get('descricao') or ''),re.I))))
+        selected=[r for r in rows if (r.get('mes_fatura')==self.competence(s) if credit(r) else str(r.get('data','')).startswith(s.month))]
         income=sum(Decimal(str(r['valor'])) for r in selected if r['tipo']=='Receita')
         expense=sum(Decimal(str(r['valor'])) for r in selected if r['tipo']=='Despesa')
-        return self.screen(s,'Resumo · '+self.competence(s)+'\nReceitas: '+money(income)+'\nDespesas: '+money(expense)+'\nSaldo do período: '+money(income-expense),[('Alterar mês',('period','summary')),('Ver lançamentos',('module','movimentacoes'))])
+        groups={'💵 RECEITAS / ENTRADAS':[], '💸 PIX / DÉBITO / À VISTA':[], '💳 FATURAS DE CARTÃO':[], '📑 BOLETOS & CONTAS A PAGAR':[], '🔄 GASTOS FIXOS / RECORRENTES':[]}
+        invoices={}
+        for r in selected:
+            if credit(r):
+                invoices.setdefault(r.get('cartao_id'),[]).append(r);continue
+            recurring=r.get('recorrente') is True or r.get('fixo') is True or bool(re.search(r'recorren|fixo',str(r.get('descricao') or '')+' '+str(r.get('tags') or ''),re.I))
+            method=str(r.get('forma_pagamento') or '').casefold()
+            key='💵 RECEITAS / ENTRADAS' if r['tipo']=='Receita' else '🔄 GASTOS FIXOS / RECORRENTES' if recurring else '💸 PIX / DÉBITO / À VISTA' if method in ('pix','cartão de débito','débito','debito','dinheiro','à vista','a vista') else '📑 BOLETOS & CONTAS A PAGAR'
+            when=str(r.get('data') or '')[:10]
+            if re.fullmatch(r'\d{4}-\d{2}-\d{2}',when): when='/'.join(reversed(when.split('-')))
+            groups[key].append('• '+when+' — '+title(r)[:160]+' | '+money(r['valor'])+' — '+('✅ Pago' if r.get('pago') else '⏳ Pendente'))
+        for identifier,items in invoices.items():
+            c=cards.get(identifier)
+            groups['💳 FATURAS DE CARTÃO'].append('• '+(self.card_due(s,c)+' — '+title(c) if c else 'Cartão de Crédito')+' | '+money(sum(Decimal(str(r['valor'])) for r in items))+' — '+('✅ Pago' if all(r.get('pago') for r in items) else '⏳ Pendente'))
+        result=self.screen(s,'📊 Relatório Financeiro · '+self.competence(s)+'\n🟢 Receitas: '+money(income)+'\n🔴 Despesas: '+money(expense)+'\n🔵 Saldo do período: '+money(income-expense),[('Alterar mês',('period','summary')),('Ver lançamentos',('module','movimentacoes'))])
+        # Split long reports instead of truncating financial records at Telegram's limit.
+        for heading,items in groups.items():
+            chunk=heading+'\n'
+            for line in items or ['• Nenhum registro neste mês.']:
+                if len(chunk)+len(line)+1>3500:
+                    result.cards.append((chunk,[]));chunk=heading+' (continuação)\n'
+                chunk+=line+'\n'
+            result.cards.append((chunk,[]))
+        return result
 
     def due(self,s):
         rows=self.repo.rows(s.owner,'movimentacoes');cards=self.repo.rows(s.owner,'cartoes')
