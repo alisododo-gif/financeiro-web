@@ -511,7 +511,12 @@ class FinanceFlow:
         current=today()
         cards={str(c['id']):c for c in self.repo.rows(s.owner,'cartoes')}
         groups={};ordinary=[]
-        dated=[row for row in rows if str(row.get('data') or '')[:10]==current.isoformat()]
+        def created_today(row):
+            try:
+                stamp=datetime.fromisoformat(str(row.get('created_at') or '').replace('Z','+00:00'))
+                return stamp.tzinfo is not None and stamp.astimezone(ZoneInfo('America/Cuiaba')).date()==current
+            except (ValueError,TypeError): return False
+        dated=[row for row in rows if created_today(row)]
         for row in dated:
             credit=row.get('tipo')=='Despesa' and (row.get('cartao_id') is not None or str(row.get('forma_pagamento') or '').casefold() in ('cartão de crédito','cartao de credito','crédito','credito'))
             if credit:
@@ -519,7 +524,7 @@ class FinanceFlow:
                 key=('card',identifier) if identifier else ('unlinked',str(row.get('nome_cartao') or 'Cartão sem vínculo'))
                 groups.setdefault(key,[]).append(row)
             elif not s.search or s.search in title(row).casefold(): ordinary.append(row)
-        result=self.screen(s,'Lançamentos de hoje · '+current.strftime('%d/%m/%Y')+'\nCrédito agrupado por cartão, somente com as compras de hoje.', [('Nova despesa',('new',)),('Buscar',('search',))]+([('Limpar busca',('all',))] if s.search else []))
+        result=self.screen(s,'Lançamentos cadastrados hoje · '+current.strftime('%d/%m/%Y')+'\nCadastros feitos hoje, independentemente do vencimento. Crédito agrupado por cartão.', [('Nova despesa',('new',)),('Buscar',('search',))]+([('Limpar busca',('all',))] if s.search else []))
         for key,items in groups.items():
             card=cards.get(key[1]) if key[0]=='card' else None
             name=title(card) if card else key[1] if key[0]=='unlinked' else 'Cartão sem cadastro disponível'
@@ -527,7 +532,7 @@ class FinanceFlow:
             total=sum(Decimal(str(r['valor'])) for r in items)
             pending=sum(Decimal(str(r['valor'])) for r in items if not r.get('pago'))
             actions=[('📋 Cartões e faturas',('module','cartoes'))] if card else []
-            self.tile(s,result,'💳 '+name[:200]+'\nCompras de hoje: '+current.strftime('%d/%m/%Y')+'\nValor: '+money(total)+'\nPendente nas compras de hoje: '+money(pending)+'\n'+str(len(items))+' compra(s)',actions)
+            self.tile(s,result,'💳 '+name[:200]+'\nCadastrados hoje: '+current.strftime('%d/%m/%Y')+'\nValor: '+money(total)+'\nPendente nos registros de hoje: '+money(pending)+'\n'+str(len(items))+' lançamento(s)',actions)
         for row in sorted(ordinary,key=lambda r:(str(r.get('data')),r['id']),reverse=True): self.movement_tile(s,result,row)
         result.text+=f'\n{len(result.cards)} card(s).' if result.cards else '\nNão temos lançamentos na data de hoje.' if not dated else '\nNenhum lançamento de hoje corresponde à busca.'
         return result
