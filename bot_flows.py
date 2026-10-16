@@ -24,7 +24,7 @@ SCHEMAS = {
  'contas_receber': [('descricao', 'Descrição', 'text'), ('valor', 'Valor a receber', 'money'),
                     ('data_recebimento', 'Data prevista', 'date'), ('recebido', 'Já recebeu?', 'bool')],
  'clientes': [('nome', 'Nome do cliente', 'text'), ('telefone', 'Telefone com DDD', 'phone'),
-              ('valor', 'Valor', 'money'), ('data_vencimento', 'Próximo vencimento', 'optional_date'), ('status', 'Situação do cliente', 'client_status')],
+              ('valor', 'Valor', 'money'), ('data_vencimento', 'Próximo vencimento', 'optional_date'), ('status', 'Situação do cliente', 'client_status'), ('conta_id','Conta bancária do cliente','account_optional')],
  'metas': [('nome_meta', 'Nome da meta', 'text'), ('valor_alvo', 'Valor do objetivo', 'money'),
            ('valor_poupado', 'Valor já poupado', 'money0'), ('prazo', 'Prazo da meta', 'date')],
  'orcamentos': [('categoria', 'Categoria (ou orçamento geral)', 'category_optional'), ('limite', 'Limite do orçamento', 'money0')],
@@ -387,6 +387,8 @@ class FinanceFlow:
             if kind=='optional_date': choices.append(('Sem data',('value',None)))
         elif kind=='bool': choices=[('Sim',('value',True)),('Não',('value',False))]
         elif kind=='client_status': choices=[('Pendente',('value','Pendente')),('Pago',('value','Pago'))]
+        elif kind=='account_optional':
+            choices=[(str(r['nome']),('value',r['id'])) for r in self.repo.rows(s.owner,'contas')]+[('Não vincular conta',('value',None))]
         elif kind.startswith('category'):
             categories=['Salário','Freelance','Investimentos','Presente/Prêmio','Outros'] if s.draft.get('tipo')=='Receita' else CATEGORIES
             choices=[(c,('value',c)) for c in categories]+[('Outra categoria',('type_value',))]
@@ -413,6 +415,11 @@ class FinanceFlow:
             if not isinstance(value,bool): raise FlowError('Escolha Sim ou Não pelos botões.')
         elif kind=='client_status':
             if value not in ('Pago','Pendente'): raise FlowError('Escolha a situação pelos botões.')
+        elif kind=='account_optional':
+            if value is not None:
+                try: value=int(value)
+                except (TypeError,ValueError): raise FlowError('Escolha a conta bancária pelos botões.') from None
+                if not any(r['id']==value for r in self.repo.rows(s.owner,'contas')): raise FlowError('A conta não pertence ao seu usuário.')
         elif kind=='phone':
             value=re.sub(r'\D','',str(value))
             if not 8<=len(value)<=15: raise FlowError('Informe telefone com DDD, de 8 a 15 números.')
@@ -440,7 +447,9 @@ class FinanceFlow:
             if s.draft.get('modalidade')=='Parcelado': lines.append('Parcelas calculadas com o arredondamento do sistema. Confira o total acima.')
         else:
             labels={k:label for k,label,_ in SCHEMAS[s.table]}
-            for k,v in payload.items(): lines.append(labels.get(k,k)+': '+('Não informado' if v is None else 'Sim' if v is True else 'Não' if v is False else money(v) if k in ('valor','limite','saldo','valor_alvo','valor_poupado') else str(v)))
+            for k,v in payload.items():
+                if s.table=='clientes' and k=='conta_id': v=self.customer_account_name(s,v)
+                lines.append(labels.get(k,k)+': '+('Não informado' if v is None else 'Sim' if v is True else 'Não' if v is False else money(v) if k in ('valor','limite','saldo','valor_alvo','valor_poupado') else str(v)))
         return self.screen(s,'\n'.join(lines),[('Confirmar exclusão' if action=='excluir' else 'Confirmar e salvar',('commit',))])
 
     def commit(self,s):
@@ -515,6 +524,7 @@ class FinanceFlow:
         if s.table in ('movimentacoes','contas_receber','cartoes'): choices.append(('Alterar mês',('period','list')))
         if s.search: choices.append(('Limpar busca',('all',)))
         if s.table=='clientes':
+            customer_accounts={r['id']:r['nome'] for r in self.repo.rows(s.owner,'contas')}
             # One revision for all cards: each button resolves an owned row again.
             choices=[c for c in choices if c[1][0] not in ('open','page')]
             result=self.screen(s,TABLES[s.table]+f'\n{len(rows)} cliente(s)',choices)
@@ -525,7 +535,7 @@ class FinanceFlow:
                     buttons.append((label,f'fp:{s.token}:{s.turn}:{index}'))
                 due=str(r.get('data_vencimento') or 'Não informado')
                 if re.fullmatch(r'\d{4}-\d{2}-\d{2}',due): due='/'.join(reversed(due.split('-')))
-                result.cards.append(('👤 '+title(r)[:200]+'\n📱 '+str(r.get('telefone') or 'Não informado')+'\n💰 '+money(r.get('valor'))+'\n📅 Vencimento: '+due+'\nSituação: '+str(r.get('status') or 'Pendente'),buttons))
+                result.cards.append(('👤 '+title(r)[:200]+'\n🏦 Conta: '+customer_accounts.get(r.get('conta_id'),'Não vinculada')+'\n📱 '+str(r.get('telefone') or 'Não informado')+'\n💰 '+money(r.get('valor'))+'\n📅 Vencimento: '+due+'\nSituação: '+str(r.get('status') or 'Pendente'),buttons))
             return result
         return self.screen(s,'\n'.join(lines),choices)
 
@@ -589,6 +599,9 @@ class FinanceFlow:
             actions.insert(0,('↩️ Desfazer pagamento',('record_action','movimentacoes',row['id'],'unpay')))
         self.tile(s,result,'🧾 '+title(row)[:200]+'\n'+str(row.get('tipo') or '')+' · '+money(row.get('valor'))+'\n📅 '+when+'\nPagamento: '+str(row.get('forma_pagamento') or 'Não informado')+'\n'+('✅ Pago / recebido' if row.get('pago') else '⏳ Pendente'),actions)
 
+    def customer_account_name(self,s,identifier):
+        return next((r['nome'] for r in self.repo.rows(s.owner,'contas') if r['id']==identifier),'Não vinculada')
+
     def detail(self,s,identifier):
         row=next((r for r in self.repo.rows(s.owner,s.table) if r['id']==identifier),None)
         if not row: raise FlowError('Registro não encontrado na sua conta. Atualize a lista.')
@@ -596,6 +609,7 @@ class FinanceFlow:
         fields=self.edit_fields(s);lines=[title(row)]
         for key,label,kind in fields:
             value=row.get(key)
+            if kind=='account_optional': value=self.customer_account_name(s,value)
             lines.append(label+': '+(money(value) if kind in ('money','money0','balance') else 'Sim' if value is True else 'Não' if value is False else str(value) if value is not None else 'Não informado'))
         choices=[('Editar',('edit',)),('Excluir',('delete',))]
         if s.table in ('movimentacoes','contas_receber','clientes'): choices.insert(0,('Alterar pagamento / recebimento',('toggle',)))
