@@ -71,7 +71,7 @@ def parse_date(text):
 def launch_rows(data):
     """Same legacy float rounding and day-28 clamp as the reviewed web flow."""
     count, mode = data.get('quantidade', 1), data.get('modalidade', 'Único')
-    if mode not in ('Único', 'Parcelado', 'Fixo / Recorrente') or not isinstance(count, int) or not 1 <= count <= (1 if mode == 'Único' else 72 if mode == 'Parcelado' else 60) or (mode != 'Único' and count < 2):
+    if mode not in ('Único', 'Parcelado', 'Fixo / Recorrente') or not isinstance(count, int) or not 1 <= count <= (1 if mode == 'Único' else 72 if mode == 'Parcelado' else 60) or (mode == 'Parcelado' and count < 2):
         raise FlowError('Quantidade inválida.')
     value = round(float(data['valor']) / count, 2) if mode == 'Parcelado' else data['valor']
     if value <= 0:
@@ -81,7 +81,7 @@ def launch_rows(data):
     for i in range(count):
         month = (start.month + i - 1) % 12 + 1
         year = start.year + (start.month + i - 1) // 12
-        when = start if mode == 'Único' else date(year, month, min(start.day, 28))
+        when = start if count == 1 else date(year, month, min(start.day, 28))
         if year > 2099:
             raise FlowError('As parcelas ultrapassam o ano permitido.')
         suffix = f' ({i+1}/{count})' if mode == 'Parcelado' else ' (Recorrente)' if mode != 'Único' else ''
@@ -266,8 +266,16 @@ class FinanceFlow:
             if args[0]=='Único':
                 s.draft['quantidade']=1
                 return self.launch_fields(s)
+            if args[0]=='Fixo / Recorrente':
+                return self.screen(s,'Fixo / recorrente: o valor informado se repete inteiro em cada parcela.', [('Único',('fixed_single',)),('Parcelado / mensal',('fixed_multiple',))])
             s.step='count'
             return self.screen(s, 'Em quantas parcelas?' if args[0]=='Parcelado' else 'Por quantos meses?', [(str(n),('count',n)) for n in (2,3,4,5,6,10,12)]+[('Outra quantidade',('type_count',))])
+        if name == 'fixed_single':
+            s.draft['quantidade']=1
+            return self.launch_fields(s)
+        if name == 'fixed_multiple':
+            s.step='count'
+            return self.screen(s,'Quantas parcelas mensais? O valor se repete em cada uma.',[(str(n),('count',n)) for n in (2,3,4,5,6,10,12)]+[('Outra quantidade',('type_count',))])
         if name == 'type_count':
             s.step='count'
             return self.screen(s,'Digite a quantidade (parcelas: 2 a 72; recorrência: 2 a 60).')
@@ -444,6 +452,7 @@ class FinanceFlow:
         if s.row: lines.append(title(s.row))
         if action=='criar_lote':
             movements=payload['registros'];lines += [title(movements[0]),f'{len(movements)} lançamento(s) de {money(movements[0]["valor"])}',f'Total: {money(sum(Decimal(str(m["valor"])) for m in movements))}',s.draft.get('_reference',''),s.draft.get('forma_pagamento',''), 'Data inicial: '+s.draft['data']]
+            if s.draft.get('modalidade')=='Fixo / Recorrente': lines.append('Fixo / recorrente: valor integral em cada parcela, sem divisão.')
             if s.draft.get('modalidade')=='Parcelado': lines.append('Parcelas calculadas com o arredondamento do sistema. Confira o total acima.')
         else:
             labels={k:label for k,label,_ in SCHEMAS[s.table]}
