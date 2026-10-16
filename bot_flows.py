@@ -499,28 +499,28 @@ class FinanceFlow:
         return f'{day:02}/{month:02}/{year}'
 
     def movement_list(self,s,rows):
+        current=today()
         cards={str(c['id']):c for c in self.repo.rows(s.owner,'cartoes')}
         groups={};ordinary=[]
-        for row in rows:
+        dated=[row for row in rows if str(row.get('data') or '')[:10]==current.isoformat()]
+        for row in dated:
             credit=row.get('tipo')=='Despesa' and (row.get('cartao_id') is not None or str(row.get('forma_pagamento') or '').casefold() in ('cartão de crédito','cartao de credito','crédito','credito'))
             if credit:
-                if row.get('mes_fatura')!=self.competence(s): continue
                 identifier=str(row.get('cartao_id')) if row.get('cartao_id') is not None else None
                 key=('card',identifier) if identifier else ('unlinked',str(row.get('nome_cartao') or 'Cartão sem vínculo'))
                 groups.setdefault(key,[]).append(row)
-            elif str(row.get('data') or '').startswith(s.month) and (not s.search or s.search in title(row).casefold()): ordinary.append(row)
-        result=self.screen(s,'Lançamentos · '+self.competence(s)+'\nCrédito agrupado por cartão e mês da fatura.', [('Nova despesa',('new',)),('Buscar',('search',)),('Alterar mês',('period','list'))]+([('Limpar busca',('all',))] if s.search else []))
+            elif not s.search or s.search in title(row).casefold(): ordinary.append(row)
+        result=self.screen(s,'Lançamentos de hoje · '+current.strftime('%d/%m/%Y')+'\nCrédito agrupado por cartão, somente com as compras de hoje.', [('Nova despesa',('new',)),('Buscar',('search',))]+([('Limpar busca',('all',))] if s.search else []))
         for key,items in groups.items():
             card=cards.get(key[1]) if key[0]=='card' else None
             name=title(card) if card else key[1] if key[0]=='unlinked' else 'Cartão sem cadastro disponível'
             if s.search and s.search not in name.casefold() and not any(s.search in title(r).casefold() for r in items): continue
             total=sum(Decimal(str(r['valor'])) for r in items)
             pending=sum(Decimal(str(r['valor'])) for r in items if not r.get('pago'))
-            actions=[('📋 Ver fatura',('record_action','cartoes',card['id'],'invoice'))] if card else []
-            if card and pending>0: actions.append(('✅ Pagar fatura',('record_action','cartoes',card['id'],'pay')))
-            self.tile(s,result,'💳 '+name[:200]+'\nFatura: '+self.competence(s)+'\nValor: '+money(total)+'\nA pagar: '+money(pending)+'\n'+str(len(items))+' compra(s)'+ ('\n📅 Vencimento: '+self.card_due(s,card) if card else '\nConfira o vínculo do cartão no cadastro.'),actions)
+            actions=[('📋 Cartões e faturas',('module','cartoes'))] if card else []
+            self.tile(s,result,'💳 '+name[:200]+'\nCompras de hoje: '+current.strftime('%d/%m/%Y')+'\nValor: '+money(total)+'\nPendente nas compras de hoje: '+money(pending)+'\n'+str(len(items))+' compra(s)',actions)
         for row in sorted(ordinary,key=lambda r:(str(r.get('data')),r['id']),reverse=True): self.movement_tile(s,result,row)
-        result.text+=f'\n{len(result.cards)} card(s).'
+        result.text+=f'\n{len(result.cards)} card(s).' if result.cards else '\nNão temos lançamentos na data de hoje.' if not dated else '\nNenhum lançamento de hoje corresponde à busca.'
         return result
 
     def tile(self,s,result,text,actions):
