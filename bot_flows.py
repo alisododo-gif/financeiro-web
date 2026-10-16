@@ -120,6 +120,7 @@ class Session:
     card: int | None = None
     invoice_page: int = 0
     search: str = ''
+    after_save: str = ''
 
 class FinanceFlow:
     def __init__(self, repository):
@@ -150,6 +151,7 @@ class FinanceFlow:
         return s
 
     def menu(self, s):
+        s.after_save=''
         s.step, s.command, s.row, s.draft = '', None, None, {}
         choices = [('Nova despesa', ('new_expense',)), ('Nova receita', ('new_income',)),
                    ('Resumo do mês', ('summary',)), ('Vencimentos', ('due',))]
@@ -201,7 +203,8 @@ class FinanceFlow:
             self.detail(s,args[0])
             return self.dispatch(s,(args[1],))
         if name == 'record_action':
-            table,identifier,operation=args
+            table,identifier,operation,*destination=args
+            s.after_save='due' if destination==['due'] and operation=='pay' else ''
             if table not in ('movimentacoes','cartoes'): raise FlowError('Opção inválida.')
             s.table=table
             self.detail(s,identifier)
@@ -422,9 +425,15 @@ class FinanceFlow:
         except FlowError as error:
             return self.screen(s,str(error)+'\nSe a falha for de conexão, tente de novo com o botão abaixo. A mesma operação não será gravada duas vezes.',[('Tentar novamente',('commit',))])
         s.command,s.step,s.row=None,'',None
+        if s.after_save=='due':
+            s.after_save=''
+            result=self.due(s)
+            result.text='✅ Pagamento registrado.\n\n'+result.text
+            return result
         return self.screen(s,'Operação concluída com sucesso.',[('Ver registros',('module',s.table)),('Novo lançamento',('new_expense',))])
 
     def module(self,s,table):
+        s.after_save=''
         if table not in TABLES: raise FlowError('Módulo inválido.')
         s.table,s.step,s.row,s.command,s.page,s.search=table,'',None,None,0,''
         return self.list_rows(s)
@@ -640,9 +649,24 @@ class FinanceFlow:
     def due(self,s):
         rows=self.repo.rows(s.owner,'movimentacoes');cards=self.repo.rows(s.owner,'cartoes')
         result=self.screen(s,'Vencimentos · '+self.competence(s),[('Alterar mês',('period','due'))])
+        entries=[]
         for c in cards:
-            if any(r.get('cartao_id')==c['id'] and r.get('mes_fatura')==self.competence(s) and r.get('tipo')=='Despesa' and r.get('forma_pagamento')=='Cartão de Crédito' for r in rows): self.card_tile(s,result,c,rows)
+            invoice=[r for r in rows if r.get('cartao_id')==c['id'] and r.get('mes_fatura')==self.competence(s) and r.get('tipo')=='Despesa' and r.get('forma_pagamento')=='Cartão de Crédito']
+            if invoice: entries.append((all(r.get('pago') for r in invoice),self.card_due(s,c)[6:10]+self.card_due(s,c)[3:5]+self.card_due(s,c)[:2],'card',c))
         bills=sorted([r for r in rows if r.get('tipo')=='Despesa' and r.get('forma_pagamento')!='Cartão de Crédito' and str(r.get('data','')).startswith(s.month)],key=lambda r:(str(r.get('data')),r['id']))
-        for r in bills: self.movement_tile(s,result,r)
-        result.text+=f'\n{len(result.cards)} vencimento(s), incluindo os já pagos.' if result.cards else '\nNenhum vencimento neste mês.'
+        entries.extend((bool(r.get('pago')),str(r.get('data')).replace('-',''),'bill',r) for r in bills)
+        entries.sort(key=lambda e:(e[0],e[1],e[3]['id']))
+        section=None
+        for paid,_,kind,row in entries:
+            if section is None or section!=paid:
+                section=paid
+                count=sum(item[0]==paid for item in entries)
+                result.cards.append((('✅ PAGOS' if paid else '⏳ PENDENTES')+f' · {count}',[]))
+            start=len(s.actions)
+            if kind=='card': self.card_tile(s,result,row,rows)
+            else: self.movement_tile(s,result,row)
+            for index in range(start,len(s.actions)):
+                label,action=s.actions[index]
+                if action[0]=='record_action' and action[3]=='pay': s.actions[index]=(label,action+('due',))
+        result.text+=f'\n{len(entries)} vencimento(s).' if entries else '\nNenhum vencimento neste mês.'
         return result
