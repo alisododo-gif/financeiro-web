@@ -524,7 +524,6 @@ class FinanceFlow:
         if s.table in ('movimentacoes','contas_receber','cartoes'): choices.append(('Alterar mês',('period','list')))
         if s.search: choices.append(('Limpar busca',('all',)))
         if s.table=='clientes':
-            customer_accounts={r['id']:r['nome'] for r in self.repo.rows(s.owner,'contas')}
             # One revision for all cards: each button resolves an owned row again.
             choices=[c for c in choices if c[1][0] not in ('open','page')]
             result=self.screen(s,TABLES[s.table]+f'\n{len(rows)} cliente(s)',choices)
@@ -535,7 +534,7 @@ class FinanceFlow:
                     buttons.append((label,f'fp:{s.token}:{s.turn}:{index}'))
                 due=str(r.get('data_vencimento') or 'Não informado')
                 if re.fullmatch(r'\d{4}-\d{2}-\d{2}',due): due='/'.join(reversed(due.split('-')))
-                result.cards.append(('👤 '+title(r)[:200]+'\n🏦 Conta: '+customer_accounts.get(r.get('conta_id'),'Não vinculada')+'\n📱 '+str(r.get('telefone') or 'Não informado')+'\n💰 '+money(r.get('valor'))+'\n📅 Vencimento: '+due+'\nSituação: '+str(r.get('status') or 'Pendente'),buttons))
+                result.cards.append(('👤 '+title(r)[:200]+'\n📱 '+str(r.get('telefone') or 'Não informado')+'\n💰 '+money(r.get('valor'))+'\n📅 Vencimento: '+due+'\nSituação: '+str(r.get('status') or 'Pendente'),buttons))
             return result
         return self.screen(s,'\n'.join(lines),choices)
 
