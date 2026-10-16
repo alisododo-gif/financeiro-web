@@ -44,7 +44,16 @@ class TelegramFinance:
         self.results[update.effective_user.id]=sent
         for text,buttons in screen.cards:
             markup=InlineKeyboardMarkup([[InlineKeyboardButton(label,callback_data=value) for label,value in buttons]]) if buttons else None
-            sent.append(await update.effective_message.reply_text(text,reply_markup=markup,do_quote=False))
+            # Long lists must respect Telegram flood control without dropping cards.
+            for attempt in range(3):
+                try:
+                    sent.append(await update.effective_message.reply_text(text,reply_markup=markup,do_quote=False))
+                    break
+                except Exception as error:
+                    delay=getattr(error,'retry_after',None)
+                    if delay is None or attempt==2: raise
+                    seconds=delay.total_seconds() if hasattr(delay,'total_seconds') else float(delay)
+                    await asyncio.sleep(seconds+0.5)
 
     async def unlinked(self, update):
         await update.effective_message.reply_text('FinanceiroPro Web\nCompartilhe seu próprio contato pelo botão para vincular a conta ativa. Você não precisa enviar senha.',reply_markup=ReplyKeyboardMarkup([[KeyboardButton('Vincular minha conta',request_contact=True)]],resize_keyboard=True,one_time_keyboard=True))

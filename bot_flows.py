@@ -200,6 +200,22 @@ class FinanceFlow:
             s.table='clientes'
             self.detail(s,args[0])
             return self.dispatch(s,(args[1],))
+        if name == 'record_action':
+            table,identifier,operation=args
+            if table not in ('movimentacoes','cartoes'): raise FlowError('Opção inválida.')
+            s.table=table
+            self.detail(s,identifier)
+            if operation=='pay':
+                if table=='cartoes':
+                    s.card=identifier;s.invoice_page=0
+                    self.invoice(s)
+                    if not any(not r.get('pago') for r in s.draft['_invoice']['registros']): raise FlowError('Esta fatura já está paga ou não tem pendências.')
+                    return self.dispatch(s,('settle',))
+                if s.row.get('tipo')!='Despesa' or s.row.get('pago'): raise FlowError('Este lançamento não tem pagamento pendente. Atualize a lista.')
+                return self.confirm(s,'editar',{'pago':True})
+            if operation=='invoice': return self.dispatch(s,('invoice',identifier))
+            if operation not in ('edit','delete'): raise FlowError('Opção inválida.')
+            return self.dispatch(s,(operation,))
         if name == 'new_expense' or name == 'new_income':
             s.table, s.row, s.command = 'movimentacoes', None, None
             s.draft = {'tipo':'Receita' if name == 'new_income' else 'Despesa'}
@@ -434,6 +450,15 @@ class FinanceFlow:
         if s.table=='contas_receber': rows=[r for r in rows if str(r.get('data_recebimento','')).startswith(s.month)]
         if s.search: rows=[r for r in rows if s.search in title(r).casefold()]
         rows=sorted(rows,key=lambda r:(str(r.get('data') or r.get('data_recebimento') or ''),r['id']),reverse=True)
+        if s.table in ('cartoes','movimentacoes'):
+            choices=[('Novo cadastro' if s.table=='cartoes' else 'Nova despesa',('new',)),('Buscar',('search',)),('Alterar mês',('period','list'))]
+            if s.search: choices.append(('Limpar busca',('all',)))
+            result=self.screen(s,TABLES[s.table]+' · '+self.competence(s)+f'\n{len(rows)} registro(s)',choices)
+            movements=self.repo.rows(s.owner,'movimentacoes') if s.table=='cartoes' else []
+            for row in rows:
+                if s.table=='cartoes': self.card_tile(s,result,row,movements)
+                else: self.movement_tile(s,result,row)
+            return result
         s.page=max(0,min(s.page,max(0,(len(rows)-1)//6)))
         choices=[];lines=[TABLES[s.table]+' · '+self.competence(s),f'{len(rows)} registro(s)']
         for r in rows[s.page*6:s.page*6+6]:
@@ -471,6 +496,29 @@ class FinanceFlow:
         year,month=map(int,s.month.split('-'))
         day=max(1,min(int(card.get('dia_vencimento') or 1),calendar.monthrange(year,month)[1]))
         return f'{day:02}/{month:02}/{year}'
+
+    def tile(self,s,result,text,actions):
+        buttons=[]
+        for label,action in actions:
+            index=len(s.actions);s.actions.append((label,action))
+            buttons.append((label,f'fp:{s.token}:{s.turn}:{index}'))
+        result.cards.append((text,buttons))
+
+    def card_tile(self,s,result,card,movements):
+        invoice=[m for m in movements if m.get('cartao_id')==card['id'] and m.get('tipo')=='Despesa' and m.get('forma_pagamento')=='Cartão de Crédito' and m.get('mes_fatura')==self.competence(s)]
+        total=sum(Decimal(str(m['valor'])) for m in invoice)
+        pending=sum(Decimal(str(m['valor'])) for m in invoice if not m.get('pago'))
+        actions=[('📋 Ver fatura',('record_action','cartoes',card['id'],'invoice')),('✏️ Editar',('record_action','cartoes',card['id'],'edit'))]
+        if pending>0: actions.insert(0,('✅ Pagar fatura',('record_action','cartoes',card['id'],'pay')))
+        self.tile(s,result,'💳 '+title(card)[:200]+'\n📅 Vencimento: '+self.card_due(s,card)+'\nFatura do mês: '+money(total)+'\nA pagar: '+money(pending)+'\n'+('⏳ Pendente' if pending>0 else '✅ Sem pendências'),actions)
+
+    def movement_tile(self,s,result,row):
+        when=str(row.get('data') or '')[:10]
+        if re.fullmatch(r'\d{4}-\d{2}-\d{2}',when): when='/'.join(reversed(when.split('-')))
+        actions=[('✏️ Editar',('record_action','movimentacoes',row['id'],'edit')),('🗑️ Excluir',('record_action','movimentacoes',row['id'],'delete'))]
+        if row.get('tipo')=='Despesa' and not row.get('pago') and row.get('forma_pagamento')!='Cartão de Crédito':
+            actions.insert(0,('✅ Pagar',('record_action','movimentacoes',row['id'],'pay')))
+        self.tile(s,result,'🧾 '+title(row)[:200]+'\n'+str(row.get('tipo') or '')+' · '+money(row.get('valor'))+'\n📅 '+when+'\nPagamento: '+str(row.get('forma_pagamento') or 'Não informado')+'\n'+('✅ Pago / recebido' if row.get('pago') else '⏳ Pendente'),actions)
 
     def detail(self,s,identifier):
         row=next((r for r in self.repo.rows(s.owner,s.table) if r['id']==identifier),None)
@@ -565,13 +613,10 @@ class FinanceFlow:
 
     def due(self,s):
         rows=self.repo.rows(s.owner,'movimentacoes');cards=self.repo.rows(s.owner,'cartoes')
-        choices=[];lines=['Vencimentos · '+self.competence(s)]
+        result=self.screen(s,'Vencimentos · '+self.competence(s),[('Alterar mês',('period','due'))])
         for c in cards:
-            pending=[r for r in rows if r.get('cartao_id')==c['id'] and r.get('mes_fatura')==self.competence(s) and r['tipo']=='Despesa' and r.get('forma_pagamento')=='Cartão de Crédito' and not r.get('pago')]
-            if pending:
-                lines.append(title(c)+' · dia '+str(c['dia_vencimento'])+' · '+money(sum(Decimal(str(r['valor'])) for r in pending)))
-                choices.append((title(c),('invoice',c['id'])))
-        bills=[r for r in rows if not r.get('pago') and r['tipo']=='Despesa' and r.get('forma_pagamento')!='Cartão de Crédito' and str(r.get('data','')).startswith(s.month)]
-        for r in bills[:12]: lines.append(str(r['data'])+' · '+title(r)[:75]+' · '+money(r['valor']))
-        if not choices and not bills: lines.append('Nenhuma pendência neste mês.')
-        return self.screen(s,'\n'.join(lines),choices[:12]+[('Ver / dar baixa nos lançamentos',('module','movimentacoes')),('Alterar mês',('period','due'))])
+            if any(r.get('cartao_id')==c['id'] and r.get('mes_fatura')==self.competence(s) and r.get('tipo')=='Despesa' and r.get('forma_pagamento')=='Cartão de Crédito' for r in rows): self.card_tile(s,result,c,rows)
+        bills=sorted([r for r in rows if r.get('tipo')=='Despesa' and r.get('forma_pagamento')!='Cartão de Crédito' and str(r.get('data','')).startswith(s.month)],key=lambda r:(str(r.get('data')),r['id']))
+        for r in bills: self.movement_tile(s,result,r)
+        result.text+=f'\n{len(result.cards)} vencimento(s), incluindo os já pagos.' if result.cards else '\nNenhum vencimento neste mês.'
+        return result
