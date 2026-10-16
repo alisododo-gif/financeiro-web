@@ -99,6 +99,7 @@ class Screen:
     text: str
     buttons: list[tuple[str, str]]
     cards: list = field(default_factory=list)
+    document: str | None = None
 
 @dataclass
 class Session:
@@ -437,8 +438,8 @@ class FinanceFlow:
         choices=[];lines=[TABLES[s.table]+' · '+self.competence(s),f'{len(rows)} registro(s)']
         for r in rows[s.page*6:s.page*6+6]:
             value=r.get('valor',r.get('saldo',r.get('limite',r.get('valor_alvo',0))))
-            lines.append(f'{title(r)[:90]} · {money(value)}')
-            choices.append((title(r)[:38]+' · '+money(value),('open',r['id'])))
+            if s.table!='cartoes': lines.append(f'{title(r)[:90]} · {money(value)}')
+            choices.append((title(r)[:38] if s.table=='cartoes' else title(r)[:38]+' · '+money(value),('open',r['id'])))
         if s.table=='cartoes':
             movements=self.repo.rows(s.owner,'movimentacoes')
             for c in rows[s.page*6:s.page*6+6]:
@@ -453,9 +454,9 @@ class FinanceFlow:
         if s.search: choices.append(('Limpar busca',('all',)))
         if s.table=='clientes':
             # One revision for all cards: each button resolves an owned row again.
-            choices=[c for c in choices if c[1][0]!='open']
-            result=self.screen(s,TABLES[s.table]+f'\n{len(rows)} cliente(s) · Página {s.page+1}',choices)
-            for r in rows[s.page*6:s.page*6+6]:
+            choices=[c for c in choices if c[1][0] not in ('open','page')]
+            result=self.screen(s,TABLES[s.table]+f'\n{len(rows)} cliente(s)',choices)
+            for r in rows:
                 buttons=[]
                 for label,action in [('✏️ Editar','edit'),('🗑️ Excluir','delete')]:
                     index=len(s.actions);s.actions.append((label,('client_action',r['id'],action)))
@@ -553,6 +554,13 @@ class FinanceFlow:
                     result.cards.append((chunk,[]));chunk=heading+' (continuação)\n'
                 chunk+=line+'\n'
             result.cards.append((chunk,[]))
+        complete=result.text+'\n\n'+'\n\n'.join(text.strip() for text,_ in result.cards)
+        result.cards=[]
+        if len(complete)<=3900:
+            result.text=complete
+        else:
+            result.text='📊 Relatório Financeiro · '+self.competence(s)+'\nO relatório completo está no arquivo, pois ultrapassou o tamanho permitido pelo Telegram.'
+            result.document=complete
         return result
 
     def due(self,s):

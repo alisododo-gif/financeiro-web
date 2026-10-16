@@ -1,6 +1,7 @@
 """Small python-telegram-bot adapter. Only private, verified Telegram identities."""
 import asyncio
 import logging
+from io import BytesIO
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from bot_flows import FinanceFlow, FlowError
@@ -10,6 +11,19 @@ class TelegramFinance:
     def __init__(self, client):
         self.repository=SupabaseRepository(client)
         self.flow=FinanceFlow(self.repository)
+        self.results={}
+
+    async def close_results(self, update):
+        previous=self.results.pop(update.effective_user.id,[])
+        if update.callback_query and getattr(update.callback_query,'message',None):
+            current=update.callback_query.message
+            if all(getattr(m,'message_id',None)!=current.message_id for m in previous): previous.append(current)
+        for message in previous:
+            try:
+                await message.delete()
+            except Exception:
+                try: await message.edit_reply_markup(reply_markup=None)
+                except Exception: pass
 
     async def private(self, update):
         if not update.effective_user or not update.effective_chat or update.effective_chat.type!='private':
@@ -18,14 +32,19 @@ class TelegramFinance:
         return True
 
     async def send(self, update, screen):
+        await self.close_results(update)
+        sent=[]
         keyboard=InlineKeyboardMarkup([[InlineKeyboardButton(label,callback_data=value)] for label,value in screen.buttons])
-        if update.callback_query:
-            await update.callback_query.edit_message_text(screen.text,reply_markup=keyboard)
+        # Send via the bot-bound Message helper even when the triggering message was deleted.
+        if screen.document:
+            report=BytesIO(screen.document.encode('utf-8'));report.name='resumo-financeiro.txt'
+            sent.append(await update.effective_message.reply_document(document=report,caption=screen.text,reply_markup=keyboard,do_quote=False))
         else:
-            await update.effective_message.reply_text(screen.text,reply_markup=keyboard)
+            sent.append(await update.effective_message.reply_text(screen.text,reply_markup=keyboard,do_quote=False))
+        self.results[update.effective_user.id]=sent
         for text,buttons in screen.cards:
             markup=InlineKeyboardMarkup([[InlineKeyboardButton(label,callback_data=value) for label,value in buttons]]) if buttons else None
-            await update.effective_message.reply_text(text,reply_markup=markup)
+            sent.append(await update.effective_message.reply_text(text,reply_markup=markup,do_quote=False))
 
     async def unlinked(self, update):
         await update.effective_message.reply_text('FinanceiroPro Web\nCompartilhe seu próprio contato pelo botão para vincular a conta ativa. Você não precisa enviar senha.',reply_markup=ReplyKeyboardMarkup([[KeyboardButton('Vincular minha conta',request_contact=True)]],resize_keyboard=True,one_time_keyboard=True))
