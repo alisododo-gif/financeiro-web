@@ -27,6 +27,9 @@ def main():
     required=['TELEGRAM_TOKEN','SUPABASE_URL','SUPABASE_KEY']
     if not all(os.getenv(key) for key in required):
         raise RuntimeError('Configure as variáveis obrigatórias do bot no Discloud.')
+    if not os.environ['SUPABASE_KEY'].startswith('sb_secret_'):
+        raise RuntimeError('SUPABASE_KEY ainda usa formato legado. Importe a nova chave secreta nas variáveis protegidas do Discloud e republique o bot.')
+    logging.info('Supabase: chave secreta moderna configurada; valor protegido.')
     client=create_client(os.environ['SUPABASE_URL'],os.environ['SUPABASE_KEY'],
                          options=ClientOptions(postgrest_client_timeout=30,storage_client_timeout=30))
     from bot_repository import SupabaseRepository
