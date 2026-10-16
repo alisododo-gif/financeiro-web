@@ -41,12 +41,8 @@ def main():
     install(app,client)
     app.add_error_handler(on_error)
     from lembrete_boletos import processar_e_enviar_alertas, enviar_resumo_mensal_telegram
-    zone=pytz.timezone('America/Sao_Paulo')
-    for hour in (9,15):
-        app.job_queue.run_daily(processar_e_enviar_alertas,time=time(hour=hour,tzinfo=zone))
-    async def monthly(context):
-        await enviar_resumo_mensal_telegram(None,context)
-    app.job_queue.run_monthly(monthly,when=time(hour=8,tzinfo=zone),day=1)
+    zone=pytz.timezone('America/Cuiaba')
+    app.job_queue.run_daily(processar_e_enviar_alertas,time=time(hour=10,tzinfo=zone),name='pendencias_diarias_10h')
     logging.info('FinanceiroPro Web: menu financeiro v2 iniciado; aguardando mensagens privadas.')
     app.run_polling(allowed_updates=['message','callback_query'],drop_pending_updates=False)
 
