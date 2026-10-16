@@ -64,7 +64,12 @@ def consultar_view(nome_view: str, filtrar_pago: bool = True):
             query = query.eq("pago", False)
         resposta = query.execute()
         active=supabase.table('usuarios').select('id,telegram_id').eq('status','ativo').execute().data or []
-        links={u['id']:u.get('telegram_id') for u in active}
+        module='recebimentos' if nome_view.startswith('recebimentos') else 'vencimentos'
+        permitted=[]
+        for u in active:
+            access=supabase.rpc('fp_access_v1',{'p_usuario':u['id'],'p_modulo':module}).execute().data
+            if access.get('allowed'): permitted.append(u)
+        links={u['id']:u.get('telegram_id') for u in permitted}
         counts={tid:sum(1 for u in active if u.get('telegram_id')==tid) for tid in links.values() if tid}
         return [r for r in (resposta.data or []) if links.get(r.get('usuario_id')) and links.get(r.get('usuario_id'))==r.get('telegram_id') and counts.get(r.get('telegram_id'))==1]
     except Exception as e:
@@ -307,6 +312,8 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
 
         for u in usuarios:
             uid = u["id"]
+            access=supabase.rpc('fp_access_v1',{'p_usuario':uid,'p_modulo':'visao_geral'}).execute().data
+            if not access.get('allowed'): continue
             telegram_id = u["telegram_id"]
             nome = u.get("usuario") or "Cliente"
 

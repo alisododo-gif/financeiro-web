@@ -75,6 +75,9 @@ class TelegramFinance:
         command=update.effective_message.text.split()[0].split('@')[0].lstrip('/')
         try:
             owner=await asyncio.to_thread(self.repository.authorize,update.effective_user.id)
+        except FlowError as error:
+            await update.effective_message.reply_text(str(error))
+            return
         except Exception:
             await update.effective_message.reply_text('Não consegui verificar a conta agora. Tente novamente em instantes.')
             return

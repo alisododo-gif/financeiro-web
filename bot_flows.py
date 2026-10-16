@@ -148,14 +148,23 @@ class FinanceFlow:
             self.sessions[telegram_id] = Session(owner=owner, month=today().strftime('%Y-%m'))
         s = self.sessions[telegram_id]
         s.touched = now
+        if hasattr(self.repo,'restore_module'): self.repo.restore_module(getattr(s,'access_module',None))
         return s
 
+    def gate(self,s,module):
+        if hasattr(self.repo,'set_module'): self.repo.set_module(s.owner,module)
+        s.access_module=module
+
     def menu(self, s):
+        self.gate(s,None)
         s.after_save=''
         s.step, s.command, s.row, s.draft = '', None, None, {}
         choices = [('Nova despesa', ('new_expense',)), ('Nova receita', ('new_income',)),
                    ('Resumo do mês', ('summary',)), ('Vencimentos', ('due',))]
         choices += [(label, ('module', table)) for table, label in TABLES.items()]
+        if hasattr(self.repo,'allowed'):
+            keys={'new_expense':'novo_lancamento','new_income':'novo_lancamento','summary':'visao_geral','due':'vencimentos'}
+            choices=[(label,action) for label,action in choices if self.repo.allowed(s.owner,keys.get(action[0], 'recebimentos' if action[-1]=='contas_receber' else action[-1]))]
         return self.screen(s, 'FinanceiroPro Web\n\nO que deseja fazer?\nEnvie um valor, como 10, e escolha Receita ou Despesa.', choices, False)
 
     def help(self,s):
@@ -174,6 +183,7 @@ class FinanceFlow:
                    'receita':'new_income','entrada':'new_income','despesa':'new_expense'}
         action = aliases.get(command, command)
         if command=='cadastrar':
+            self.gate(s,'clientes')
             s.table='clientes'
             return self.dispatch(s,('new',))
         if action not in TABLES and action not in ('menu','summary','due','new_income','new_expense'):
@@ -192,6 +202,7 @@ class FinanceFlow:
 
     def dispatch(self, s, action):
         name, *args = action
+        if name in ('new_expense','new_income'): self.gate(s,'novo_lancamento')
         if name == 'menu': return self.menu(s)
         if name == 'module': return self.module(s, args[0])
         if name == 'kind':
@@ -328,6 +339,7 @@ class FinanceFlow:
             return self.period_return(s,s.draft['_return'])
         if s.step=='search': s.search=text.strip().casefold();s.page=0;s.step='';return self.list_rows(s)
         if re.fullmatch(r'(?:R\$\s*)?\d[\d., ]*',text.strip()):
+            self.gate(s,'novo_lancamento')
             s.table,s.row,s.command='movimentacoes',None,None
             s.draft={'valor':amount(text)};s.step='kind'
             return self.screen(s,'Valor: '+money(s.draft['valor'])+'\nÉ uma receita ou uma despesa?', [('Receita',('kind','Receita')),('Despesa',('kind','Despesa'))])
@@ -447,6 +459,7 @@ class FinanceFlow:
         return self.screen(s,'Operação concluída com sucesso.',[('Ver registros',('module',s.table)),('Novo lançamento',('new_expense',))])
 
     def module(self,s,table):
+        self.gate(s,'recebimentos' if table=='contas_receber' else table)
         s.after_save=''
         if table not in TABLES: raise FlowError('Módulo inválido.')
         s.table,s.step,s.row,s.command,s.page,s.search=table,'',None,None,0,''
@@ -606,6 +619,7 @@ class FinanceFlow:
         return fields
 
     def invoice(self,s):
+        if getattr(s,'access_module',None)!='vencimentos': self.gate(s,'cartoes')
         s.table='cartoes'
         card=next((r for r in self.repo.rows(s.owner,'cartoes') if r['id']==s.card),None)
         if not card: raise FlowError('Cartão não encontrado na sua conta.')
@@ -628,6 +642,7 @@ class FinanceFlow:
         return self.screen(s,'\n'.join(lines),choices)
 
     def summary(self,s):
+        self.gate(s,'visao_geral')
         rows=self.repo.rows(s.owner,'movimentacoes')
         cards={c['id']:c for c in self.repo.rows(s.owner,'cartoes')}
         def credit(r):
@@ -669,6 +684,7 @@ class FinanceFlow:
         return result
 
     def due(self,s):
+        self.gate(s,'vencimentos')
         rows=self.repo.rows(s.owner,'movimentacoes');cards=self.repo.rows(s.owner,'cartoes')
         result=self.screen(s,'Vencimentos · '+self.competence(s),[('Alterar mês',('period','due'))])
         entries=[]
