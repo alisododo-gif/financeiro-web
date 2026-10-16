@@ -56,7 +56,7 @@ class TelegramFinance:
                     await asyncio.sleep(seconds+0.5)
 
     async def unlinked(self, update):
-        await update.effective_message.reply_text('FinanceiroPro Web\nCompartilhe seu próprio contato pelo botão para vincular a conta ativa. Você não precisa enviar senha.',reply_markup=ReplyKeyboardMarkup([[KeyboardButton('Vincular minha conta',request_contact=True)]],resize_keyboard=True,one_time_keyboard=True))
+        await update.effective_message.reply_text('FinanceiroPro Web\nCompartilhe seu próprio contato pelo botão para vincular a conta ativa. Você não precisa enviar senha.\n\nAinda não tem conta? Crie seu teste gratuito de 7 dias em https://financeiroproweb.pages.dev/',reply_markup=ReplyKeyboardMarkup([[KeyboardButton('Vincular minha conta',request_contact=True)]],resize_keyboard=True,one_time_keyboard=True))
 
     async def run(self, update, function, *args):
         if not await self.private(update): return

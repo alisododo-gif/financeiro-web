@@ -35,8 +35,8 @@ def main():
     from bot_repository import SupabaseRepository
     active=client.table('usuarios').select('id').eq('status','ativo').limit(1).execute().data
     if active:
-        SupabaseRepository(client).rows(active[0]['id'],'contas')
-        logging.info('RPC financeiro validado em leitura; nenhum registro alterado.')
+        client.rpc('fp_access_v1',{'p_usuario':active[0]['id']}).execute()
+        logging.info('Controle de acesso validado em leitura; nenhum registro alterado.')
     app=ApplicationBuilder().token(os.environ['TELEGRAM_TOKEN']).concurrent_updates(False).post_init(setup).build()
     install(app,client)
     app.add_error_handler(on_error)
