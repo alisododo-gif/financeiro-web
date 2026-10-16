@@ -446,6 +446,7 @@ class FinanceFlow:
 
     def list_rows(self,s):
         rows=self.repo.rows(s.owner,s.table)
+        if s.table=='movimentacoes': return self.movement_list(s,rows)
         if s.table=='movimentacoes': rows=[r for r in rows if str(r.get('data','')).startswith(s.month)]
         if s.table=='contas_receber': rows=[r for r in rows if str(r.get('data_recebimento','')).startswith(s.month)]
         if s.search: rows=[r for r in rows if s.search in title(r).casefold()]
@@ -496,6 +497,31 @@ class FinanceFlow:
         year,month=map(int,s.month.split('-'))
         day=max(1,min(int(card.get('dia_vencimento') or 1),calendar.monthrange(year,month)[1]))
         return f'{day:02}/{month:02}/{year}'
+
+    def movement_list(self,s,rows):
+        cards={str(c['id']):c for c in self.repo.rows(s.owner,'cartoes')}
+        groups={};ordinary=[]
+        for row in rows:
+            credit=row.get('tipo')=='Despesa' and (row.get('cartao_id') is not None or str(row.get('forma_pagamento') or '').casefold() in ('cartão de crédito','cartao de credito','crédito','credito'))
+            if credit:
+                if row.get('mes_fatura')!=self.competence(s): continue
+                identifier=str(row.get('cartao_id')) if row.get('cartao_id') is not None else None
+                key=('card',identifier) if identifier else ('unlinked',str(row.get('nome_cartao') or 'Cartão sem vínculo'))
+                groups.setdefault(key,[]).append(row)
+            elif str(row.get('data') or '').startswith(s.month) and (not s.search or s.search in title(row).casefold()): ordinary.append(row)
+        result=self.screen(s,'Lançamentos · '+self.competence(s)+'\nCrédito agrupado por cartão e mês da fatura.', [('Nova despesa',('new',)),('Buscar',('search',)),('Alterar mês',('period','list'))]+([('Limpar busca',('all',))] if s.search else []))
+        for key,items in groups.items():
+            card=cards.get(key[1]) if key[0]=='card' else None
+            name=title(card) if card else key[1] if key[0]=='unlinked' else 'Cartão sem cadastro disponível'
+            if s.search and s.search not in name.casefold() and not any(s.search in title(r).casefold() for r in items): continue
+            total=sum(Decimal(str(r['valor'])) for r in items)
+            pending=sum(Decimal(str(r['valor'])) for r in items if not r.get('pago'))
+            actions=[('📋 Ver fatura',('record_action','cartoes',card['id'],'invoice'))] if card else []
+            if card and pending>0: actions.append(('✅ Pagar fatura',('record_action','cartoes',card['id'],'pay')))
+            self.tile(s,result,'💳 '+name[:200]+'\nFatura: '+self.competence(s)+'\nValor: '+money(total)+'\nA pagar: '+money(pending)+'\n'+str(len(items))+' compra(s)'+ ('\n📅 Vencimento: '+self.card_due(s,card) if card else '\nConfira o vínculo do cartão no cadastro.'),actions)
+        for row in sorted(ordinary,key=lambda r:(str(r.get('data')),r['id']),reverse=True): self.movement_tile(s,result,row)
+        result.text+=f'\n{len(result.cards)} card(s).'
+        return result
 
     def tile(self,s,result,text,actions):
         buttons=[]
