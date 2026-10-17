@@ -312,6 +312,15 @@ class FinanceFlow:
             value=not s.row.get(key) if key!='status' else 'Pendente' if s.row.get(key)=='Pago' else 'Pago'
             return self.confirm(s,'editar',{key:value})
         if name == 'commit': return self.commit(s)
+        if name == 'quick_field':
+            if s.step!='confirm' or s.row is not None or s.table!='movimentacoes' or not s.command or s.command['acao']!='criar_lote':
+                raise FlowError('Abra um novo lançamento para continuar.')
+            key=args[0]
+            if key not in ('descricao','data','categoria','tags','pago'): raise FlowError('Campo inválido.')
+            if key=='pago' and (s.draft.get('modalidade')!='Único' or s.draft.get('forma_pagamento')=='Cartão de Crédito'):
+                raise FlowError('Este lançamento começa pendente.')
+            s.command=None;s.fields=[next(f for f in SCHEMAS['movimentacoes'] if f[0]==key)];s.field_index=0
+            return self.prompt(s)
         if name == 'invoice': s.card=args[0];s.invoice_page=0;return self.invoice(s)
         if name == 'invoice_page': s.invoice_page=args[0];return self.invoice(s)
         if name == 'invoice_movement': s.table='movimentacoes';return self.detail(s,args[0])
@@ -382,7 +391,9 @@ class FinanceFlow:
         return self.launch_fields(s)
 
     def launch_fields(self,s):
-        s.fields=[item for item in SCHEMAS['movimentacoes'] if item[0]!='valor' and (item[0]!='pago' or s.draft.get('modalidade')=='Único')]
+        s.draft.setdefault('data',today().isoformat());s.draft.setdefault('categoria','Outros')
+        s.draft.setdefault('tags',None);s.draft.setdefault('pago',False)
+        s.fields=[next(item for item in SCHEMAS['movimentacoes'] if item[0]=='descricao')]
         s.field_index=0
         return self.prompt(s)
 
@@ -459,7 +470,12 @@ class FinanceFlow:
             for k,v in payload.items():
                 if s.table=='clientes' and k=='conta_id': v=self.customer_account_name(s,v)
                 lines.append(labels.get(k,k)+': '+('Não informado' if v is None else 'Sim' if v is True else 'Não' if v is False else money(v) if k in ('valor','limite','saldo','valor_alvo','valor_poupado') else str(v)))
-        return self.screen(s,'\n'.join(lines),[('Confirmar exclusão' if action=='excluir' else 'Confirmar e salvar',('commit',))])
+        choices=[('Confirmar exclusão' if action=='excluir' else 'Confirmar e salvar',('commit',))]
+        if action=='criar_lote':
+            lines += ['Categoria: '+str(s.draft.get('categoria','Outros')), 'Situação: '+('Pago / recebido' if s.draft.get('pago') else 'Pendente')]
+            choices += [('Descrição',('quick_field','descricao')),('Data',('quick_field','data')),('Categoria',('quick_field','categoria')),('Tags',('quick_field','tags'))]
+            if s.draft.get('modalidade')=='Único' and s.draft.get('forma_pagamento')!='Cartão de Crédito': choices.append(('Pago / recebido?',('quick_field','pago')))
+        return self.screen(s,'\n'.join(lines),choices)
 
     def commit(self,s):
         if s.step!='confirm' or not s.command: raise FlowError('Essa confirmação já foi usada. Abra o menu.')
