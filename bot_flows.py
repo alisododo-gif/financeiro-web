@@ -410,6 +410,7 @@ class FinanceFlow:
             choices=[(str(r['nome']),('value',r['id'])) for r in self.repo.rows(s.owner,'contas')]+[('Não vincular conta',('value',None))]
         elif kind.startswith('category'):
             categories=['Salário','Freelance','Investimentos','Presente/Prêmio','Outros'] if s.draft.get('tipo')=='Receita' else CATEGORIES
+            if s.table=='movimentacoes' and s.row is None: categories=['Outros','Cartão de Crédito','Moradia']
             choices=[(c,('value',c)) for c in categories]+[('Outra categoria',('type_value',))]
             if kind=='category_optional': choices.insert(0,('Orçamento geral',('value',None)))
         elif kind=='optional_text': choices=[('Pular',('value',None))]
