@@ -27,7 +27,7 @@ As duas migrações já foram aplicadas na produção em 20/11/2026. O segundo s
 
 ## Bot
 
-As fontes Python e `discloud.config` ficam na raiz. Configure `TELEGRAM_TOKEN`, `SUPABASE_URL` e `SUPABASE_KEY` exclusivamente no ambiente protegido do serviço. O bot usa o mesmo projeto FinanceiroPro. Publicar o site não publica o bot. Não reative o antigo piloto de TV. Esta entrega atualizou as fontes do bot, sem publicar uma nova execução dele.
+As fontes Python e `discloud.config` ficam na raiz. Configure `TELEGRAM_TOKEN`, `SUPABASE_URL` e `SUPABASE_KEY` exclusivamente no ambiente protegido do serviço. O bot usa o mesmo projeto FinanceiroPro. Publicar o site não publica o bot, mas o repositório possui integração automática com o Discloud para a branch principal. Confira o status `discloud/commit` após enviar mudanças. Na consolidação de 20/11/2026, essa integração informou “Aplicação atualizada com sucesso” para o bot existente. Não reative o antigo piloto de TV.
 
 ## Sincronização da TV
 

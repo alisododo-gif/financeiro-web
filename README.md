@@ -9,7 +9,7 @@ Código atual do FinanceiroPro Web, consolidado a partir dos módulos em produç
 - Cloudflare Worker `financeiroproweb`: aplicação, sessão, autorizações e operações no banco.
 - Bot Telegram: `bot_telegram.py`, `bot_ui.py`, `bot_flows.py`, `bot_repository.py` e alertas diários.
 
-O antigo aplicativo Streamlit, arquivos de ambiente, credenciais e arquivos gerados foram retirados da árvore principal. O histórico de commits foi preservado. A publicação continua sendo direta na Cloudflare: atualizar este repositório, por si só, não publica automaticamente o sistema ou o bot.
+O antigo aplicativo Streamlit, arquivos de ambiente, credenciais e arquivos gerados foram retirados da árvore principal. O histórico de commits foi preservado. O site continua com publicação direta na Cloudflare. O bot tem integração automática com o Discloud: alterações enviadas à branch principal podem republicar o bot; confira o status `discloud/commit` no GitHub.
 
 ## Testes
 
