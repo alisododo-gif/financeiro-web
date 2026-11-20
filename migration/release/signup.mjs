@@ -1,3 +1,4 @@
+import {validUsername} from '../username.mjs';
 const reply=(value,status=200)=>Response.json(value,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}});
 export async function signup(request,env){
  const url=new URL(request.url);
@@ -8,7 +9,7 @@ export async function signup(request,env){
  try{
   const reader=request.body?.getReader(),chunks=[];let size=0;if(reader)while(true){const part=await reader.read();if(part.done)break;size+=part.value.length;if(size>4096){await reader.cancel();return reply({erro:'Dados muito grandes'},413);}chunks.push(part.value);}
   const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}let data;try{data=JSON.parse(new TextDecoder().decode(bytes));}catch{return reply({erro:'Dados inválidos'},400);}
-  if(!data||Array.isArray(data)||Object.keys(data).some(k=>!['usuario','telefone','senha','confirmacao'].includes(k))||typeof data.usuario!=='string'||data.usuario.trim().length<3||data.usuario.trim().length>80||/[\u0000-\u001f]/.test(data.usuario)||typeof data.telefone!=='string'||!/^\d{10,15}$/.test(data.telefone.replace(/\D/g,''))||typeof data.senha!=='string'||data.senha.length<8||data.senha.length>128||!data.senha.trim()||data.senha!==data.confirmacao)return reply({erro:'Preencha usuário, telefone com DDD e uma senha de 8 a 128 caracteres, com confirmação igual.'},400);
+  if(!data||Array.isArray(data)||Object.keys(data).some(k=>!['usuario','telefone','senha','confirmacao'].includes(k))||!validUsername(data.usuario)||typeof data.telefone!=='string'||!/^\d{10,15}$/.test(data.telefone.replace(/\D/g,''))||typeof data.senha!=='string'||data.senha.length<8||data.senha.length>128||!data.senha.trim()||data.senha!==data.confirmacao)return reply({erro:'Use usuário de 3 a 80 letras, números, ponto, hífen ou sublinhado (sem espaços), telefone com DDD e uma senha de 8 a 128 caracteres, com confirmação igual.'},400);
   const ip=request.headers.get('cf-connecting-ip');if(!ip)return reply({erro:'Não foi possível validar a solicitação'},503);
   // Maintain compatibility with the existing legacy login; never log credentials.
   const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),b=>b.toString(16).padStart(2,'0')).join('');

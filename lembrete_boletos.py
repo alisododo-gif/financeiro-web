@@ -78,22 +78,13 @@ def consultar_view(nome_view: str, filtrar_pago: bool = True):
 
 
 async def processar_e_enviar_alertas(param=None):
-    """At most one daily delivery attempt per owner, persisted across restarts."""
     from daily_alerts import build_daily_alerts
+    from delivery_queue import deliver_daily
     bot_instancia=param.bot if getattr(param,'bot',None) else bot_global
-    movements=consultar_view('movimentacoes_hoje')
-    invoices=consultar_view('faturas_vencendo_hoje',filtrar_pago=False)
-    receivables=[r for r in consultar_view('recebimentos_hoje',filtrar_pago=False) if r.get('recebido') is not True]
-    for owner,chat,message in build_daily_alerts(movements,invoices,receivables,datetime.now(FUSO_BR).date()):
-        try:
-            claimed=supabase.rpc('fp_telegram_daily_claim_v1',{'p_usuario':owner,'p_telegram':chat}).execute().data
-            if claimed is not True:
-                continue
-            await bot_instancia.send_message(chat_id=chat,text=message)
-            logging.info('Resumo diário de pendências enviado.')
-        except Exception:
-            # Keep the reservation on uncertain delivery; never resend automatically.
-            logging.error('Falha no resumo diário; sem repetição automática para evitar duplicidade.')
+    movements=await asyncio.to_thread(consultar_view,'movimentacoes_hoje')
+    invoices=await asyncio.to_thread(consultar_view,'faturas_vencendo_hoje',filtrar_pago=False)
+    receivables=[r for r in await asyncio.to_thread(consultar_view,'recebimentos_hoje',filtrar_pago=False) if r.get('recebido') is not True]
+    await deliver_daily(supabase,bot_instancia,build_daily_alerts(movements,invoices,receivables,datetime.now(FUSO_BR).date()))
 
 
 def formatar_data_br(data_str):

@@ -32,18 +32,11 @@ class DailyTests(unittest.TestCase):
         self.assertEqual(len(jobs),1)
         self.assertIn('hour=10',ast.unparse(jobs[0]))
         self.assertIn('America/Cuiaba',source)
-    def test_claim_before_send(self):
+    def test_daily_job_delegates_delivery_without_blocking_database_reads(self):
         source=(Path(__file__).parent/'lembrete_boletos.py').read_text(encoding='utf-8-sig')
         fn=next(n for n in ast.parse(source).body if isinstance(n,ast.AsyncFunctionDef) and n.name=='processar_e_enviar_alertas')
-        bot=SimpleNamespace(send_message=AsyncMock())
-        db=MagicMock();db.rpc.return_value.execute.return_value.data=False
-        row={'usuario_id':1,'telegram_id':10,'descricao':'QA','valor':10}
-        scope={'bot_global':bot,'supabase':db,'consultar_view':lambda name,**kw:[row] if name=='movimentacoes_hoje' else [],'datetime':datetime,'FUSO_BR':None,'logging':MagicMock()}
-        exec(compile(ast.Module(body=[fn],type_ignores=[]),'reminder-test','exec'),scope)
-        with self.assertRaises(StopIteration): scope[fn.name]().send(None)
-        bot.send_message.assert_not_awaited()
-        db.rpc.return_value.execute.return_value.data=True
-        with self.assertRaises(StopIteration): scope[fn.name]().send(None)
-        bot.send_message.assert_awaited_once()
+        body=ast.unparse(fn)
+        self.assertIn('asyncio.to_thread',body)
+        self.assertIn('await deliver_daily',body)
 
 if __name__=='__main__': unittest.main()

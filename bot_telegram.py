@@ -8,6 +8,7 @@ from supabase import create_client, ClientOptions
 from telegram import BotCommand
 from telegram.ext import ApplicationBuilder
 from bot_ui import install
+from bot_concurrency import PerUserProcessor
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -37,7 +38,7 @@ def main():
     if active:
         client.rpc('fp_access_v1',{'p_usuario':active[0]['id']}).execute()
         logging.info('Controle de acesso validado em leitura; nenhum registro alterado.')
-    app=ApplicationBuilder().token(os.environ['TELEGRAM_TOKEN']).concurrent_updates(False).post_init(setup).build()
+    app=ApplicationBuilder().token(os.environ['TELEGRAM_TOKEN']).concurrent_updates(PerUserProcessor(16)).post_init(setup).build()
     install(app,client)
     app.add_error_handler(on_error)
     from lembrete_boletos import processar_e_enviar_alertas, enviar_resumo_mensal_telegram

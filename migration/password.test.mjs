@@ -7,7 +7,7 @@ const env={SUPABASE_URL:'https://hkfyvhthfshnddduckjs.supabase.co',SUPABASE_BACK
 const request=()=>new Request(origin+'/api/login',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({usuario:'synthetic',senha:'synthetic-password'})});
 test('login verifies through service RPC without reading stored hashes',async()=>{
  const saved=globalThis.fetch;let calls=0;
- try{globalThis.fetch=async(url,init)=>{calls++;url=new URL(url);if(url.pathname.endsWith('/usuarios')){assert.equal(url.searchParams.get('select'),'id,usuario,status');return Response.json([{id:42,usuario:'synthetic',status:'ativo'}]);}assert.equal(url.pathname,'/rest/v1/rpc/fp_password_verify_v1');const data=JSON.parse(init.body);assert.equal(data.p_usuario,42);assert.match(data.p_digest,/^[0-9a-f]{64}$/);assert.equal(init.headers.apikey,env.SUPABASE_BACKEND_KEY);return Response.json(true);};
+ try{globalThis.fetch=async(url,init)=>{calls++;url=new URL(url);if(url.pathname.endsWith('/usuarios')){assert.equal(url.searchParams.get('select'),'id,usuario,status,session_version');return Response.json([{id:42,usuario:'synthetic',status:'ativo',session_version:1}]);}assert.equal(url.pathname,'/rest/v1/rpc/fp_password_verify_v1');const data=JSON.parse(init.body);assert.equal(data.p_usuario,42);assert.match(data.p_digest,/^[0-9a-f]{64}$/);assert.equal(init.headers.apikey,env.SUPABASE_BACKEND_KEY);return Response.json(true);};
  const r=await auth.fetch(request(),env);assert.equal(r.status,200);assert.match(r.headers.get('set-cookie'),/HttpOnly; Secure; SameSite=Strict/);assert.deepEqual(await r.json(),{ok:true});assert.equal(calls,2);
  }finally{globalThis.fetch=saved;}
 });

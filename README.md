@@ -13,9 +13,10 @@ O antigo aplicativo Streamlit, arquivos de ambiente, credenciais e arquivos gera
 
 ## Testes
 
-Node.js 22 ou superior, sem dependências adicionais:
+Node.js 22 ou superior. As dependências de teste são instaladas pelo lockfile:
 
 ```sh
+npm ci
 npm test
 npm run build
 ```
@@ -32,6 +33,6 @@ Os testes usam dados sintéticos e substitutos dos serviços. Não iniciam o bot
 
 `migration/release/worker.mjs` é a entrada do Worker; os módulos em `migration/` completam a aplicação. `migration/build-pages-static.mjs` gera os arquivos públicos em `migration/pages-dist/` e o manifesto de upload em `migration/qa/`. `migration/schema/` contém scripts de banco de diferentes etapas da implantação; não execute todos como instalador nem reaplique scripts históricos em produção.
 
-Consulte [DEPLOYMENT.md](DEPLOYMENT.md) e [RELEASE-2026-11-20.md](RELEASE-2026-11-20.md).
+Consulte [correções da auditoria](AUDIT-FIXES-2026-11-20.md), [recuperação](RECOVERY.md), [publicação](DEPLOYMENT.md) e [consolidação inicial](RELEASE-2026-11-20.md).
 
 Segredos devem ficar nas variáveis protegidas da Cloudflare e do serviço do bot. Nunca envie `.env`, chaves ou senhas ao repositório. A remoção de um arquivo da versão principal não remove cópias do histórico; credenciais que tenham sido publicadas precisam ser revogadas no provedor.

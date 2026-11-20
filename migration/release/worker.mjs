@@ -1,3 +1,4 @@
+import {deliveryStatusUI} from '../delivery-status-ui.mjs';
 import {optimizeDashboardSource} from '../dashboard-runtime.mjs';
 import {deleteUserEndpoint,simplifyDeleteConfirmation} from './delete-user.mjs';
 import {appIcon} from '../app-icons.mjs';
@@ -7,7 +8,7 @@ import {shortcutsEndpoint} from '../shortcuts.mjs';
 import {tvImportEndpoint} from '../tv-import.mjs';
 import {premiumCSS} from './premium.mjs';
 import {createEnvironment} from './services.mjs';
-import {accessEndpoint,accessGate} from './access.mjs';
+import {accessEndpoint,accessGate,accessRPC} from './access.mjs';
 import {accessScript} from './access-ui.mjs';
 import {parityScript} from '../parity.mjs';
 import {changePassword} from './account.mjs';
@@ -20,6 +21,13 @@ export default {
  async fetch(request,bindings){
   const env=createEnvironment(bindings);
   const url=new URL(request.url);
+  if(url.pathname==='/api/admin/entregas'){
+   if(request.method!=='GET')return Response.json({erro:'Método não permitido'},{status:405});
+   const response=await env.PROD_API.fetch(new Request(url.origin+'/api/me',{headers:{cookie:request.headers.get('cookie')||''}}));
+   if(!response.ok)return Response.json({erro:'Entre novamente'},{status:401});const user=await response.json();
+   if(user.admin!==true)return Response.json({erro:'Somente administrador'},{status:403});
+   try{return Response.json(await accessRPC(env,'fp_delivery_status_v1',{p_actor:user.id}),{headers:{'cache-control':'no-store'}});}catch{return Response.json({erro:'Consulta indisponível'},{status:503});}
+  }
   if(/^\/api\/admin\/usuarios\/\d+\/exclusao$/.test(url.pathname)||(request.method==='DELETE'&&/^\/api\/admin\/usuarios\/\d+$/.test(url.pathname)))return deleteUserEndpoint(request,env);
   const icon=appIcon(url.pathname);if(icon&&['GET','HEAD'].includes(request.method))return icon;
   if(url.pathname==='/manifest.webmanifest')return Response.json(appManifest,{headers:{'content-type':'application/manifest+json','cache-control':'no-cache'}});
@@ -75,6 +83,8 @@ export default {
    body=body.replace(login,"$('senha').value='';try{localStorage.setItem('fp-last-activity',String(Date.now()));}catch{}location.replace('/app');")
     .replace(logout,"async function logout(){try{await api('logout',{method:'POST'});document.dispatchEvent(new Event('fp:session-reset'));location.replace('/app');}catch(error){setMessage('app-error','Nao foi possivel sair. Tente novamente.');}}")
     .replace('function show(user){',"function show(user){document.dispatchEvent(new Event('fp:session-reset'));");
+   body=body.replace("applyPeriod();bind();","document.getElementById('logout-btn').textContent='Sair de todos os aparelhos';applyPeriod();bind();");
+   body+=deliveryStatusUI;
    body=body.replace('isAdmin=user.admin===true;',"document.getElementById('app-panel').dataset.navigationOwner=String(user.id);isAdmin=user.admin===true;");
    body=body.replaceAll('confirm(', 'await window.fpDialog(').replaceAll('prompt(', 'await window.fpPrompt(');
    body=simplifyDeleteConfirmation(body);

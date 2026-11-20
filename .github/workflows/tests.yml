@@ -8,9 +8,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: npm ci
       - run: npm test
       - run: npm run build
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - run: python -m pip install -r requirements.txt
+      - run: python -c "from bot_concurrency import PerUserProcessor; assert PerUserProcessor(16).max_concurrent_updates == 16"
       - run: python -m unittest discover -p '*_test.py'

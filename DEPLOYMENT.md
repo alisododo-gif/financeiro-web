@@ -25,9 +25,17 @@ Confira o sucesso da implantação, o endereço oficial e os hashes dos assets a
 
 As duas migrações já foram aplicadas na produção em 20/11/2026. O segundo script cria um trigger e não deve ser reaplicado como se fosse novo.
 
+## Correções da auditoria
+
+Os scripts 20261120_03 a 20261120_08 foram aplicados juntos na migração `audit_sessions_concurrency_backup_delivery`. Depois foi publicado o Worker que conhece `session_version`, os arquivos estáticos correspondentes e, por último, a invalidação única de sessões do script 09 (`expire_pre_audit_sessions`). Não reaplique esses scripts sem conferir o histórico no Supabase.
+
+Não retorne a um Worker anterior ao suporte a `session_version`: ele não respeita a revogação central de sessões. As funções de backup e entrega são executáveis exclusivamente pelo backend. A restauração completa do banco da aplicação está descrita em RECOVERY.md; não restaure na produção como teste.
+
 ## Bot
 
 As fontes Python e `discloud.config` ficam na raiz. Configure `TELEGRAM_TOKEN`, `SUPABASE_URL` e `SUPABASE_KEY` exclusivamente no ambiente protegido do serviço. O bot usa o mesmo projeto FinanceiroPro. Publicar o site não publica o bot, mas o repositório possui integração automática com o Discloud para a branch principal. Confira o status `discloud/commit` após enviar mudanças. Na consolidação de 20/11/2026, essa integração informou “Aplicação atualizada com sucesso” para o bot existente. Não reative o antigo piloto de TV.
+
+`requirements.txt` carrega requirements.lock com verificação de hashes; requirements.in contém as dependências diretas. Ao atualizar bibliotecas, regenere o lock para Python 3.11 e valide no Linux. A ordem de publicação desta correção é banco, Worker/Pages e depois GitHub/Discloud, para que o bot encontre os RPCs V2 de entrega. A implantação não envia mensagens de teste.
 
 ## Sincronização da TV
 

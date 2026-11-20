@@ -75,7 +75,12 @@ class SupabaseRepository:
         existing=self.authorize(telegram_id)
         if existing: return existing
         variants=self.phone_variants(phone)
-        rows=self.db.table('usuarios').select('id,telefone,telegram_id').eq('status','ativo').limit(1000).execute().data
+        rows=[]
+        for offset in range(0,1000000,500):
+            page=self.db.table('usuarios').select('id,telefone,telegram_id').eq('status','ativo').order('id').range(offset,offset+499).execute().data
+            rows.extend(page)
+            if len(page)<500: break
+        else: raise FlowError('Listagem excedeu o limite seguro; peça ao administrador para vincular a conta.')
         matches=[r for r in rows if self.phone_variants(r.get('telefone')) & variants]
         if len(matches)!=1 or matches[0].get('telegram_id') not in (None,int(telegram_id)):
             raise FlowError('Não foi possível vincular automaticamente. Confira o telefone cadastrado com o administrador.')
