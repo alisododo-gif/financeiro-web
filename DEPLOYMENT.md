@@ -35,7 +35,7 @@ Não retorne a um Worker anterior ao suporte a `session_version`: ele não respe
 
 As fontes Python e `discloud.config` ficam na raiz. Configure `TELEGRAM_TOKEN`, `SUPABASE_URL` e `SUPABASE_KEY` exclusivamente no ambiente protegido do serviço. O bot usa o mesmo projeto FinanceiroPro. Publicar o site não publica o bot, mas o repositório possui integração automática com o Discloud para a branch principal. Confira o status `discloud/commit` após enviar mudanças. Na consolidação de 20/11/2026, essa integração informou “Aplicação atualizada com sucesso” para o bot existente. Não reative o antigo piloto de TV.
 
-`requirements.txt` carrega requirements.lock com verificação de hashes; requirements.in contém as dependências diretas. Ao atualizar bibliotecas, regenere o lock para Python 3.11 e valide no Linux. A ordem de publicação desta correção é banco, Worker/Pages e depois GitHub/Discloud, para que o bot encontre os RPCs V2 de entrega. A implantação não envia mensagens de teste.
+`requirements.txt` contém uma cópia integral de requirements.lock com verificação de hashes, pois o build do Discloud disponibiliza apenas requirements.txt antes da instalação; mantenha os dois sincronizados; requirements.in contém as dependências diretas. Ao atualizar bibliotecas, regenere o lock para Python 3.11 e valide no Linux. A ordem de publicação desta correção é banco, Worker/Pages e depois GitHub/Discloud, para que o bot encontre os RPCs V2 de entrega. A implantação não envia mensagens de teste.
 
 ## Sincronização da TV
 
