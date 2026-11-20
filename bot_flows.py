@@ -58,6 +58,13 @@ def amount(text, allow_zero=False, signed=False):
 def money(value):
     return 'R$ ' + f'{float(value or 0):,.2f}'.replace(',', '_').replace('.', ',').replace('_', '.')
 
+def financial_month(row):
+    competence=str(row.get('mes_fatura') or '')
+    if row.get('forma_pagamento')=='Cartão de Crédito' and re.fullmatch(r'(0[1-9]|1[0-2])/20\d{2}',competence):
+        month,year=competence.split('/')
+        return year+'-'+month
+    return str(row.get('data') or '')[:7]
+
 def parse_date(text):
     try:
         raw = str(text).strip()
@@ -69,11 +76,13 @@ def parse_date(text):
         raise FlowError('Digite uma data válida: DD/MM/AAAA.') from None
 
 def launch_rows(data):
-    """Same legacy float rounding and day-28 clamp as the reviewed web flow."""
+    """Allocate exact integer cents and preserve the requested day in each month."""
     count, mode = data.get('quantidade', 1), data.get('modalidade', 'Único')
     if mode not in ('Único', 'Parcelado', 'Fixo / Recorrente') or not isinstance(count, int) or not 1 <= count <= (1 if mode == 'Único' else 72 if mode == 'Parcelado' else 60) or (mode == 'Parcelado' and count < 2):
         raise FlowError('Quantidade inválida.')
-    value = round(float(data['valor']) / count, 2) if mode == 'Parcelado' else data['valor']
+    total_cents = int(Decimal(str(data['valor'])) * 100)
+    base_cents, remainder = divmod(total_cents, count)
+    value = base_cents / 100 if mode == 'Parcelado' else data['valor']
     if value <= 0:
         raise FlowError('A parcela precisa valer ao menos um centavo.')
     start = date.fromisoformat(parse_date(data['data']))
@@ -81,12 +90,12 @@ def launch_rows(data):
     for i in range(count):
         month = (start.month + i - 1) % 12 + 1
         year = start.year + (start.month + i - 1) // 12
-        when = start if count == 1 else date(year, month, min(start.day, 28))
+        when = start if count == 1 else date(year, month, min(start.day, calendar.monthrange(year, month)[1]))
         if year > 2099:
             raise FlowError('As parcelas ultrapassam o ano permitido.')
         suffix = f' ({i+1}/{count})' if mode == 'Parcelado' else ' (Recorrente)' if mode != 'Único' else ''
         row = {k: data[k] for k in ('tipo', 'categoria', 'forma_pagamento', 'conta_id', 'cartao_id') if k in data}
-        row.update(descricao=data['descricao'] + suffix, valor=value, data=when.isoformat(),
+        row.update(descricao=data['descricao'] + suffix, valor=(base_cents + (1 if i < remainder else 0)) / 100 if mode == 'Parcelado' else value, data=when.isoformat(),
                    pago=data.get('pago', False), tags=data.get('tags'))
         rows.append(row)
     return rows
@@ -463,9 +472,9 @@ class FinanceFlow:
         lines=['Confirma '+('excluir este registro?' if action=='excluir' else 'salvar esta operação?')]
         if s.row: lines.append(title(s.row))
         if action=='criar_lote':
-            movements=payload['registros'];lines += [title(movements[0]),f'{len(movements)} lançamento(s) de {money(movements[0]["valor"])}',f'Total: {money(sum(Decimal(str(m["valor"])) for m in movements))}',s.draft.get('_reference',''),s.draft.get('forma_pagamento',''), 'Data inicial: '+s.draft['data']]
+            movements=payload['registros'];lines += [title(movements[0]),f'{len(movements)} lançamento(s) de {money(min(m["valor"] for m in movements))}' + (' a '+money(max(m["valor"] for m in movements)) if len({m["valor"] for m in movements})>1 else ''),f'Total: {money(sum(Decimal(str(m["valor"])) for m in movements))}',s.draft.get('_reference',''),s.draft.get('forma_pagamento',''), 'Data inicial: '+s.draft['data']]
             if s.draft.get('modalidade')=='Fixo / Recorrente': lines.append('Fixo / recorrente: valor integral em cada parcela, sem divisão.')
-            if s.draft.get('modalidade')=='Parcelado': lines.append('Parcelas calculadas com o arredondamento do sistema. Confira o total acima.')
+            if s.draft.get('modalidade')=='Parcelado': lines.append('Os centavos restantes são distribuídos nas primeiras parcelas; o total é preservado.')
         else:
             labels={k:label for k,label,_ in SCHEMAS[s.table]}
             for k,v in payload.items():
@@ -645,7 +654,7 @@ class FinanceFlow:
             choices[:0]=[('Depositar',('goal_amount','deposit')),('Resgatar',('goal_amount','withdraw'))]
         if s.table=='orcamentos':
             movements=self.repo.rows(s.owner,'movimentacoes')
-            spent=sum(Decimal(str(m['valor'])) for m in movements if m['tipo']=='Despesa' and str(m.get('data','')).startswith(s.month) and (not row.get('categoria') or m.get('categoria')==row['categoria']))
+            spent=sum(Decimal(str(m['valor'])) for m in movements if m['tipo']=='Despesa' and financial_month(m)==s.month and (not row.get('categoria') or m.get('categoria')==row['categoria']))
             lines += ['Gasto em '+self.competence(s)+': '+money(spent),'Restante: '+money(Decimal(str(row['limite']))-spent)]
             choices.append(('Alterar mês',('period','list')))
         return self.screen(s,'\n'.join(lines),choices)
@@ -747,3 +756,4 @@ class FinanceFlow:
                 if action[0]=='record_action' and action[3] in ('pay','unpay'): s.actions[index]=(label,action+('due',))
         result.text+=f'\n{len(entries)} vencimento(s).' if entries else '\nNenhum vencimento neste mês.'
         return result
+

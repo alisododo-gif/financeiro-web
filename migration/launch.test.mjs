@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { launchRows,roundInstallment } from './launch.mjs';
+const data={descricao:'Teste',valor:100,tipo:'Despesa',data:'2026-12-31',categoria:'Outros',forma_pagamento:'Pix',conta_id:10,modalidade:'Parcelado',quantidade:3};
+test('matches legacy Python floating-point rounding',()=>{for(const [amount,count,expected]of [[85,8,10.62],[1,8,0.12],[1.07,40,0.03],[100,3,33.33],[10,16,0.62]])assert.equal(roundInstallment(amount,count),expected);});
+test('installments retain original day and clamp only short months',()=>{const rows=launchRows(data);assert.deepEqual(rows.map(r=>r.data),['2026-12-31','2027-01-31','2027-02-28']);assert.equal(rows[0].valor,33.34);assert.equal(rows[0].descricao,'Teste (1/3)');});
+test('recurring retains full amount',()=>assert.deepEqual(launchRows({...data,modalidade:'Fixo / Recorrente'}).map(r=>r.valor),[100,100,100]));
+test('single preserves day',()=>assert.equal(launchRows({...data,modalidade:'Único',quantidade:1})[0].data,'2026-12-31'));
+test('fixed single keeps date and full amount; credit installments divide',()=>{const fixed=launchRows({...data,modalidade:'Fixo / Recorrente',quantidade:1});assert.equal(fixed.length,1);assert.equal(fixed[0].valor,100);assert.equal(fixed[0].data,'2026-12-31');assert.deepEqual(launchRows({...data,valor:300,forma_pagamento:'Cartão de Crédito',conta_id:null,cartao_id:20}).map(r=>r.valor),[100,100,100]);assert.throws(()=>launchRows({...data,quantidade:1}));});
+test('rejects impossible date, subcent, too many installments, owner spoof',()=>{for(const patch of [{data:'2026-02-30'},{valor:1.001},{quantidade:73},{usuario_id:2}])assert.throws(()=>launchRows({...data,...patch}));});

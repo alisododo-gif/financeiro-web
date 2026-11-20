@@ -1,0 +1,22 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import worker from './release/worker.mjs';
+const origin='https://financeiroproweb.alisododo.workers.dev';
+const access={allowed:true,mode:'licensed',modules:{visao_geral:true,contas:true}};
+const secret='synthetic-session-key-for-tests-only-123456789';
+const env={SESSION_SECRET:secret,SUPABASE_BACKEND_KEY:'sb_secret_synthetic',LOGIN_LIMITER:{limit:async()=>({success:true})},FINANCIAL_WRITES_ENABLED:'true'};
+const request=(path,body,cookie)=>new Request(origin+path,{method:body?'POST':'GET',headers:{origin,'content-type':'application/json','x-financeiro-operacao':'1',...(cookie?{cookie}:{})},...(body?{body:JSON.stringify(body)}:{})});
+async function fixture(run){
+ const original=globalThis.fetch;const calls=[];const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode('synthetic-password'))),n=>n.toString(16).padStart(2,'0')).join('');
+ globalThis.fetch=async(input,init={})=>{const u=new URL(input);calls.push({url:u,init});if(u.pathname.endsWith('/rpc/fp_password_verify_v1')){const body=JSON.parse(init.body);return Response.json(body.p_usuario===7&&body.p_digest===hash);}if(u.pathname.endsWith('/rpc/fp_access_v1'))return Response.json(access);if(u.pathname.endsWith('/usuarios'))return Response.json([{id:7,usuario:'synthetic',senha:hash,status:'ativo',role:'user',is_admin:false}]);if(u.pathname.endsWith('/rpc/fp_financeiro_modulo_v1'))return Response.json({registros:[]});return Response.json([]);};
+ try{await run(calls);}finally{globalThis.fetch=original;}
+}
+async function login(){const r=await worker.fetch(request('/api/login',{usuario:'synthetic',senha:'synthetic-password'}),env);assert.equal(r.status,200);const cookie=r.headers.get('set-cookie');assert.match(cookie,/HttpOnly; Secure; SameSite=Strict/);return cookie.split(';')[0];}
+test('single Worker serves login, scripts and logo without service bindings',async()=>{for(const path of ['/','/static/app.js','/static/app.css','/static/financeiropro-logo.webp']){const r=await worker.fetch(request(path),env);assert.equal(r.status,200,path);assert.ok((await r.arrayBuffer()).byteLength>10);}});
+test('single Worker login and session use service-only password verification',()=>fixture(async()=>{const cookie=await login();const r=await worker.fetch(request('/api/me',null,cookie),env);assert.equal(r.status,200);assert.deepEqual(await r.json(),{id:7,usuario:'synthetic',admin:false,access});}));
+test('missing and tampered sessions cannot reach finances',()=>fixture(async calls=>{const cookie=await login();for(const value of [null,cookie+'bad']){const r=await worker.fetch(request('/api/financeiro/operacao',{tabela:'contas',acao:'listar'},value),env);assert.equal(r.status,401);}assert.equal(calls.filter(x=>x.url.pathname.includes('/rpc/fp_financeiro')).length,0);}));
+test('financial RPC receives the authenticated owner after consolidation',()=>fixture(async calls=>{const cookie=await login();const r=await worker.fetch(request('/api/financeiro/operacao',{tabela:'contas',acao:'listar'},cookie),env);assert.equal(r.status,200);const rpc=calls.find(x=>x.url.pathname.endsWith('/rpc/fp_financeiro_modulo_v1'));assert.equal(JSON.parse(rpc.init.body).p_usuario,7);}));
+test('read endpoints keep the user filter',()=>fixture(async calls=>{const cookie=await login();const r=await worker.fetch(request('/api/contas',null,cookie),env);assert.equal(r.status,200);assert.equal(calls.find(x=>x.url.pathname.endsWith('/contas')).url.searchParams.get('usuario_id'),'eq.7');}));
+test('cross-origin login remains denied',()=>fixture(async()=>{const req=new Request(origin+'/api/login',{method:'POST',headers:{origin:'https://other.invalid','content-type':'application/json'},body:'{}'});assert.equal((await worker.fetch(req,env)).status,403);}));
+test('persistent login limiter is mandatory and remains enforced',()=>fixture(async()=>{const req=()=>request('/api/login',{usuario:'synthetic',senha:'synthetic-password'});assert.equal((await worker.fetch(req(),{...env,LOGIN_LIMITER:undefined})).status,503);assert.equal((await worker.fetch(req(),{...env,LOGIN_LIMITER:{limit:async()=>({success:false})}})).status,429);}));
+test('non-admin session cannot list admin users',()=>fixture(async()=>{const cookie=await login();const r=await worker.fetch(request('/api/admin/usuarios',null,cookie),env);assert.equal(r.status,403);}));

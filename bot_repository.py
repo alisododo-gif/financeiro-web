@@ -18,7 +18,7 @@ class SupabaseRepository:
         self.context.access=access
         self.context.module=None
         if not access.get('allowed'):
-            raise FlowError(access.get('message','Acesso bloqueado.')+'\nContratar: https://wa.me/'+str(access.get('contact') or '5511934974963'))
+            raise FlowError(access.get('message','Acesso bloqueado.')+'\nContratar: https://wa.me/'+str(access.get('contact') or '5565992361636'))
         return owner
 
     def access(self, owner):
@@ -34,7 +34,7 @@ class SupabaseRepository:
 
     def set_module(self, owner, module):
         if module and not self.allowed(owner,module):
-            raise FlowError('Este módulo não está liberado para sua conta. Fale com o administrador: https://wa.me/5511934974963')
+            raise FlowError('Este módulo não está liberado para sua conta. Fale com o administrador: https://wa.me/5565992361636')
         self.context.module=module
 
     def restore_module(self, module):
@@ -57,7 +57,7 @@ class SupabaseRepository:
             code=str(getattr(error,'code',''))
             messages={'40001':'O registro mudou. Abra o menu e consulte novamente antes de alterar.',
                       '23503':'Esse cadastro tem lançamentos vinculados. Preserve o histórico.',
-                      '42501':'Seu acesso ou este módulo está bloqueado. Entre em contato: https://wa.me/5511934974963',
+                      '42501':'Seu acesso ou este módulo está bloqueado. Entre em contato: https://wa.me/5565992361636',
                       'P0002':'Registro não encontrado na sua conta. Atualize a lista.',
                       '22023':'Confira os dados. Datas, valores e campos precisam seguir as regras do sistema.',
                       '23505':'Já existe um cadastro com esses dados.'}

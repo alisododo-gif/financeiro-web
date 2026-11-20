@@ -386,3 +386,4 @@ async def enviar_resumo_mensal_telegram(update=None, context=None):
 
     except Exception as e:
         logging.error(f"Erro ao gerar relatório mensal: {e}")
+

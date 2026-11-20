@@ -1,0 +1,11 @@
+{
+  "name": "financeiroproweb",
+  "main": "release/worker.mjs",
+  "compatibility_date": "2026-10-15",
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {"FINANCIAL_WRITES_ENABLED":"true"},
+  "ratelimits": [{"name":"LOGIN_LIMITER","namespace_id":"314159","simple":{"limit":5,"period":60}}],
+  "observability": {"enabled":true,"head_sampling_rate":1},
+  "secrets": {"required":["SUPABASE_BACKEND_KEY","SESSION_SECRET"]}
+}

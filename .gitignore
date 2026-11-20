@@ -1,8 +1,13 @@
 .env
 .env.*
 !.env.example
-.streamlit/secrets.toml
+.streamlit/
 __pycache__/
 *.py[cod]
-*.fpbackup
+.venv/
+node_modules/
+.wrangler/
+migration/pages-dist/
+migration/qa/
+*.zip
 *.log

@@ -28,3 +28,4 @@ def build_daily_alerts(movements, invoices, receivables, day):
         lines.extend(['','Somente pendências. Registre a quitação no sistema para retirar o aviso.'])
         result.append((owner,chat,'\n'.join(lines)))
     return result
+

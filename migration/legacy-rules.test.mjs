@@ -1,0 +1,6 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {budgetProgress,goalProgress,receivableTotals} from './legacy-rules.mjs';
+test('budget uses expense transaction dates, including unpaid, and exact category',()=>{const movements=[{tipo:'Despesa',categoria:'Casa',data:'2026-10-30',mes_fatura:'11/2026',pago:false,valor:85},{tipo:'Receita',categoria:'Casa',data:'2026-10-30',valor:500},{tipo:'Despesa',categoria:'Outra',data:'2026-10-30',valor:4},{tipo:'Despesa',categoria:'Casa',data:'2026-11-01',valor:100}];assert.deepEqual(budgetProgress({categoria:'Casa',limite:100},movements,'2026-10'),{limit:100,spent:85,remaining:15,progress:.85,status:'atencao'});assert.equal(budgetProgress({categoria:null,limite:80},movements,'2026-10').status,'excedido');});
+test('goals cap visual progress but retain saved amount',()=>assert.deepEqual(goalProgress({valor_alvo:100,valor_poupado:120}),{target:100,saved:120,remaining:0,progress:1}));
+test('receivable status does not create a second financial transaction',()=>assert.deepEqual(receivableTotals([{valor:10.01,recebido:false},{valor:2.02,recebido:true},{valor:3.03,recebido:false}]),{pending:13.04,received:2.02,total:15.06}));

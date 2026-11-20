@@ -1,0 +1,12 @@
+{
+  "name": "financeiroproweb",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test migration/*.test.mjs",
+    "build": "node migration/build-pages-static.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

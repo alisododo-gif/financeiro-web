@@ -127,3 +127,4 @@ def install(application, client):
     application.add_handler(MessageHandler(filters.CONTACT,adapter.contact))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,adapter.text))
     return adapter
+
